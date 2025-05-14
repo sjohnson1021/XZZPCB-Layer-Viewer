@@ -1,0 +1,54 @@
+# Build directories
+build/
+out/
+
+# Compiled objects
+*.o
+*.so
+*.a
+*.dll
+*.exe
+
+# CMake files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+
+# IDE files
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swpa
+
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Dependency directories
+/external/*/
+!/external/README.md
+!/external/imgui/
+!/external/blend2d/
+!/external/SDL/
+# Logs and databases
+*.log
+*.sql
+*.sqlite
+
+# Generated files
+*.gen.*
+/bin/
+/lib/ 

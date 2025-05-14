@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+ 
+jobs:
+  build:
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+        - {
+            name: "Windows MSVC",
+            os: windows-latest,
+            build_type: "Release", cc: "cl", cxx: "cl"
+          }
+        - {
+            name: "Ubuntu GCC",
+            os: ubuntu-latest,
+            build_type: "Release", cc: "gcc", cxx: "g++"
+          }
+        - {
+            name: "macOS Clang",
+            os: macos-latest,
+            build_type: "Release", cc: "clang", cxx: "clang++"
+          }
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: true
+
+    - name: Install dependencies (Ubuntu)
+      if: matrix.config.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libsdl2-dev
+
+    - name: Install dependencies (macOS)
+      if: matrix.config.os == 'macos-latest'
+      run: |
+        brew install sdl2
+
+    - name: Install dependencies (Windows)
+      if: matrix.config.os == 'windows-latest'
+      run: |
+        vcpkg install sdl2:x64-windows
+
+    - name: Configure CMake
+      run: |
+        mkdir build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.config.build_type }}
+
+    - name: Build
+      run: |
+        cd build
+        cmake --build . --config ${{ matrix.config.build_type }}
+
+    - name: Test
+      run: |
+        cd build
+        ctest -C ${{ matrix.config.build_type }} 
