@@ -44,6 +44,7 @@ Thumbs.db
 !/external/blend2d/
 !/external/SDL/
 !/external/ImGuiFileDialog/
+
 # Logs and databases
 *.log
 *.sql

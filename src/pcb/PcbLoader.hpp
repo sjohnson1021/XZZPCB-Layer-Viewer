@@ -41,7 +41,7 @@ private:
     // --- Element Specific Parsers (called by parseMainDataBlocks) ---
     // These will convert raw data to our new element structs/classes and add to the Board
     void parseArc(const char* data, Board& board);
-    void parseVia(const char* data, Board& board);
+    void parseVia(const char* data, uint32_t blockSize, Board& board);
     void parseTrace(const char* data, Board& board);
     void parseTextLabel(const char* data, Board& board, bool isStandalone);
     void parseComponent(const char* data, uint32_t componentBlockSize, Board& board);

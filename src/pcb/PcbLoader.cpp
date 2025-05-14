@@ -303,7 +303,7 @@ bool PcbLoader::parseMainDataBlocks(const std::vector<char>& fileData, Board& bo
                     parseArc(blockDataStart, board);
                     break;
                 case 0x02: // Via
-                    parseVia(blockDataStart, board);
+                    parseVia(blockDataStart, blockSize, board);
                     break;
                 case 0x03: // Unknown type_03 from hexpat, skip for now
                     // std::cout << "Skipping unknown block type 0x03 of size " << blockSize << std::endl;
@@ -321,7 +321,7 @@ bool PcbLoader::parseMainDataBlocks(const std::vector<char>& fileData, Board& bo
                     // Or create a new element type like 'DrillHole' or 'TestPad'
                     // For now, let's define a placeholder or skip.
                     // std::cout << "Skipping block type 0x09 (TestPad/DrillHole) of size " << blockSize << std::endl;
-                    parseVia(blockDataStart, board); // TEMPORARY: treat as via. TODO: Revisit this.
+                    parseVia(blockDataStart, blockSize, board); // TEMPORARY: treat as via. TODO: Revisit this.
                     break;
                 default:
                     // Unknown or unhandled block type
@@ -365,7 +365,7 @@ void PcbLoader::parseArc(const char* data, Board& board) {
     board.addArc(arc);
 }
 
-void PcbLoader::parseVia(const char* data, Board& board) {
+void PcbLoader::parseVia(const char* data, uint32_t blockSize, Board& board) {
     // Structure from XZZPCBLoader.h & .hexpat type_02:
     // s32 x;
     // s32 y;
@@ -396,12 +396,37 @@ void PcbLoader::parseVia(const char* data, Board& board) {
     // via.drill_diameter = default or calculated? For now, Via.hpp has a default.
     
     if (text_len > 0) {
-        // Ensure not to read past block boundary, though blockSize check in parseMainDataBlocks helps.
-        // The via_text_length in hexpat for type_02 says it's typically 0 or 1, meaning a single char.
-        // If it's truly a length, then data + 32 is the start of text.
-        // The old XZZPCBLoader has: via.text = std::string(&fileData[currentOffset + 32], textLen);
-        // So, text_len is indeed the length of the string starting at offset 32 from blockDataStart.
-        via.optional_text = readCB2312String(data + 32, text_len);
+        // Validate text_len
+        // Check 1: Does text_len cause read beyond current block?
+        // The text itself starts at offset 32 within the block data.
+        if (32 + text_len > blockSize) {
+            // Error: declared text length exceeds block boundary.
+            // Log this or handle it. For now, set text to empty and clear text_len.
+            // Consider logging: fprintf(stderr, "Warning: Via text_len (%u) at data offset %p would exceed block size (%u). Clamping text_len to 0.\n", text_len, (void*)data, blockSize);
+            via.optional_text = "";
+            text_len = 0; 
+        }
+        
+        // Check 2: Is text_len itself an absurdly large number, even if it might fit the block?
+        // (e.g. if blocksize itself was corrupted to be huge).
+        // The comment "Typically 0 or 1" suggests very small lengths.
+        // Let's define a sane maximum, e.g., 1024 bytes for a via text.
+        const uint32_t MAX_SANE_VIA_TEXT_LEN = 1024;
+        if (text_len > MAX_SANE_VIA_TEXT_LEN && text_len != 0) { // text_len might have been set to 0 by previous check
+            // Log this or handle it.
+            // Consider logging: fprintf(stderr, "Warning: Via text_len (%u) is unusually large (max sane: %u). Clamping text_len to 0.\n", text_len, MAX_SANE_VIA_TEXT_LEN);
+            via.optional_text = "";
+            text_len = 0;
+        }
+
+        if (text_len > 0) { // Re-check after potential clamping
+             // Ensure not to read past block boundary, though blockSize check in parseMainDataBlocks helps.
+             // The via_text_length in hexpat for type_02 says it's typically 0 or 1, meaning a single char.
+             // If it's truly a length, then data + 32 is the start of text.
+             // The old XZZPCBLoader has: via.text = std::string(&fileData[currentOffset + 32], textLen);
+             // So, text_len is indeed the length of the string starting at offset 32 from blockDataStart.
+            via.optional_text = readCB2312String(data + 32, text_len);
+        }
     }
     board.addVia(via);
 }
