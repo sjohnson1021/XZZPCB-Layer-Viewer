@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.14)
-project(pcb-viewer VERSION 0.1.0 LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.16)
+project(PCBViewer LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,10 +12,16 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
-# Add subdirectory for SDL
-add_subdirectory(external/SDL EXCLUDE_FROM_ALL)
+# --- Dependencies (using Git Submodules in external/) ---
 
-# Set up ImGui library
+# SDL3
+# Add SDL3 as a subdirectory. Assumes it has its own CMakeLists.txt that creates SDL3::SDL3 target.
+# Ensure your submodule in external/SDL is SDL3.
+add_subdirectory(external/SDL EXCLUDE_FROM_ALL) # EXCLUDE_FROM_ALL if you only want to link against it
+
+# ImGui
+# Add ImGui source files directly or create a library target for it.
+# Assuming ImGui is in external/imgui and it's the docking branch.
 set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui)
 add_library(imgui STATIC
     ${IMGUI_DIR}/imgui.cpp
@@ -26,16 +32,61 @@ add_library(imgui STATIC
     ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
     ${IMGUI_DIR}/backends/imgui_impl_sdlrenderer3.cpp
 )
-
-target_include_directories(imgui PUBLIC
+target_include_directories(imgui PUBLIC 
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
 )
-
+# SDL3::SDL3 should be available from add_subdirectory(external/SDL)
+# If SDL3 target is named differently (e.g. SDL3::main), adjust here.
+# The imgui library itself will need to link to SDL to find its headers for the backends.
+# This linking also makes SDL headers available to imgui sources during compilation.
+# Ensure that the SDL3 target (e.g., SDL3::SDL3 or SDL3::main) is correctly defined by external/SDL/CMakeLists.txt
+set_property(TARGET imgui PROPERTY CXX_STANDARD 11) # ImGui uses C++11, some backends might need it explicitly
 target_link_libraries(imgui PUBLIC SDL3::SDL3)
 
-# Add source files
-add_subdirectory(src)
+
+# --- Source Files ---
+set(APP_SOURCES
+    src/main.cpp
+    src/render/RenderManager.cpp
+    src/render/RenderContext.cpp
+    src/render/RenderPipeline.cpp
+    src/view/Camera.cpp
+    src/view/Viewport.cpp
+    src/view/GridSettings.cpp
+    src/view/Grid.cpp
+    src/ui/windows/PCBViewerWindow.cpp
+    src/ui/windows/SettingsWindow.cpp
+    src/ui/interaction/InteractionManager.cpp
+    src/ui/interaction/NavigationTool.cpp
+)
+
+# --- Target Executable ---
+add_executable(pcb-viewer ${APP_SOURCES})
+
+# --- Include Directories ---
+target_include_directories(pcb-viewer PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    # ImGui includes are handled by linking with the imgui target
+    # SDL includes are handled by linking with the SDL3::SDL3 target (via imgui or directly)
+)
+
+# --- Link Libraries ---
+target_link_libraries(pcb-viewer PRIVATE
+    imgui       # Our ImGui library target
+    SDL3::SDL3  # The SDL3 library target from the submodule
+)
+
+# --- Platform Specifics (Optional) ---
+if(APPLE)
+    # macOS specific settings
+endif()
+
+if(MSVC)
+    # Windows specific settings
+else()
+    # GCC/Clang specific settings
+endif()
 
 # Tests - commented out until we have a tests CMakeLists.txt
 # if(BUILD_TESTS)
