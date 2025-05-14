@@ -59,6 +59,10 @@ set(APP_SOURCES
     src/ui/windows/SettingsWindow.cpp
     src/ui/interaction/InteractionManager.cpp
     src/ui/interaction/NavigationTool.cpp
+    src/ui/windows/PcbDetailsWindow.cpp
+    src/pcb/PcbLoader.cpp
+    src/utils/des.cpp
+    external/ImGuiFileDialog/ImGuiFileDialog.cpp
 )
 
 # --- Target Executable ---
@@ -67,6 +71,7 @@ add_executable(pcb-viewer ${APP_SOURCES})
 # --- Include Directories ---
 target_include_directories(pcb-viewer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/ImGuiFileDialog
     # ImGui includes are handled by linking with the imgui target
     # SDL includes are handled by linking with the SDL3::SDL3 target (via imgui or directly)
 )
