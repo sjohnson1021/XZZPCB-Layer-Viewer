@@ -18,16 +18,16 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - { name: "Windows MSVC", os: windows-latest, build_type: "release", package_os_suffix: "windows-x64.zip", package_cmd_os_specific: "7z a", exe_name: "XZZPCB-Layer-View.exe", package_content: "XZZPCB-Layer-View.exe" }
-          - { name: "Ubuntu GCC", os: ubuntu-latest, build_type: "release", package_os_suffix: "linux-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-View", package_content: "XZZPCB-Layer-View" }
-          - { name: "macOS Clang (13)", os: macos-13, build_type: "release", package_os_suffix: "macos-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-View", package_content: "XZZPCB-Layer-View" }
-          - { name: "macOS Clang (latest)", os: macos-latest, build_type: "release", package_os_suffix: "macos-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-View", package_content: "XZZPCB-Layer-View" }
+          - { name: "Windows MSVC", os: windows-latest, build_type: "release", package_os_suffix: "windows-x64.zip", package_cmd_os_specific: "7z a", exe_name: "XZZPCB-Layer-Viewer.exe", package_content: "XZZPCB-Layer-Viewer.exe" }
+          - { name: "Ubuntu GCC", os: ubuntu-latest, build_type: "release", package_os_suffix: "linux-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-Viewer", package_content: "XZZPCB-Layer-Viewer" }
+          - { name: "macOS Clang (13)", os: macos-13, build_type: "release", package_os_suffix: "macos-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-Viewer", package_content: "XZZPCB-Layer-Viewer" }
+          - { name: "macOS Clang (latest)", os: macos-latest, build_type: "release", package_os_suffix: "macos-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-Viewer", package_content: "XZZPCB-Layer-Viewer" }
 
     env:
       VCPKG_ROOT_DIR: ${{ github.workspace }}/vcpkg_installation # Path where lukka/run-vcpkg will install vcpkg
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg_bincache
       VCPKG_BINARY_SOURCES: 'clear;x-gha,readwrite'
-      ARTIFACT_NAME_PREFIX: "XZZPCB-Layer-View"
+      ARTIFACT_NAME_PREFIX: "XZZPCB-Layer-Viewer"
       # Using vcpkg commit from the example, consider updating to a more recent one.
       VCPKG_COMMIT_ID: '2c7705e70dcfb70e5f726459c3e399bd780bc1fc'
     steps:
