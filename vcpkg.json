@@ -1,0 +1,8 @@
+{
+    "name": "xzzpcb-layer-viewer",
+    "version-string": "1.0.0",
+    "description": "Dependencies for the XZZPCB Layer Viewer project.",
+    "dependencies": [
+        "sdl3"
+    ]
+}

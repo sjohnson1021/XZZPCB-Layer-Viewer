@@ -1,68 +1,255 @@
-name: CI
+name: CI and Release
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+    tags:
+      - 'v*.*.*' # Trigger on tags like v0.1.0, v1.2.3
   pull_request:
-    branches: [ main ]
- 
+    branches:
+      - main
+
 jobs:
-  build:
-    name: ${{ matrix.config.name }}
+  build_and_test:
+    name: Build and Test - ${{ matrix.config.name }}
     runs-on: ${{ matrix.config.os }}
     strategy:
       fail-fast: false
       matrix:
         config:
-        - {
-            name: "Windows MSVC",
-            os: windows-latest,
-            build_type: "Release", cc: "cl", cxx: "cl"
-          }
-        - {
-            name: "Ubuntu GCC",
-            os: ubuntu-latest,
-            build_type: "Release", cc: "gcc", cxx: "g++"
-          }
-        - {
-            name: "macOS Clang",
-            os: macos-latest,
-            build_type: "Release", cc: "clang", cxx: "clang++"
-          }
+          - { name: "Windows MSVC", os: windows-latest, build_type: "release", package_os_suffix: "windows-x64.zip", package_cmd_os_specific: "7z a", exe_name: "XZZPCB-Layer-View.exe", package_content: "XZZPCB-Layer-View.exe" }
+          - { name: "Ubuntu GCC", os: ubuntu-latest, build_type: "release", package_os_suffix: "linux-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-View", package_content: "XZZPCB-Layer-View" }
+          - { name: "macOS Clang (13)", os: macos-13, build_type: "release", package_os_suffix: "macos-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-View", package_content: "XZZPCB-Layer-View" }
+          - { name: "macOS Clang (latest)", os: macos-latest, build_type: "release", package_os_suffix: "macos-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-View", package_content: "XZZPCB-Layer-View" }
 
+    env:
+      VCPKG_ROOT_DIR: ${{ github.workspace }}/vcpkg_installation # Path where lukka/run-vcpkg will install vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg_bincache
+      VCPKG_BINARY_SOURCES: 'clear;x-gha,readwrite'
+      ARTIFACT_NAME_PREFIX: "XZZPCB-Layer-View"
+      # Using vcpkg commit from the example, consider updating to a more recent one.
+      VCPKG_COMMIT_ID: '2c7705e70dcfb70e5f726459c3e399bd780bc1fc'
     steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: true
+      - name: Cache SDL submodule
+        uses: actions/cache@v4
+        with:
+          path: external/SDL
+          key: ${{ runner.os }}-sdl-submodule-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-sdl-submodule-
 
-    - name: Install dependencies (Ubuntu)
-      if: matrix.config.os == 'ubuntu-latest'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libsdl2-dev
+      - name: Cache ImGui submodule
+        uses: actions/cache@v4
+        with:
+          path: external/ImGui
+          key: ${{ runner.os }}-imgui-submodule-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-imgui-submodule-
 
-    - name: Install dependencies (macOS)
-      if: matrix.config.os == 'macos-latest'
-      run: |
-        brew install sdl2
+      - name: Cache ImGuiFileDialog submodule
+        uses: actions/cache@v4
+        with:
+          path: external/ImGuiFileDialog
+          key: ${{ runner.os }}-imguifiledialog-submodule-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-imguifiledialog-submodule-
 
-    - name: Install dependencies (Windows)
-      if: matrix.config.os == 'windows-latest'
-      run: |
-        vcpkg install sdl2:x64-windows
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+    
+      - name: Set reusable strings
+        id: strings
+        shell: bash
+        run: |
+          TAG_NAME="${{ github.ref_name }}"
+          if [[ $TAG_NAME == v*.*.* ]]; then
+            echo "versioned_artifact_name=${ARTIFACT_NAME_PREFIX}-${TAG_NAME}-${{ matrix.config.package_os_suffix }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "versioned_artifact_name=${ARTIFACT_NAME_PREFIX}-${{ matrix.config.os }}-${{ matrix.config.build_type }}-${{ matrix.config.package_os_suffix }}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "release_tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
 
-    - name: Configure CMake
-      run: |
-        mkdir build
-        cd build
-        cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.config.build_type }}
+      - name: Install 7-Zip (Windows)
+        if: matrix.config.os == 'windows-latest'
+        run: choco install 7zip
+        shell: powershell
 
-    - name: Build
-      run: |
-        cd build
-        cmake --build . --config ${{ matrix.config.build_type }}
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
-    - name: Test
-      run: |
-        cd build
-        ctest -C ${{ matrix.config.build_type }} 
+      - name: Create vcpkg binary cache directory
+        run: mkdir -p ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+        shell: bash
+
+      # Cache for vcpkg *built packages* (binary caching)
+      - name: Cache vcpkg binary packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: ${{ runner.os }}-vcpkg-binary-cache-${{ hashFiles('**/vcpkg.json') }}-${{ env.VCPKG_COMMIT_ID }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-binary-cache-${{ hashFiles('**/vcpkg.json') }}-
+            ${{ runner.os }}-vcpkg-binary-cache-
+
+      # System-level dependencies (e.g. build tools for vcpkg, not libs from vcpkg.json)
+      # lukka/run-vcpkg might handle some of these, but keeping them can be safer.
+      - name: Install prerequisites for vcpkg (Ubuntu)
+        if: matrix.config.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl zip unzip tar pkg-config libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxinerama-dev libxxf86vm-dev libxss-dev libxt-dev libxdmcp-dev libxau-dev libxcb1-dev libxcb-randr0-dev libxcb-xtest0-dev libxcb-xinerama0-dev libxcb-shape0-dev libxcb-xkb-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
+
+      # Cache Ubuntu Packages (for system tools, if any were cached)
+      - name: Cache apt packages (Ubuntu)
+        if: matrix.config.os == 'ubuntu-latest'
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/cache/apt/archives/*.deb
+            /var/lib/apt/lists/*Release*
+            /var/lib/apt/lists/*Packages
+            /var/lib/apt/lists/*Sources
+            !/var/lib/apt/lists/partial
+            !/var/lib/apt/lists/lock
+            !/var/cache/apt/archives/lock
+            !/var/cache/apt/archives/partial
+          key: ${{ runner.os }}-apt-systemtools-${{ hashFiles('**/.github/workflows/ci.yml') }} # Key for system tools
+          restore-keys: |
+            ${{ runner.os }}-apt-systemtools-
+
+      # Cache Homebrew Packages (for system tools, if any were cached)
+      - name: Cache Homebrew packages (macOS)
+        if: startsWith(matrix.config.os, 'macos')
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: ${{ runner.os }}-brew-systemtools-${{ hashFiles('**/.github/workflows/ci.yml') }} # Key for system tools
+          restore-keys: |
+            ${{ runner.os }}-brew-systemtools-
+
+      - uses: lukka/get-cmake@latest
+
+      - name: Debug Info (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          echo "--- Workspace Root Listing --- "
+          ls -la ${{ github.workspace }}
+          echo "--- CMake Version ---"; cmake --version
+          echo "--- Ninja Version ---"; ninja --version || echo "Ninja not found or not in PATH initially"
+          echo "--- Which Ninja ---"; which ninja || echo "Ninja not in PATH initially"
+          echo "--- PATH ---"; echo "$PATH"
+        shell: bash
+        
+      # Setup vcpkg using lukka/run-vcpkg action
+      # This will checkout vcpkg to VCPKG_ROOT_DIR, and install dependencies from vcpkg.json
+      - name: Setup vcpkg and install dependencies
+        uses: lukka/run-vcpkg@v11 # Or consider v11.5 or latest
+        id: runvcpkg
+        with:
+          vcpkgDirectory: ${{ env.VCPKG_ROOT_DIR }}
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          vcpkgJsonGlob: '${{ github.workspace }}/vcpkg.json'
+          # runVcpkgInstall: true # Default is true, ensures dependencies are installed
+
+     
+      # Configure, Build, and Test using lukka/run-cmake
+      - name: Configure, Build, and Test
+        uses: lukka/run-cmake@v10
+        with:
+          cmakeListsTxtPath: '${{ github.workspace }}/CMakeLists.txt'
+          configurePreset: 'ninja-multi-vcpkg' # Your configure preset
+          buildPreset: 'ninja-vcpkg-${{ matrix.config.build_type }}' # build_type is already lowercase in matrix
+          testPreset: 'test-${{ matrix.config.build_type }}' # build_type is already lowercase in matrix
+        env:
+          VCPKG_MANIFEST_DIR: ${{ github.workspace }}
+
+      - name: Debug Build Output Directory (Linux/macOS)
+        if: runner.os != 'Windows' && always() # Ensure this step runs even if previous steps fail, for debugging
+        run: |
+          echo "Listing ${{ github.workspace }}:"
+          ls -la ${{ github.workspace }}
+          echo "Listing ${{ github.workspace }}/builds:"
+          ls -la ${{ github.workspace }}/builds
+          echo "Listing ${{ github.workspace }}/builds/ninja-multi-vcpkg (binaryDir defined in configurePreset):"
+          ls -la ${{ github.workspace }}/builds/ninja-multi-vcpkg
+          echo "Listing bin directory and its subdirectories (Debug, Release, RelWithDebInfo):"
+          ls -la ${{ github.workspace }}/builds/ninja-multi-vcpkg/bin || echo "Directory ${{ github.workspace }}/builds/ninja-multi-vcpkg/bin not found or ls failed."
+          echo "Recursive listing of bin directory contents:"
+          find ${{ github.workspace }}/builds/ninja-multi-vcpkg/bin -type f -o -type l | sort || echo "Failed to find files in bin directory"
+        shell: bash
+
+      - name: Debug Build Output Directory (Windows)
+        if: runner.os == 'Windows' && always() # Ensure this step runs even if previous steps fail, for debugging
+        run: |
+          echo "Listing ${{ github.workspace }}:"
+          Get-ChildItem -Force ${{ github.workspace }}
+          echo "Listing ${{ github.workspace }}/builds:"
+          Get-ChildItem -Force "${{ github.workspace }}/builds"
+          echo "Listing ${{ github.workspace }}/builds/ninja-multi-vcpkg (binaryDir defined in configurePreset):"
+          Get-ChildItem -Force "${{ github.workspace }}/builds/ninja-multi-vcpkg"
+          echo "Listing bin directory and its subdirectories (Debug, Release, RelWithDebInfo):"
+          Get-ChildItem -Force "${{ github.workspace }}/builds/ninja-multi-vcpkg/bin" -ErrorAction SilentlyContinue || echo "Directory ${{ github.workspace }}/builds/ninja-multi-vcpkg/bin not found."
+          echo "Recursive listing of bin directory contents:"
+          Get-ChildItem -Recurse -File "${{ github.workspace }}/builds/ninja-multi-vcpkg/bin" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName } | Sort-Object || echo "Failed to find files in bin directory"
+        shell: pwsh
+        
+      - name: Package Artifacts
+        run: |
+          # The subdirectory name (e.g., Release, Debug) inside 'bin/' typically matches
+          # the 'configuration' field from the CMake build preset used.
+          # For build_type 'release', the 'ninja-vcpkg-release' preset has configuration: "Release".
+          CONFIG_SUBDIR="Release"
+          PACKAGE_DIR="${{ github.workspace }}/builds/ninja-multi-vcpkg/bin/${CONFIG_SUBDIR}"
+          ARTIFACT_PATH="${{ github.workspace }}/${{ steps.strings.outputs.versioned_artifact_name }}"
+          echo "Listing parent build directory: ${{ github.workspace }}/builds/ninja-multi-vcpkg/bin/"
+          ls -la "${{ github.workspace }}/builds/ninja-multi-vcpkg/bin/"
+          echo "Attempting to change to package directory: ${PACKAGE_DIR}"
+          cd "${PACKAGE_DIR}"
+          echo "Currently in directory: $(pwd)"
+          echo "Listing current directory contents:"
+          ls -la
+          echo "Attempting to package file: ${{ matrix.config.package_content }} into ${ARTIFACT_PATH}"
+          ${{ matrix.config.package_cmd_os_specific }} "${ARTIFACT_PATH}" ${{ matrix.config.package_content }}
+        shell: bash
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.strings.outputs.versioned_artifact_name }}
+          path: ${{ steps.strings.outputs.versioned_artifact_name }}
+
+  release:
+    name: Create Release
+    if: startsWith(github.ref, 'refs/tags/v') && needs.build_and_test.result == 'success'
+    needs: build_and_test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List downloaded artifacts
+        run: ls -R artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2.0.4
+        with:
+          name: Release ${{ steps.strings.outputs.release_tag_name }}
+          tag_name: ${{ github.ref }}
+          generate_release_notes: true
+          files: |
+            artifacts/*/*.zip
+            artifacts/*/*.tar.gz
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
