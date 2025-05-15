@@ -19,7 +19,9 @@
             "label": "CMake Configure",
             "type": "shell",
             "command": "cd build && cmake -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON ..",
-            "dependsOn": ["Create Build Directory"],
+            "dependsOn": [
+                "Create Build Directory"
+            ],
             "presentation": {
                 "echo": true,
                 "reveal": "always",
@@ -30,7 +32,10 @@
             },
             "problemMatcher": {
                 "owner": "cpp",
-                "fileLocation": ["relative", "${workspaceFolder}/build"],
+                "fileLocation": [
+                    "relative",
+                    "${workspaceFolder}/build"
+                ],
                 "pattern": {
                     "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
                     "file": 1,
@@ -45,7 +50,9 @@
             "label": "CMake Build",
             "type": "shell",
             "command": "cd build && cmake --build .",
-            "dependsOn": ["CMake Configure"],
+            "dependsOn": [
+                "CMake Configure"
+            ],
             "group": {
                 "kind": "build",
                 "isDefault": true
@@ -60,7 +67,10 @@
             },
             "problemMatcher": {
                 "owner": "cpp",
-                "fileLocation": ["relative", "${workspaceFolder}/build"],
+                "fileLocation": [
+                    "relative",
+                    "${workspaceFolder}/build"
+                ],
                 "pattern": {
                     "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
                     "file": 1,
@@ -74,8 +84,10 @@
         {
             "label": "Run Application",
             "type": "shell",
-            "command": "./build/bin/pcb-viewer",
-            "dependsOn": ["CMake Build"],
+            "command": "./build/bin/XZZPCB-Layer-Viewer",
+            "dependsOn": [
+                "CMake Build"
+            ],
             "group": {
                 "kind": "test",
                 "isDefault": true
@@ -94,7 +106,9 @@
             "label": "Run Tests",
             "type": "shell",
             "command": "./build/bin/pcb_viewer_tests",
-            "dependsOn": ["CMake Build"],
+            "dependsOn": [
+                "CMake Build"
+            ],
             "presentation": {
                 "echo": true,
                 "reveal": "always",
@@ -120,4 +134,4 @@
             "problemMatcher": []
         }
     ]
-} 
+}

@@ -5,10 +5,10 @@ set(SOURCE_FILES
 )
 
 # Create the main executable
-add_executable(pcb-viewer ${SOURCE_FILES})
+add_executable(XZZPCB-Layer-View ${SOURCE_FILES})
 
 # Link with the core library and other dependencies
-target_link_libraries(pcb-viewer
+target_link_libraries(XZZPCB-Layer-View
     PRIVATE
     core
     imgui
@@ -16,7 +16,7 @@ target_link_libraries(pcb-viewer
 )
 
 # Set include directories
-target_include_directories(pcb-viewer
+target_include_directories(XZZPCB-Layer-View
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 ) 

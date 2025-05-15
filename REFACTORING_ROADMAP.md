@@ -5,7 +5,7 @@ This document outlines the plan for creating a new PCB Viewer application with a
 
 ## Project Structure
 ```
-pcb-viewer/
+XZZPCB-Layer-Viewer/
 ├── CMakeLists.txt
 ├── src/
 │   ├── core/        # Core application framework
@@ -416,7 +416,7 @@ git
 4. **Create base CMakeLists.txt** for cross-platform building:
    ```cmake
    cmake_minimum_required(VERSION 3.14)
-   project(pcb-viewer VERSION 0.1.0 LANGUAGES CXX)
+   project(XZZPCB-Layer-Viewer VERSION 0.1.0 LANGUAGES CXX)
    
    set(CMAKE_CXX_STANDARD 17)
    set(CMAKE_CXX_STANDARD_REQUIRED ON)

@@ -38,5 +38,5 @@ make
 # Run the application if the first argument was 'run' or 'Debug'
 if [ "$1" == "run" ] || [ "$BUILD_TYPE" == "Debug" ]; then
     echo "Running PCB Viewer..."
-    ./bin/pcb-viewer
+    ./bin/XZZPCB-Layer-Viewer
 fi

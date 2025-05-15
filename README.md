@@ -24,8 +24,8 @@ A clean, modular PCB viewer application for viewing and analyzing PCB files.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/pcb-viewer.git
-cd pcb-viewer
+git clone https://github.com/yourusername/XZZPCB-Layer-Viewer.git
+cd XZZPCB-Layer-Viewer
 
 # Initialize and update submodules
 git submodule update --init --recursive
@@ -38,15 +38,15 @@ cmake ..
 make
 
 # Run the application
-./bin/pcb-viewer
+./bin/XZZPCB-Layer-Viewer
 ```
 
 #### Windows
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/pcb-viewer.git
-cd pcb-viewer
+git clone https://github.com/yourusername/XZZPCB-Layer-Viewer.git
+cd XZZPCB-Layer-Viewer
 
 # Initialize and update submodules
 git submodule update --init --recursive
@@ -60,7 +60,7 @@ cmake ..
 cmake --build . --config Release
 
 # Run the application
-bin\Release\pcb-viewer.exe
+bin\Release\XZZPCB-Layer-Viewer.exe
 ```
 
 ## Development

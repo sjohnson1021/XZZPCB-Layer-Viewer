@@ -66,10 +66,10 @@ set(APP_SOURCES
 )
 
 # --- Target Executable ---
-add_executable(pcb-viewer ${APP_SOURCES})
+add_executable(XZZPCB-Layer-Viewer ${APP_SOURCES})
 
 # --- Include Directories ---
-target_include_directories(pcb-viewer PRIVATE
+target_include_directories(XZZPCB-Layer-Viewer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/external/ImGuiFileDialog
     # ImGui includes are handled by linking with the imgui target
@@ -77,7 +77,7 @@ target_include_directories(pcb-viewer PRIVATE
 )
 
 # --- Link Libraries ---
-target_link_libraries(pcb-viewer PRIVATE
+target_link_libraries(XZZPCB-Layer-Viewer PRIVATE
     imgui       # Our ImGui library target
     SDL3::SDL3  # The SDL3 library target from the submodule
 )
