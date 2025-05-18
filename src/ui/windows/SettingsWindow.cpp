@@ -88,9 +88,9 @@ void SettingsWindow::ShowGridSettings() {
                 
                 ImGui::Unindent();
             }
-            if (ImGui::DragFloat("Major Spacing", &m_gridSettings->m_baseMajorSpacing, 0.1f, 0.1f, 1000.0f, "%.3f")) {
-                 if (m_gridSettings->m_baseMajorSpacing < 0.1f) m_gridSettings->m_baseMajorSpacing = 0.1f;
-                 if (m_gridSettings->m_baseMajorSpacing > 1000.0f) m_gridSettings->m_baseMajorSpacing = 1000.0f;
+            if (ImGui::DragInt("Major Spacing", &m_gridSettings->m_baseMajorSpacing, 1, 1, 10000)) {
+                if (m_gridSettings->m_baseMajorSpacing < 1) m_gridSettings->m_baseMajorSpacing = 1;
+                if (m_gridSettings->m_baseMajorSpacing > 10000) m_gridSettings->m_baseMajorSpacing = 10000;
             }
             ImGui::SliderInt("Subdivisions", &m_gridSettings->m_subdivisions, 1, 10);
             
@@ -160,13 +160,12 @@ void SettingsWindow::ShowControlSettings() {
         }
 
         ImGui::Checkbox("Rotate Around Cursor", &m_controlSettings->m_rotateAroundCursor);
-        ImGui::SameLine();
-        ImGui::TextDisabled("(?)");
         if (ImGui::IsItemHovered()) {
-            ImGui::BeginTooltip();
-            ImGui::Text("If enabled, rotation will pivot around the current mouse cursor position within the viewport.\nOtherwise, rotation pivots around the viewport center.");
-            ImGui::EndTooltip();
+            ImGui::SetTooltip("If enabled, keyboard rotation will pivot around the mouse cursor position (if over the viewport). Otherwise, it pivots around the viewport center.");
         }
+        ImGui::InputFloat("Snap Rotation Angle", &m_controlSettings->m_snapRotationAngle, 1.0f, 5.0f, "%.1f deg");
+        if (m_controlSettings->m_snapRotationAngle < 1.0f) m_controlSettings->m_snapRotationAngle = 1.0f;
+        if (m_controlSettings->m_snapRotationAngle > 180.0f) m_controlSettings->m_snapRotationAngle = 180.0f;
     }
 
     ImGui::SeparatorText("Keybinds");

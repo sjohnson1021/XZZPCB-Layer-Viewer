@@ -56,7 +56,7 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isVi
     // This is crucial because InteractionTool might be used by multiple viewports in theory
     // For now, it's tied to one, but good practice to ensure it has current dimensions.
     // The viewport's screen X,Y should be 0,0 if its coordinates are relative to the texture/content area.
-    m_viewport->SetDimensions(0, 0, static_cast<int>(viewportSize.x), static_cast<int>(viewportSize.y));
+    m_viewport->SetDimensions(0, 0, static_cast<int>(std::round(viewportSize.x)), static_cast<int>(std::round(viewportSize.y)));
 
     // Zooming with mouse wheel (only if hovered over the content area)
     if (io.MouseWheel != 0.0f && isViewportHovered) {
@@ -176,8 +176,8 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isVi
                 Vec2 mousePosInViewport = {mousePosAbsolute.x - viewportTopLeft.x, 
                                              mousePosAbsolute.y - viewportTopLeft.y};
                 // Check if mouse is within viewport bounds before using its position
-                if (mousePosInViewport.x >= 0 && mousePosInViewport.x <= viewportSize.x &&
-                    mousePosInViewport.y >= 0 && mousePosInViewport.y <= viewportSize.y) {
+                if (mousePosInViewport.x >= 0 && mousePosInViewport.x <= std::round(viewportSize.x) &&
+                    mousePosInViewport.y >= 0 && mousePosInViewport.y <= std::round(viewportSize.y)) {
                     pivotWorld = m_viewport->ScreenToWorld(mousePosInViewport, *m_camera);
                 } else {
                     // Mouse outside viewport, fallback to viewport center for this rotation event
@@ -187,7 +187,7 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isVi
             
             // If not using mouse pivot (either by setting or fallback), use viewport center
             if (!canUseMousePivot) {
-                 Vec2 viewportCenterScreen = {viewportSize.x / 2.0f, viewportSize.y / 2.0f};
+                 Vec2 viewportCenterScreen = {std::round(viewportSize.x) / 2.0f, std::round(viewportSize.y) / 2.0f};
                  pivotWorld = m_viewport->ScreenToWorld(viewportCenterScreen, *m_camera);
             }
 

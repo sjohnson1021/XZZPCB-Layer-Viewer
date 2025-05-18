@@ -35,8 +35,12 @@ public:  // Allow direct access for ImGui widgets
     GridStyle m_style = GridStyle::LINES;
     GridUnitSystem m_unitSystem = GridUnitSystem::METRIC;
 
-    float m_baseMajorSpacing = 10.0f; 
-    int m_subdivisions = 10;        
+    // Base spacing for major grid lines (e.g., in millimeters or other world units)
+    // This is the spacing when zoom is 1.0 and dynamic adjustment hasn't kicked in significantly.
+    int m_baseMajorSpacing = 50; // Changed from float to int
+
+    // Number of subdivisions between major grid lines to draw minor lines
+    int m_subdivisions = 10;
 
     GridColor m_majorLineColor = {0.3f, 0.3f, 0.3f, 1.0f};
     GridColor m_minorLineColor = {0.15f, 0.15f, 0.15f, 1.0f};
@@ -50,6 +54,11 @@ public:  // Allow direct access for ImGui widgets
     GridColor m_yAxisColor = {0.2f, 0.7f, 0.2f, 0.9f};
 
     GridColor m_backgroundColor = {0.0f, 0.0f, 0.0f, 0.0f}; // Grid's own background color
+
+    // New members for line/dot thickness
+    float m_lineThickness = 1.0f;
+    float m_axisLineThickness = 1.0f; // Can be different from regular lines
+    float m_dotRadius = 1.0f;         // Radius for dots in DOTS style
 
     // Original public methods - can be kept or removed if direct access is preferred
     // bool IsVisible() const { return m_visible; }

@@ -11,6 +11,7 @@ class Events;
 class Renderer;
 class ImGuiManager;
 class ControlSettings; // Now a member
+class PcbRenderer; // Forward declare PcbRenderer
 
 // Forward declarations for UI classes
 class MainMenuBar;
@@ -79,6 +80,7 @@ private:
     std::unique_ptr<Events> m_events;
     std::unique_ptr<Renderer> m_renderer;
     std::unique_ptr<ImGuiManager> m_imguiManager;
+    std::unique_ptr<PcbRenderer> m_pcbRenderer; // For Blend2D PCB rendering
     
     // Application State
     bool m_isRunning;

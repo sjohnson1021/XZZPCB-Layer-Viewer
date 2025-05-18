@@ -4,6 +4,7 @@
 #include "Renderer.hpp"
 #include "SDLRenderer.hpp"
 #include "ImGuiManager.hpp"
+#include "render/PcbRenderer.hpp"
 #include "ui/MainMenuBar.hpp"
 #include "ui/windows/PCBViewerWindow.hpp"
 #include "ui/windows/SettingsWindow.hpp"
@@ -113,6 +114,16 @@ bool Application::InitializeCoreSubsystems()
 
     m_events->SetImGuiManager(m_imguiManager.get());
     
+    // Initialize PcbRenderer for Blend2D rendering
+    m_pcbRenderer = std::make_unique<PcbRenderer>();
+    // Use window dimensions loaded from config as initial size for PcbRenderer's image.
+    // PCBViewerWindow can later tell PcbRenderer to resize if its content area is different.
+    if (!m_pcbRenderer->Initialize(m_windowWidth, m_windowHeight)) {
+        std::cerr << "Failed to initialize PcbRenderer" << std::endl;
+        // Decide if this is a fatal error. For now, continue, but rendering will be broken.
+        // return false; // Uncomment if this should halt initialization
+    }
+    
     return true;
 }
 
@@ -209,6 +220,10 @@ void Application::Shutdown()
     m_mainMenuBar.reset();
     m_fileDialogInstance.reset();
 
+    if (m_pcbRenderer) { // Shutdown PcbRenderer
+        m_pcbRenderer->Shutdown();
+        m_pcbRenderer.reset();
+    }
     m_imguiManager.reset();
     m_renderer.reset();
     m_events.reset();
@@ -320,7 +335,7 @@ void Application::RenderUI() {
             }
         }
         if (sdlRenderer) {
-            m_pcbViewerWindow->RenderUI(sdlRenderer);
+            m_pcbViewerWindow->RenderUI(sdlRenderer, m_pcbRenderer.get());
         }
     }
 
@@ -344,19 +359,58 @@ void Application::RenderUI() {
 
 void Application::Render()
 {
-    GL_CHECK_ERRORS();
+    if (!m_pcbRenderer) {
+        // Handle cases where PcbRenderer itself might not be ready or is null.
+        // For now, we'll assume if Application is running, PcbRenderer should be available.
+        // If not, this is a more fundamental issue with initialization.
+        std::cerr << "Application::Render: m_pcbRenderer is NULL. Cannot proceed with rendering." << std::endl;
+        return;
+    }
 
+    bool baseComponentsValid = m_camera && m_viewport && m_grid;
+    bool boardLoaded = m_currentBoard != nullptr;
+
+    if (baseComponentsValid) {
+        // std::cout << "Application::Render: Base components VALID (Camera, Viewport, Grid)." << std::endl; // Too verbose for every frame
+        if (boardLoaded) {
+            // std::cout << "Application::Render: m_currentBoard is VALID. Calling m_pcbRenderer->Render with board." << std::endl; // Too verbose
+            m_pcbRenderer->Render(m_currentBoard.get(), m_camera.get(), m_viewport.get(), m_grid.get());
+        } else {
+            // std::cout << "Application::Render: m_currentBoard is NULL. Calling m_pcbRenderer->Render to render grid." << std::endl; // Too verbose
+            // Call Render with a null board pointer; PcbRenderer and RenderPipeline will handle it.
+            m_pcbRenderer->Render(nullptr, m_camera.get(), m_viewport.get(), m_grid.get());
+        }
+    } else {
+        std::cout << "Application::Render: SKIPPING m_pcbRenderer->Render() call due to NULL base component(s):" << std::endl;
+        if (!m_camera)      std::cout << "  - m_camera is NULL" << std::endl;
+        if (!m_viewport)    std::cout << "  - m_viewport is NULL" << std::endl;
+        if (!m_grid)        std::cout << "  - m_grid is NULL" << std::endl;
+        
+        // Even if base components are null, PcbRenderer might be able to produce a default/empty image.
+        // Call Render with null for all optional parts; PcbRenderer should then create a placeholder image.
+        // This ensures the UI window always gets *something* from PcbRenderer.
+        m_pcbRenderer->Render(nullptr, nullptr, nullptr, nullptr);
+    }
+
+    // 2. Start ImGui Frame
     m_imguiManager->NewFrame();
     
-    RenderUI();
+    // 3. Render all ImGui based UI
+    RenderUI(); 
 
-    GL_CHECK(m_renderer->Clear());
+    // 4. Clear SDL backbuffer
+    // GL_CHECK(m_renderer->Clear()); // Assuming GL_CHECK is a macro for error checking SDL/GL calls
+    m_renderer->Clear();
     
-    GL_CHECK(m_imguiManager->Render()); 
+    // 5. Render ImGui draw data to SDL backbuffer
+    // GL_CHECK(m_imguiManager->Render()); 
+    m_imguiManager->Render();
     
-    GL_CHECK(m_renderer->Present());
+    // 6. Present SDL backbuffer
+    // GL_CHECK(m_renderer->Present());
+    m_renderer->Present();
 
-    GL_CHECK_ERRORS();
+    // GL_CHECK_ERRORS();
 }
 
 void Application::OpenPcbFile(const std::string& filePath) {

@@ -29,8 +29,29 @@ public:
     const BLImage& GetTargetImage() const; // Read-only access to the image
     BLImage& GetTargetImage();             // Writable access if needed, e.g., for direct manipulation or resizing
 
+    // Add public getters for image dimensions
+    int GetImageWidth() const { return m_imageWidth; }
+    int GetImageHeight() const { return m_imageHeight; }
+
     // Potentially a method to resize the off-screen image
     bool ResizeImage(int newWidth, int newHeight);
+    
+    // Set the clear color for BeginFrame
+    void SetClearColor(float r, float g, float b, float a = 1.0f) {
+        m_clearColor[0] = r;
+        m_clearColor[1] = g;
+        m_clearColor[2] = b;
+        m_clearColor[3] = a;
+    }
+    
+    // Control whether BeginFrame does a full clear
+    void SetClearOnBeginFrame(bool shouldClear) {
+        m_clearOnBeginFrame = shouldClear;
+    }
+
+    // Performance optimization methods
+    void OptimizeForStatic();
+    void OptimizeForInteractive();
 
 private:
     // Blend2D resources
@@ -42,4 +63,6 @@ private:
 
     int m_imageWidth = 0;
     int m_imageHeight = 0;
+    float m_clearColor[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // Default clear color (transparent black)
+    bool m_clearOnBeginFrame = true; // Whether to clear on BeginFrame
 }; 

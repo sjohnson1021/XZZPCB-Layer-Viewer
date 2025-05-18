@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory> // For std::shared_ptr or std::unique_ptr if settings are owned
+#include <blend2d.h> // Include for BLContext
 #include "Camera.hpp"
 #include "GridSettings.hpp"
 
@@ -8,9 +9,8 @@
 class GridSettings;
 class Camera;
 class Viewport;
-class RenderContext; // Or a more specific drawing interface/context
-struct SDL_Renderer; // If drawing directly with SDL
-// struct BLContext; // If drawing with Blend2D
+// class RenderContext; // No longer needed if BLContext is used directly
+// No longer need SDL_Renderer forward declaration
 
 class Grid {
 public:
@@ -27,7 +27,7 @@ public:
     // The Render method will need information about the current view.
     // This could be Camera & Viewport, or a RenderContext that provides them
     // and also the drawing capabilities (e.g., SDL_Renderer or BLContext).
-    void Render(SDL_Renderer* renderer, const Camera& camera, const Viewport& viewport) const;
+    void Render(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport) const;
     // Alternate Render signature if using a general RenderContext:
     // void Render(RenderContext& context, const Camera& camera, const Viewport& viewport) const;
 
@@ -41,16 +41,13 @@ private:
     void GetEffectiveSpacings(const Camera& camera, float& outMajorSpacing, float& outMinorSpacing) const;
     void GetVisibleWorldBounds(const Camera& camera, const Viewport& viewport, Vec2& outMinWorld, Vec2& outMaxWorld) const;
     
-    void DrawLinesStyle(SDL_Renderer* renderer, const Camera& camera, const Viewport& viewport, float majorSpacing, float minorSpacing, const Vec2& worldMin, const Vec2& worldMax) const;
-    void DrawDotsStyle(SDL_Renderer* renderer, const Camera& camera, const Viewport& viewport, float majorSpacing, float minorSpacing, const Vec2& worldMin, const Vec2& worldMax) const;
+    void DrawLinesStyle(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, float majorSpacing, float minorSpacing, const Vec2& worldMin, const Vec2& worldMax) const;
+    void DrawDotsStyle(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, float majorSpacing, float minorSpacing, const Vec2& worldMin, const Vec2& worldMax) const;
     
-    void DrawGridLines(SDL_Renderer* renderer, const Camera& camera, const Viewport& viewport, float spacing, const GridColor& color, const Vec2& worldMin, const Vec2& worldMax, bool isMajor, float majorSpacingForAxisCheck) const;
-    void DrawGridDots(SDL_Renderer* renderer, const Camera& camera, const Viewport& viewport, float spacing, const GridColor& color, const Vec2& worldMin, const Vec2& worldMax, bool isMajor, float majorSpacingForAxisCheck) const;
+    void DrawGridLines(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, float spacing, const GridColor& color, const Vec2& worldMin, const Vec2& worldMax, bool isMajor, float majorSpacingForAxisCheck) const;
+    void DrawGridDots(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, float spacing, const GridColor& color, const Vec2& worldMin, const Vec2& worldMax, bool isMajor, float majorSpacingForAxisCheck) const;
 
-    void DrawAxis(SDL_Renderer* renderer, const Camera& camera, const Viewport& viewport, const Vec2& worldMin, const Vec2& worldMax) const;
-
-    // Static helper for color conversion
-    static void ConvertAndSetSDLColor(SDL_Renderer* renderer, const GridColor& gridColor, float alphaMultiplier = 1.0f);
+    void DrawAxis(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, const Vec2& worldMin, const Vec2& worldMax) const;
 
     // Helper methods for drawing, calculating line positions, etc.
     // void DrawLines(SDL_Renderer* renderer, const Camera& camera, const Viewport& viewport) const;

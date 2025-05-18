@@ -39,6 +39,7 @@ Thumbs.db
 
 # Dependency directories
 /external/*/
+!/external/asmjit/
 !/external/README.md
 !/external/imgui/
 !/external/blend2d/

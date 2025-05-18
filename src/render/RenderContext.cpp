@@ -3,16 +3,13 @@
 #include <stdexcept> // For std::runtime_error or logging errors
 #include <iostream>  // For error logging
 
-// For Blend2D, if we integrate it here:
-// #include <blend2d.h>
-
-// For logging:
-// #include <iostream>
-
+// Constructor
 RenderContext::RenderContext()
     : m_imageWidth(0), m_imageHeight(0) {
     // m_blContext is default constructed
     // m_targetImage is default constructed
+    m_clearColor[0] = m_clearColor[1] = m_clearColor[2] = 0.0f;
+    m_clearColor[3] = 0.0f; // Transparent by default
 }
 
 RenderContext::~RenderContext() {
@@ -50,7 +47,7 @@ bool RenderContext::Initialize(int width, int height) {
 }
 
 void RenderContext::Shutdown() {
-    if (m_blContext.isActive()) { // Check if context is active before ending
+    if (m_blContext.isValid()) { // Check if context is active before ending
         m_blContext.end();
     }
     m_targetImage.reset(); // Release the image data
@@ -60,17 +57,21 @@ void RenderContext::Shutdown() {
 }
 
 void RenderContext::BeginFrame() {
-    if (!m_blContext.isActive() || m_targetImage.empty()) {
+    if (!m_blContext.isValid() || m_targetImage.empty()) {
         std::cerr << "RenderContext::BeginFrame Error: Context not initialized or image empty." << std::endl;
         return;
     }
-    // Ensure the context is targeting the image if it was ended and restarted (though not typical for this model)
-    // BLResult err = m_blContext.begin(m_targetImage); 
-    // if (err != BL_SUCCESS) { /* handle error */ }
 
-    // Clear the target image - e.g., to transparent black
-    m_blContext.setCompOp(BL_COMP_OP_SRC_COPY); // Ensure overwrite
-    m_blContext.fillAll(BLRgba32(0, 0, 0, 0)); // Or any other background color
+    // Only clear if specifically requested
+    if (m_clearOnBeginFrame) {
+        m_blContext.setCompOp(BL_COMP_OP_SRC_COPY); // Ensure overwrite
+        m_blContext.fillAll(BLRgba32(
+            static_cast<uint8_t>(m_clearColor[0] * 255.0f),
+            static_cast<uint8_t>(m_clearColor[1] * 255.0f),
+            static_cast<uint8_t>(m_clearColor[2] * 255.0f),
+            static_cast<uint8_t>(m_clearColor[3] * 255.0f)
+        ));
+    }
 }
 
 void RenderContext::EndFrame() {
@@ -98,7 +99,7 @@ bool RenderContext::ResizeImage(int newWidth, int newHeight) {
         return false;
     }
 
-    if (m_blContext.isActive()) {
+    if (m_blContext.isValid()) {
         m_blContext.end(); // End context before resizing image
     }
 
@@ -127,20 +128,15 @@ bool RenderContext::ResizeImage(int newWidth, int newHeight) {
     return true;
 }
 
-// BLContextCore* RenderContext::GetBlend2DContext() const {
-//     return m_blContext; // or &m_blContext if it's not a pointer
-// }
+void RenderContext::OptimizeForStatic() {
+    // Use these settings when rendering static content
+    m_blContext.setCompOp(BL_COMP_OP_SRC_OVER);
+    m_blContext.setFillRule(BL_FILL_RULE_NON_ZERO);
+    m_blContext.setApproximationOptions(BL_APPROXIMATION_MODE_PRECISION);
+}
 
-// void RenderContext::SetClearColor(float r, float g, float b, float a) {
-//     m_clearColor[0] = r;
-//     m_clearColor[1] = g;
-//     m_clearColor[2] = b;
-//     m_clearColor[3] = a;
-// }
-
-// void RenderContext::Clear() {
-//     if (m_renderer) {
-//          SDL_SetRenderDrawColor(m_renderer, (Uint8)(m_clearColor[0]*255), (Uint8)(m_clearColor[1]*255), (Uint8)(m_clearColor[2]*255), (Uint8)(m_clearColor[3]*255));
-//          SDL_RenderClear(m_renderer);
-//     }
-// } 
+void RenderContext::OptimizeForInteractive() {
+    // Use these for dynamic/interactive content
+    m_blContext.setCompOp(BL_COMP_OP_SRC_OVER);
+    m_blContext.setApproximationOptions(BL_APPROXIMATION_MODE_SPEED);
+} 

@@ -4,6 +4,8 @@
 #include <string>
 #include "imgui.h" // For ImVec2, ImGuiWindowFlags etc.
 #include "core/ControlSettings.hpp"
+// #include <blend2d.h> // Included in .cpp, forward declare if only types used here
+
 // Forward declarations
 class Camera;
 class Viewport;
@@ -12,6 +14,7 @@ class GridSettings;
 class InteractionManager;
 class ControlSettings;
 class Board; // Added for OnBoardLoaded
+class PcbRenderer; // Forward declare PcbRenderer
 struct SDL_Renderer;
 struct SDL_Texture; // For rendering the PCB view onto a texture
 // class InteractionManager; // Will be needed for pan/zoom etc.
@@ -34,7 +37,8 @@ public:
 
     // Renders the ImGui window and manages the content within.
     // renderer is needed to create/update the SDL_Texture.
-    void RenderUI(SDL_Renderer* renderer);
+    // pcbRenderer is needed to get the BLImage rendered by Blend2D.
+    void RenderUI(SDL_Renderer* renderer, PcbRenderer* pcbRenderer);
 
     void OnBoardLoaded(const std::shared_ptr<Board>& board); // New method
 
@@ -44,6 +48,9 @@ public:
     void SetVisible(bool visible) { m_isOpen = visible; }
 
 private:
+    // This method will handle getting data from PcbRenderer and updating m_renderTexture
+    void UpdateTextureFromPcbRenderer(SDL_Renderer* sdlRenderer, PcbRenderer* pcbRenderer);
+
     std::string m_windowName = "PCB View";
     std::shared_ptr<Camera> m_camera;
     std::shared_ptr<Viewport> m_viewport; // This viewport will be updated by the ImGui window size
@@ -72,5 +79,7 @@ private:
     void InitializeTexture(SDL_Renderer* renderer, int width, int height);
     void ReleaseTexture();
 
-    void UpdateAndRenderToTexture(SDL_Renderer* renderer); // Orchestrates rendering onto m_renderTexture
+    // void UpdateAndRenderToTexture(SDL_Renderer* renderer); // This role is now split/handled differently
+    // The old UpdateAndRenderToTexture was for when PCBViewerWindow *drew* to the texture itself.
+    // Now it *copies* from PcbRenderer's image to the texture.
 }; 

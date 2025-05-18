@@ -39,7 +39,9 @@
     "C_Cpp.default.compilerPath": "/usr/bin/g++",
     "C_Cpp.default.intelliSenseMode": "linux-gcc-x64",
     "C_Cpp.errorSquiggles": "enabled",
-    "editor.rulers": [100],
+    "editor.rulers": [
+        100
+    ],
     "files.exclude": {
         "**/.git": true,
         "**/.svn": true,
@@ -48,5 +50,7 @@
         "**/.DS_Store": true,
         "**/Thumbs.db": true,
         "build/": false
-    }
-} 
+    },
+    "markdown-mermaid.lightModeTheme": "default",
+    "markdown-mermaid.darkModeTheme": "neutral"
+}

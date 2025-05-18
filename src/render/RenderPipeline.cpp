@@ -1,11 +1,17 @@
 #include "render/RenderPipeline.hpp"
-#include "render/RenderContext.hpp" // For access to context details if needed
+#include "render/RenderContext.hpp" // For access to RenderContext if needed
+#include "pcb/Board.hpp"
+#include "view/Camera.hpp"
+#include "view/Viewport.hpp"
+#include "view/Grid.hpp" // For Grid class definition for RenderGrid
+#include <blend2d.h>
+#include <iostream> // For logging
 
 // For logging or error reporting:
 // #include <iostream>
 // #include <SDL3/SDL_log.h>
 
-RenderPipeline::RenderPipeline() : m_initialized(false) {
+RenderPipeline::RenderPipeline() : m_renderContext(nullptr), m_initialized(false) {
     // std::cout << "RenderPipeline created." << std::endl;
 }
 
@@ -19,56 +25,134 @@ RenderPipeline::~RenderPipeline() {
 }
 
 bool RenderPipeline::Initialize(RenderContext& context) {
-    // Initialize pipeline stages, shaders, resources, etc.
-    // This is where you might set up specific passes (e.g., for Blend2D, 2D geometry, UI)
-    
-    // Example: if (context.GetRenderer() == nullptr) return false; // Basic check
-
-    // std::cout << "RenderPipeline initialized." << std::endl;
+    m_renderContext = &context; // Store pointer to the context
+    // Initialize any pipeline-specific resources if needed.
+    // For now, it mainly relies on the context passed during Execute.
+    std::cout << "RenderPipeline initialized." << std::endl;
     m_initialized = true;
     return true;
 }
 
 void RenderPipeline::Shutdown() {
+    // Release any pipeline-specific resources.
+    m_renderContext = nullptr;
     // Release all pipeline resources, clear stages.
     // for (auto& stage : m_stages) {
     //     if (stage) stage->Shutdown();
     // }
     // m_stages.clear();
 
-    // std::cout << "RenderPipeline shutdown." << std::endl;
+    std::cout << "RenderPipeline shutdown." << std::endl;
     m_initialized = false;
 }
 
-void RenderPipeline::BeginPipeline(RenderContext& context) {
+void RenderPipeline::BeginScene(BLContext& bl_ctx) {
     if (!m_initialized) return;
-    // Prepare for a new rendering pass through the pipeline.
-    // This might involve binding specific framebuffers, setting global shader uniforms, etc.
-    // std::cout << "RenderPipeline: Beginning pipeline execution." << std::endl;
-
-    // Example for Blend2D - if BLContext is managed by RenderContext and needs to be started for a surface
-    // BLContextCore* blCtx = context.GetBlend2DContext();
-    // SDL_Surface* surface = SDL_GetWindowSurface(context.GetWindow()); // Assuming RenderContext has GetWindow()
-    // if (blCtx && surface) {
-    //    BLImage img;
-    //    img.createFromData(surface->w, surface->h, BL_FORMAT_PRGB32, surface->pixels, surface->pitch);
-    //    blCtx->begin(img);
-    //    blCtx->clearAll(); // Or specific clear color
-    // }
+    // This method is called by PcbRenderer.
+    // It can be used to set up any per-scene state on the bl_ctx if necessary.
+    // For now, PcbRenderer->BeginFrame() clears the target, which is sufficient.
+    // bl_ctx.save(); // Example: save context state if pipeline makes many changes
+    // std::cout << "RenderPipeline: Beginning scene." << std::endl;
 }
 
-void RenderPipeline::EndPipeline(RenderContext& context) {
+void RenderPipeline::EndScene() {
     if (!m_initialized) return;
-    // Finalize the rendering pass.
-    // This might involve unbinding resources, submitting command buffers, etc.
-    // std::cout << "RenderPipeline: Ending pipeline execution." << std::endl;
-
-    // Example for Blend2D
-    // BLContextCore* blCtx = context.GetBlend2DContext();
-    // if (blCtx) {
-    //     blCtx->end();
+    // Called by PcbRenderer after Execute.
+    // Can be used to restore context state if saved in BeginScene.
+    // if (m_renderContext && m_renderContext->GetBlend2DContext().isActive()) { // Check if context is valid
+    //     m_renderContext->GetBlend2DContext().restore(); // Example: restore context state
     // }
-    // SDL_UpdateWindowSurface(context.GetWindow()); // If rendering to window surface with Blend2D
+    // std::cout << "RenderPipeline: Ending scene." << std::endl;
+}
+
+void RenderPipeline::Execute(
+    BLContext& bl_ctx, 
+    const Board* board,
+    const Camera& camera, 
+    const Viewport& viewport,
+    const Grid& grid) 
+{
+    if (!m_initialized) {
+        std::cerr << "RenderPipeline::Execute Error: Not initialized." << std::endl;
+        return;
+    }
+
+    // Core rendering logic happens here
+    // 1. Render the Grid (always, if grid object is valid and visible)
+    RenderGrid(bl_ctx, camera, viewport, grid);
+
+    // 2. Render the PCB Board content (only if board is not null)
+    if (board) {
+        RenderBoard(bl_ctx, *board, camera, viewport);
+    }
+
+    // Potentially other rendering passes could be added here.
+}
+
+void RenderPipeline::RenderBoard(
+    BLContext& bl_ctx,
+    const Board& board,
+    const Camera& camera,
+    const Viewport& viewport)
+{
+    // Use the Blend2D transform matrix for camera transformation
+    BLMatrix2D transform;
+    transform.reset();
+    
+    // Apply viewport transform
+    bl_ctx.save();
+    
+    // Set up the world transform for correct scaling and panning
+    transform.translate(viewport.GetWidth() / 2.0, viewport.GetHeight() / 2.0); // Use floating point division
+    transform.scale(camera.GetZoom());
+    transform.rotate(camera.GetRotation()); // Assuming GetRotation() returns radians
+    transform.translate(-camera.GetPanX(), -camera.GetPanY());
+    
+    bl_ctx.setMatrix(transform);
+    
+    // Batch similar operations (placeholders for now)
+    // RenderTraces(bl_ctx, board);
+    // RenderPads(bl_ctx, board);
+    // RenderComponents(bl_ctx, board);
+    
+    // Placeholder: Example of drawing something simple to verify transform
+    // bl_ctx.setStrokeStyle(BLRgba32(0xFFFFFFFF)); // White color
+    // bl_ctx.setStrokeWidth(1.0 / camera.GetZoom()); // Keep stroke width consistent regardless of zoom
+    // bl_ctx.strokeRect(BLRect(0, 0, 100, 100)); // Draw a 100x100 rect at board origin
+
+    // TODO: Iterate through board layers and render their content
+    // For now, we'll add a simple placeholder to indicate board rendering area
+    // This will be replaced with actual layer and feature rendering calls
+
+    // Example: if board has a method to get all renderable items
+    // for (const auto& item : board.GetAllItems()) {
+    //     item->Render(bl_ctx, camera); // Assuming items have a Render method
+    // }
+
+    // Restore matrix and other states if changed
+    bl_ctx.restore();
+}
+
+void RenderPipeline::RenderGrid(
+    BLContext& bl_ctx, 
+    const Camera& camera, 
+    const Viewport& viewport,
+    const Grid& grid) 
+{
+    try {
+        // Save Blend2D context state before grid rendering
+        bl_ctx.save();
+        
+        // Call the Grid's own render method, providing the Blend2D context.
+        grid.Render(bl_ctx, camera, viewport);
+        
+        // Restore Blend2D context state after grid rendering
+        bl_ctx.restore();
+    } catch (const std::exception& e) {
+        std::cerr << "RenderPipeline::RenderGrid Exception: " << e.what() << std::endl;
+    } catch (...) {
+        std::cerr << "RenderPipeline::RenderGrid: Unknown exception during grid rendering" << std::endl;
+    }
 }
 
 // Implementation for Process, AddRenderable, Execute, AddStage, etc., if used:

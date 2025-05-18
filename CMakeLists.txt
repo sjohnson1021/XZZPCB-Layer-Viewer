@@ -22,6 +22,11 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 # Ensure your submodule in external/SDL is SDL3.
 add_subdirectory(external/SDL EXCLUDE_FROM_ALL) # EXCLUDE_FROM_ALL if you only want to link against it
 
+# Blend2D
+# Add Blend2D as a subdirectory. Assumes it has its own CMakeLists.txt that creates a 'blend2d' target.
+# Ensure your submodule is in external/blend2d.
+add_subdirectory(external/blend2d EXCLUDE_FROM_ALL)
+
 # ImGui
 # Add ImGui source files directly or create a library target for it.
 # Assuming ImGui is in external/imgui and it's the docking branch.
@@ -47,55 +52,10 @@ target_include_directories(imgui PUBLIC
 set_property(TARGET imgui PROPERTY CXX_STANDARD 11) # ImGui uses C++11, some backends might need it explicitly
 target_link_libraries(imgui PUBLIC SDL3::SDL3)
 
-
-# --- Source Files ---
-set(APP_SOURCES
-    src/main.cpp
-    src/core/Application.cpp
-    src/core/Config.cpp
-    src/core/ControlSettings.cpp
-    src/core/Events.cpp
-    src/core/ImGuiManager.cpp
-    src/core/InputActions.cpp
-    src/core/Renderer.cpp
-    src/core/SDLRenderer.cpp
-    src/render/RenderManager.cpp
-    src/render/RenderContext.cpp
-    src/render/RenderPipeline.cpp
-    src/view/Camera.cpp
-    src/view/Viewport.cpp
-    src/view/GridSettings.cpp
-    src/view/Grid.cpp
-    src/ui/MainMenuBar.cpp
-    src/ui/windows/PCBViewerWindow.cpp
-    src/ui/windows/SettingsWindow.cpp
-    src/ui/interaction/InteractionManager.cpp
-    src/ui/interaction/NavigationTool.cpp
-    src/ui/windows/PcbDetailsWindow.cpp
-    src/pcb/PcbLoader.cpp
-    src/pcb/Board.cpp
-    src/utils/des.cpp
-    src/utils/StringUtils.cpp
-    external/ImGuiFileDialog/ImGuiFileDialog.cpp
-)
-
-# --- Target Executable ---
-add_executable(XZZPCB-Layer-Viewer ${APP_SOURCES})
-
-# --- Include Directories ---
-target_include_directories(XZZPCB-Layer-Viewer PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/ImGuiFileDialog
-    # ImGui includes are handled by linking with the imgui target
-    # SDL includes are handled by linking with the SDL3::SDL3 target (via imgui or directly)
-)
-
-# --- Link Libraries ---
-target_link_libraries(XZZPCB-Layer-Viewer PRIVATE
-    imgui       # Our ImGui library target
-    SDL3::SDL3  # The SDL3 library target from the submodule
-    OpenGL::GL  # Explicitly link against OpenGL
-)
+# --- Add source directory --- 
+# This will process src/CMakeLists.txt, which should define the main executable
+# and link against libraries built in src/core, src/render, etc.
+add_subdirectory(src)
 
 # --- Platform Specifics (Optional) ---
 if(APPLE)
