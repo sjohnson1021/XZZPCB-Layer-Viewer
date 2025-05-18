@@ -1,23 +1,33 @@
 #include "ui/windows/PCBViewerWindow.hpp"
+#include "pcb/Board.hpp"
 #include "view/Camera.hpp"
 #include "view/Viewport.hpp"
 #include "view/Grid.hpp"
 #include "view/GridSettings.hpp"
 #include "ui/interaction/InteractionManager.hpp"
+#include "core/ControlSettings.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm> // For std::max
+#include <iostream> // For logging in OnBoardLoaded
 
 // Constructor
 PCBViewerWindow::PCBViewerWindow(
     std::shared_ptr<Camera> camera,
     std::shared_ptr<Viewport> viewport,
     std::shared_ptr<Grid> grid,
-    std::shared_ptr<GridSettings> gridSettings)
+    std::shared_ptr<GridSettings> gridSettings,
+    std::shared_ptr<ControlSettings> controlSettings)
     : m_camera(camera)
     , m_viewport(viewport) // This viewport represents the render texture area
     , m_grid(grid)
-    , m_gridSettings(gridSettings) {
-    m_interactionManager = std::make_unique<InteractionManager>(m_camera, m_viewport);
+    , m_gridSettings(gridSettings)
+    , m_controlSettings(controlSettings)
+    , m_isFocused(false)
+    , m_isHovered(false)
+    , m_renderTexture(nullptr)
+    , m_textureWidth(100) // Initial placeholder size
+    , m_textureHeight(100) {
+    m_interactionManager = std::make_unique<InteractionManager>(m_camera, m_viewport, m_controlSettings);
 }
 
 // Destructor
@@ -39,11 +49,13 @@ void PCBViewerWindow::InitializeTexture(SDL_Renderer* renderer, int width, int h
                                       SDL_TEXTUREACCESS_TARGET,
                                       m_textureWidth,
                                       m_textureHeight);
+
     if (!m_renderTexture) {
         SDL_Log("Failed to create render texture: %s", SDL_GetError());
         // Handle error, perhaps throw or set a flag
+    } else { // Ensure blend mode is set only if texture creation succeeded
+        SDL_SetTextureBlendMode(m_renderTexture, SDL_BLENDMODE_BLEND);
     }
-    SDL_SetTextureBlendMode(m_renderTexture, SDL_BLENDMODE_BLEND);
 }
 
 // Release the SDL_Texture
@@ -84,64 +96,100 @@ void PCBViewerWindow::UpdateAndRenderToTexture(SDL_Renderer* renderer) {
 
 // Main ImGui rendering function for this window
 void PCBViewerWindow::RenderUI(SDL_Renderer* renderer) {
+    if (!m_isOpen && m_renderTexture) {
+        ReleaseTexture(); 
+        m_resizeCooldownFrames = -1; 
+        m_desiredTextureSize = ImVec2(0,0); 
+    }
+
     if (!m_isOpen) {
-        ReleaseTexture(); // Release texture if window is closed to free VRAM
         return;
     }
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0)); // No padding for the render area
-    if (ImGui::Begin(m_windowName.c_str(), &m_isOpen, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse; // RESTORED FLAGS
+
+    bool window_open = ImGui::Begin(m_windowName.c_str(), &m_isOpen, window_flags); // USE RESTORED FLAGS
+    ImGui::PopStyleVar(); // Always pop style var right after Begin
+
+    if (window_open) {
         m_isFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
         m_isHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
 
-        ImVec2 contentMinPos = ImGui::GetWindowContentRegionMin();
-        ImVec2 contentMaxPos = ImGui::GetWindowContentRegionMax();
-        m_contentRegionSize = {contentMaxPos.x - contentMinPos.x, contentMaxPos.y - contentMinPos.y};
-        
-        // Get the absolute screen position of the top-left of the content region
-        m_contentRegionTopLeftScreen = ImGui::GetWindowPos();
-        m_contentRegionTopLeftScreen.x += contentMinPos.x;
-        m_contentRegionTopLeftScreen.y += contentMinPos.y;
+        ImVec2 newContentRegionSize = ImGui::GetContentRegionAvail();
+        bool newSizeIsValid = (newContentRegionSize.x > 0 && newContentRegionSize.y > 0);
 
-        // Ensure texture matches content area size
-        if (!m_renderTexture || (int)m_contentRegionSize.x != m_textureWidth || (int)m_contentRegionSize.y != m_textureHeight) {
-            if (m_contentRegionSize.x > 0 && m_contentRegionSize.y > 0) {
-                InitializeTexture(renderer, (int)m_contentRegionSize.x, (int)m_contentRegionSize.y);
+        m_contentRegionSize = newContentRegionSize;
+        ImVec2 contentStart = ImGui::GetCursorScreenPos(); 
+
+        m_viewport->SetDimensions(static_cast<int>(contentStart.x), static_cast<int>(contentStart.y), static_cast<int>(m_contentRegionSize.x), static_cast<int>(m_contentRegionSize.y));
+
+        if (!newSizeIsValid) {
+        } else { 
+            bool currentTextureSizeDiffersFromContentRegion = (!m_renderTexture ||
+                                                               m_textureWidth != static_cast<int>(newContentRegionSize.x) ||
+                                                               m_textureHeight != static_cast<int>(newContentRegionSize.y));
+
+            if (currentTextureSizeDiffersFromContentRegion) {
+                if (m_desiredTextureSize.x != newContentRegionSize.x || m_desiredTextureSize.y != newContentRegionSize.y) {
+                    m_desiredTextureSize = newContentRegionSize;
+                    m_resizeCooldownFrames = RESIZE_COOLDOWN_MAX; 
+                } else if (m_resizeCooldownFrames < 0) { 
+                    m_resizeCooldownFrames = RESIZE_COOLDOWN_MAX; 
+                }
             }
+        }
+
+        if (m_resizeCooldownFrames > 0) {
+            m_resizeCooldownFrames--;
+        }
+
+        if (m_resizeCooldownFrames == 0) {
+            if (m_desiredTextureSize.x > 0 && m_desiredTextureSize.y > 0 &&
+                (!m_renderTexture || 
+                 m_textureWidth != static_cast<int>(m_desiredTextureSize.x) ||
+                 m_textureHeight != static_cast<int>(m_desiredTextureSize.y))) {
+                InitializeTexture(renderer, static_cast<int>(m_desiredTextureSize.x), static_cast<int>(m_desiredTextureSize.y));
+            }
+            m_resizeCooldownFrames = -1; 
         }
 
         if (m_renderTexture) {
             UpdateAndRenderToTexture(renderer);
-            // Display the texture. Y is flipped because ImGui expects top-left UV (0,0) and bottom-right UV (1,1)
-            // SDL_Textures are typically rendered with (0,0) at top-left as well.
             ImGui::Image(reinterpret_cast<ImTextureID>(m_renderTexture), m_contentRegionSize);
-
-            // Check if the image (content region) is hovered for more precise input handling
-            m_isContentRegionHovered = ImGui::IsItemHovered();
         } else {
-            ImGui::Text("Error: Render texture not available.");
+            ImGui::Text("Texture not available or creation failed. ContentRegion: (%.1f, %.1f)", m_contentRegionSize.x, m_contentRegionSize.y);
+            if (newSizeIsValid && m_resizeCooldownFrames < 0 && (m_desiredTextureSize.x != newContentRegionSize.x || m_desiredTextureSize.y != newContentRegionSize.y)) { 
+                m_desiredTextureSize = newContentRegionSize;
+                m_resizeCooldownFrames = RESIZE_COOLDOWN_MAX;
+            }
+        }
+
+        if (m_interactionManager && (m_isFocused || m_isHovered)) {
+            m_isContentRegionHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_RectOnly); 
+            m_interactionManager->ProcessInput(ImGui::GetIO(), m_isFocused, m_isContentRegionHovered, contentStart, m_contentRegionSize);
+        } else {
             m_isContentRegionHovered = false;
         }
-
-        // Delegate input processing to InteractionManager
-        if (m_interactionManager) {
-            ImGuiIO& io = ImGui::GetIO();
-            // Pass the screen-space top-left of the content region for mouse coordinate mapping
-            m_interactionManager->ProcessInput(io, m_isFocused, m_isContentRegionHovered, m_contentRegionTopLeftScreen, m_contentRegionSize);
-        }
-
     } else {
-        // Window is not visible (e.g. collapsed or culled by ImGui), but Begin still runs the lambda if it's not closed
-        // If Begin returns false because m_isOpen was set to false (user clicked close button), this block is skipped
-        // and m_isOpen is false for next frame.
         m_isFocused = false;
         m_isHovered = false;
         m_isContentRegionHovered = false;
     }
-    ImGui::End();
-    ImGui::PopStyleVar();
+    
+    ImGui::End(); // FIXED: Always call End() to match the Begin() call
+}
 
-    if (!m_isOpen) { // If Begin set m_isOpen to false (window was closed)
-        ReleaseTexture();
+void PCBViewerWindow::OnBoardLoaded(const std::shared_ptr<Board>& board) {
+    // For now, just log that a new board has been loaded.
+    // In the future, this could reset camera, update zoom to fit board, etc.
+    if (board) {
+        std::cout << "PCBViewerWindow: New board loaded: " << board->GetFilePath() << std::endl;
     }
+    else {
+        std::cout << "PCBViewerWindow: Board unloaded (or load failed)." << std::endl;
+    }
+    // Example: Reset camera or zoom to fit new board
+    // m_camera->ResetView(); 
+    // m_camera->ZoomToFit(board->GetBoundingBox());
 } 

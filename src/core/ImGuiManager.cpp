@@ -4,10 +4,12 @@
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlrenderer3.h>
+#include "../utils/OpenGLUtils.hpp"
 #include <iostream>
 
 ImGuiManager::ImGuiManager(Renderer* renderer)
     : m_renderer(renderer)
+    , m_initialized(false)
 {
 }
 
@@ -44,6 +46,7 @@ bool ImGuiManager::Initialize()
         return false;
     }
 
+    m_initialized = true;
     return true;
 }
 
@@ -68,7 +71,31 @@ void ImGuiManager::NewFrame()
 
 void ImGuiManager::Render()
 {
+    if (!m_initialized || !m_renderer) {
+        return;
+    }
+
+    // Check for GL errors before ImGui::Render()
+    GL_CHECK_ERRORS();
+
     ImGui::Render();
-    ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), 
-        dynamic_cast<SDLRenderer*>(m_renderer)->GetRenderer());
+
+    // Check for GL errors after ImGui::Render() but before backend RenderDrawData
+    GL_CHECK_ERRORS();
+
+    // The ImGui_ImplSDLRenderer3_RenderDrawData function will make many OpenGL calls.
+    // We pass the SDL_Renderer*, and the impl backend knows how to use it for GL operations.
+    if (auto sdlRenderer = dynamic_cast<SDLRenderer*>(m_renderer)) {
+        // TEMPORARILY COMMENTED OUT FOR TESTING THE NewFrame ASSERTION
+        GL_CHECK(ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), sdlRenderer->GetRenderer()));
+    } else {
+        // Handle case where renderer is not SDLRenderer or provide a generic way if possible
+        // For now, assuming it's SDLRenderer as per typical setup with this backend.
+        // If you have a direct void* GetRendererHandle() that returns the SDL_Renderer*:
+        // GL_CHECK(ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), static_cast<SDL_Renderer*>(m_renderer->GetRendererHandle())));
+        std::cerr << "ImGuiManager::Render: Renderer is not of type SDLRenderer, cannot call ImGui_ImplSDLRenderer3_RenderDrawData properly." << std::endl;
+    }
+
+    // Check for GL errors after backend RenderDrawData would have been called
+    GL_CHECK_ERRORS();
 } 

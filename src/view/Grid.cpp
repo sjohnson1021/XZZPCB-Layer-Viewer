@@ -30,31 +30,39 @@ void Grid::GetEffectiveSpacings(const Camera& camera, float& outMajorSpacing, fl
     const int subdivisions = m_settings->m_subdivisions > 0 ? m_settings->m_subdivisions : 1;
 
     if (m_settings->m_isDynamic) {
-        const float minPixelStep = 20.0f; // Min pixels between major grid lines
-        const float maxPixelStep = 200.0f; // Max pixels (roughly)
-        const float zoom = camera.GetZoom();
+        // Use min/max pixel step from settings with safety clamps
+        const float minPixelStep = std::max(16.0f, m_settings->m_minPixelStep);
+        const float maxPixelStep = std::max(minPixelStep * 1.5f, m_settings->m_maxPixelStep);
+        
+        const float zoom = std::max(1e-6f, camera.GetZoom()); // Avoid division by zero
 
-        if (zoom <= 0.0f) { // Avoid issues with zero or negative zoom
-            outMinorSpacing = outMajorSpacing / subdivisions;
-            return;
-        }
-
+        // Current pixel distance between major grid lines
         float currentPixelStep = outMajorSpacing * zoom;
-        float adjustmentFactor = static_cast<float>(subdivisions > 1 ? subdivisions : 10);
-        if (adjustmentFactor <= 1.0f) adjustmentFactor = 10.0f; // Ensure factor is > 1 for adjustment
 
-        // Adjust spacing if too dense
-        while (currentPixelStep < minPixelStep && outMajorSpacing < 1e7f) { // Safety upper bound
-            outMajorSpacing *= adjustmentFactor;
-            currentPixelStep = outMajorSpacing * zoom;
+        // Instead of using a fixed adjustment factor of 10, calculate optimal scaling directly
+        if (currentPixelStep < minPixelStep) {
+            // We need to increase the spacing to reach at least minPixelStep
+            float scaleFactor = minPixelStep / currentPixelStep;
+            
+            // Find nearest power of 2 scale factor that gets us at or above minPixelStep
+            float power = std::ceil(std::log2(scaleFactor));
+            scaleFactor = std::pow(2.0f, power);
+            
+            outMajorSpacing *= scaleFactor;
         }
-        // Adjust spacing if too sparse
-        while (currentPixelStep > maxPixelStep && outMajorSpacing > 1e-7f) { // Safety lower bound
-            outMajorSpacing /= adjustmentFactor;
-            if (outMajorSpacing == 0.0f) break; // Avoid infinite loop
-            currentPixelStep = outMajorSpacing * zoom;
+        else if (currentPixelStep > maxPixelStep) {
+            // We need to decrease the spacing to be at most maxPixelStep
+            float scaleFactor = maxPixelStep / currentPixelStep;
+            
+            // Find nearest power of 2 scale factor that gets us at or below maxPixelStep
+            float power = std::floor(std::log2(scaleFactor));
+            scaleFactor = std::pow(2.0f, power);
+            
+            outMajorSpacing *= scaleFactor;
         }
-        if (outMajorSpacing == 0.0f) outMajorSpacing = m_settings->m_baseMajorSpacing; // Reset if became zero
+
+        // Safety checks to keep majorSpacing in a reasonable range
+        outMajorSpacing = std::max(1e-7f, std::min(1e7f, outMajorSpacing));
     }
     outMinorSpacing = outMajorSpacing / subdivisions;
 }
@@ -192,6 +200,18 @@ void Grid::Render(SDL_Renderer* renderer, const Camera& camera, const Viewport& 
     SDL_BlendMode originalBlendMode;
     SDL_GetRenderDrawBlendMode(renderer, &originalBlendMode);
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+
+    // Clear the grid area with the grid's specific background color
+    if (m_settings->m_backgroundColor.a > 0.0f) { // Only clear if the background is not fully transparent
+        ConvertAndSetSDLColor(renderer, m_settings->m_backgroundColor); // Use existing helper
+        SDL_FRect viewportRect = {
+            static_cast<float>(viewport.GetX()), 
+            static_cast<float>(viewport.GetY()), 
+            static_cast<float>(viewport.GetWidth()), 
+            static_cast<float>(viewport.GetHeight())
+        };
+        SDL_RenderFillRect(renderer, &viewportRect);
+    }
 
     float majorSpacing, minorSpacing;
     GetEffectiveSpacings(camera, majorSpacing, minorSpacing);

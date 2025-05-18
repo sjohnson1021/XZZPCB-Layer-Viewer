@@ -22,6 +22,10 @@ public:
 
     bool HasKey(const std::string& key) const;
 
+    // File I/O
+    bool LoadFromFile(const std::string& filename);
+    bool SaveToFile(const std::string& filename) const;
+
 private:
     using ConfigValue = std::variant<std::string, int, float, bool>;
     std::unordered_map<std::string, ConfigValue> m_values;

@@ -1,0 +1,50 @@
+#pragma once
+#include "imgui.h" // For ImGuiKey and other ImGui types
+#include <string>
+#include <vector>
+#include <map> // For storing keybinds
+
+// Enum for all bindable input actions
+enum class InputAction {
+    PanUp,
+    PanLeft,
+    PanDown,
+    PanRight,
+    RotateLeft,
+    RotateRight,
+    ZoomIn,
+    ZoomOut,
+    ResetView,
+    // Add more actions as needed in the future
+
+    Count // Special value to get the number of actions, keep it last
+};
+
+// Helper to get a user-friendly string name for an action
+const char* InputActionToString(InputAction action);
+
+// Structure to define a keybinding (key + modifiers)
+struct KeyCombination {
+    ImGuiKey key = ImGuiKey_None;
+    bool ctrl = false;
+    bool shift = false;
+    bool alt = false;
+
+    KeyCombination(ImGuiKey k = ImGuiKey_None, bool c = false, bool s = false, bool a = false)
+        : key(k), ctrl(c), shift(s), alt(a) {}
+
+    bool IsBound() const { return key != ImGuiKey_None; }
+    std::string ToString() const; // For displaying the keybind
+    std::string ToConfigString() const; // For saving to config file
+    static KeyCombination FromConfigString(const std::string& s); // For loading from config
+
+    bool operator==(const KeyCombination& other) const {
+        return key == other.key && ctrl == other.ctrl && shift == other.shift && alt == other.alt;
+    }
+    bool operator!=(const KeyCombination& other) const {
+        return !(*this == other);
+    }
+};
+
+// Type alias for convenience
+using KeybindMap = std::map<InputAction, KeyCombination>; 

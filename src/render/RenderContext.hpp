@@ -1,10 +1,10 @@
 #pragma once
 
-// Forward declarations
-struct SDL_Window;
-struct SDL_Renderer;
-// Potentially Blend2D context if we manage it here
-// struct BLContextCore;
+#include <blend2d.h> // For BLImage and BLContext
+#include <memory>    // For std::unique_ptr
+
+// Forward declarations (if any become necessary)
+// struct SDL_Window; // No longer needed directly by RenderContext
 
 class RenderContext {
 public:
@@ -16,26 +16,30 @@ public:
     RenderContext(RenderContext&&) = delete;
     RenderContext& operator=(RenderContext&&) = delete;
 
-    // Initialization might take SDL_Window* if it's not created/managed internally
-    bool Initialize(SDL_Window* window);
+    // Initialize with a default size, possibly configurable later
+    bool Initialize(int width, int height);
     void Shutdown();
 
-    void BeginFrame();
-    void EndFrame();
+    // Frame operations for the Blend2D context
+    void BeginFrame(); // Clears the BLImage
+    void EndFrame();   // Finalizes BLContext operations if any (might be a no-op)
 
-    // Accessors for rendering resources
-    SDL_Renderer* GetRenderer() const;
-    // BLContextCore* GetBlend2DContext() const; // If using Blend2D directly
+    // Accessors for Blend2D resources
+    BLContext& GetBlend2DContext();
+    const BLImage& GetTargetImage() const; // Read-only access to the image
+    BLImage& GetTargetImage();             // Writable access if needed, e.g., for direct manipulation or resizing
 
-    // Other state management methods
-    // void SetClearColor(float r, float g, float b, float a);
-    // void Clear();
+    // Potentially a method to resize the off-screen image
+    bool ResizeImage(int newWidth, int newHeight);
 
 private:
-    SDL_Window* m_window = nullptr;         // Raw pointer, ownership likely managed elsewhere (e.g., Application class)
-    SDL_Renderer* m_renderer = nullptr;   // Managed by this class if created here, or raw if passed in
-    // BLContextCore* m_blContext = nullptr; // Blend2D context
+    // Blend2D resources
+    BLImage m_targetImage;       // The off-screen image for PCB rendering
+    BLContext m_blContext;       // Blend2D rendering context targeting m_targetImage
+    // No longer managing SDL_Window* or SDL_Renderer*
+    // SDL_Window* m_window = nullptr;
+    // SDL_Renderer* m_renderer = nullptr;
 
-    // Potentially other state variables:
-    // float m_clearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    int m_imageWidth = 0;
+    int m_imageHeight = 0;
 }; 

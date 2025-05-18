@@ -34,12 +34,14 @@ struct LayerInfo {
     // Color color; // Optional: for default display color
     // double thickness; // Optional: physical thickness of the layer
 
-    LayerInfo(int i, const std::string& n, LayerType t) : id(i), name(n), type(t) {}
+    LayerInfo(int i, const std::string& n, LayerType t) : id(i), name(n), type(t), is_visible(true) {}
 };
 
 class Board {
 public:
-    Board() = default;
+    // Constructor that takes a file path (implementation will be in Board.cpp)
+    explicit Board(const std::string& filePath); 
+    Board(); // Keep default constructor if needed, or remove if filePath constructor is primary
 
     // --- Board Metadata ---
     std::string board_name;
@@ -85,6 +87,23 @@ public:
         return (it != nets.end()) ? &(it->second) : nullptr;
     }
 
+    // --- Layer Access Methods ---
+    int GetLayerCount() const;
+    std::string GetLayerName(int layerIndex) const; // Consider returning const&
+    bool IsLayerVisible(int layerIndex) const;
+    void SetLayerVisible(int layerIndex, bool visible);
+
+    // --- Loading Status Methods ---
+    bool IsLoaded() const;
+    std::string GetErrorMessage() const; // Consider returning const&
+    std::string GetFilePath() const;   // Getter for file_path
+
     // Methods for board-level operations (e.g., calculate extents)
     // void calculateBoardDimensions();
+
+private:
+    bool m_isLoaded = false;
+    std::string m_errorMessage;
+    // If PcbLoader is to be used internally:
+    // void ParseBoardFile(const std::string& filePath); 
 }; 

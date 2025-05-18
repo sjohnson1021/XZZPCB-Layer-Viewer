@@ -42,10 +42,14 @@ public:  // Allow direct access for ImGui widgets
     GridColor m_minorLineColor = {0.15f, 0.15f, 0.15f, 1.0f};
 
     bool m_isDynamic = true; 
+    float m_minPixelStep = 20.0f; // Default for dynamic grid spacing
+    float m_maxPixelStep = 80.0f; // Default for dynamic grid spacing
 
     bool m_showAxisLines = true;
     GridColor m_xAxisColor = {0.7f, 0.2f, 0.2f, 0.9f};
     GridColor m_yAxisColor = {0.2f, 0.7f, 0.2f, 0.9f};
+
+    GridColor m_backgroundColor = {0.0f, 0.0f, 0.0f, 0.0f}; // Grid's own background color
 
     // Original public methods - can be kept or removed if direct access is preferred
     // bool IsVisible() const { return m_visible; }

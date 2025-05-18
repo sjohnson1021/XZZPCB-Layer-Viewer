@@ -30,14 +30,17 @@ void PcbDetailsWindow::render() {
         return;
     }
 
-    if (ImGui::Begin("PCB Details", &is_visible_)) {
+    bool window_open = ImGui::Begin("PCB Details", &is_visible_);
+    
+    if (window_open) {
         displayBasicInfo(current_board_.get());
         displayLayers(current_board_.get());
         displayNets(current_board_.get());
         displayComponents(current_board_.get());
         displayStandaloneElements(current_board_.get());
     }
-    ImGui::End();
+    
+    ImGui::End(); // Always call End() to match Begin()
 }
 
 void PcbDetailsWindow::displayBasicInfo(const Board* boardData) {

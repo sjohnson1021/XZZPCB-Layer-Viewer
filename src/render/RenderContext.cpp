@@ -1,6 +1,7 @@
 #include "render/RenderContext.hpp"
 #include <SDL3/SDL.h>
-#include <stdexcept> // For std::runtime_error
+#include <stdexcept> // For std::runtime_error or logging errors
+#include <iostream>  // For error logging
 
 // For Blend2D, if we integrate it here:
 // #include <blend2d.h>
@@ -8,80 +9,122 @@
 // For logging:
 // #include <iostream>
 
-RenderContext::RenderContext() : m_window(nullptr), m_renderer(nullptr) {
-    // std::cout << "RenderContext created." << std::endl;
+RenderContext::RenderContext()
+    : m_imageWidth(0), m_imageHeight(0) {
+    // m_blContext is default constructed
+    // m_targetImage is default constructed
 }
 
 RenderContext::~RenderContext() {
-    // Ensure Shutdown is called, though resources are ideally explicitly managed.
-    if (m_renderer || m_window) { // Or just m_renderer if m_window is not owned
-        // std::cerr << "RenderContext destroyed without calling Shutdown() first!" << std::endl;
-        // Potentially call Shutdown() here, but it's better to ensure explicit cleanup.
-        Shutdown(); 
-    }
-    // std::cout << "RenderContext destroyed." << std::endl;
+    Shutdown();
 }
 
-bool RenderContext::Initialize(SDL_Window* window) {
-    if (!window) {
-        SDL_Log("RenderContext::Initialize Error: Provided window is null.\n");
-        return false;
-    }
-    m_window = window;
-
-    // Create SDL Renderer
-    // You might want to specify flags, e.g., SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC
-    m_renderer = SDL_CreateRenderer(m_window, nullptr);
-    if (!m_renderer) {
-        SDL_Log("RenderContext::Initialize Error: Failed to create SDL_Renderer: %s\n", SDL_GetError());
-        m_window = nullptr; // Don't keep a pointer to the window if renderer creation failed in a way that makes it unusable.
+bool RenderContext::Initialize(int width, int height) {
+    if (width <= 0 || height <= 0) {
+        std::cerr << "RenderContext::Initialize Error: Invalid image dimensions (" 
+                  << width << "x" << height << ")." << std::endl;
         return false;
     }
 
-    SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND);
+    BLResult err = m_targetImage.create(width, height, BL_FORMAT_PRGB32);
+    if (err != BL_SUCCESS) {
+        std::cerr << "RenderContext::Initialize Error: Failed to create BLImage: " << err << std::endl;
+        return false;
+    }
+    m_imageWidth = width;
+    m_imageHeight = height;
 
-    // Initialize Blend2D context if used here
-    // BLResult err = m_blContext.create(m_renderer, SDL_GetWindowSurface(m_window)->format);
-    // if (err != BL_SUCCESS) {
-    //     SDL_Log("RenderContext::Initialize Error: Failed to create Blend2D context: %u\n", err);
-    //     SDL_DestroyRenderer(m_renderer);
-    //     m_renderer = nullptr;
-    //     m_window = nullptr;
-    //     return false;
-    // }
+    err = m_blContext.begin(m_targetImage);
+    if (err != BL_SUCCESS) {
+        std::cerr << "RenderContext::Initialize Error: Failed to begin BLContext on BLImage: " << err << std::endl;
+        m_targetImage.reset(); // Release the image if context creation failed
+        return false;
+    }
 
-    // std::cout << "RenderContext initialized." << std::endl;
+    // Optional: Set default context properties if needed
+    // m_blContext.setCompOp(BL_COMP_OP_SRC_COPY);
+    // m_blContext.fillAll(BLRgba32(0, 0, 0, 0)); // Example: clear to transparent black
+
+    std::cout << "RenderContext initialized with Blend2D for a " << width << "x" << height << " image." << std::endl;
     return true;
 }
 
 void RenderContext::Shutdown() {
-    // if (m_blContext) {
-    //    m_blContext.destroy();
-    //    // m_blContext = nullptr; // If it's a raw pointer or needs explicit nulling
-    // }
-    if (m_renderer) {
-        SDL_DestroyRenderer(m_renderer);
-        m_renderer = nullptr;
+    if (m_blContext.isActive()) { // Check if context is active before ending
+        m_blContext.end();
     }
-    // m_window is not owned by RenderContext, so it's not destroyed here.
-    m_window = nullptr; 
+    m_targetImage.reset(); // Release the image data
+    m_imageWidth = 0;
+    m_imageHeight = 0;
     // std::cout << "RenderContext shutdown." << std::endl;
 }
 
 void RenderContext::BeginFrame() {
-    // Example: Clear the screen to a default color (e.g., black or a specific clear color)
-    // SDL_SetRenderDrawColor(m_renderer, (Uint8)(m_clearColor[0]*255), (Uint8)(m_clearColor[1]*255), (Uint8)(m_clearColor[2]*255), (Uint8)(m_clearColor[3]*255));
-    // SDL_RenderClear(m_renderer);
-    // Or, if Blend2D is handling the surface, its own clear might be used.
-    // if (m_blContext) { /* m_blContext.clearAll(); or similar */ }
+    if (!m_blContext.isActive() || m_targetImage.empty()) {
+        std::cerr << "RenderContext::BeginFrame Error: Context not initialized or image empty." << std::endl;
+        return;
+    }
+    // Ensure the context is targeting the image if it was ended and restarted (though not typical for this model)
+    // BLResult err = m_blContext.begin(m_targetImage); 
+    // if (err != BL_SUCCESS) { /* handle error */ }
+
+    // Clear the target image - e.g., to transparent black
+    m_blContext.setCompOp(BL_COMP_OP_SRC_COPY); // Ensure overwrite
+    m_blContext.fillAll(BLRgba32(0, 0, 0, 0)); // Or any other background color
 }
 
 void RenderContext::EndFrame() {
-    // SDL_RenderPresent(m_renderer); // This is typically done by the main loop after ImGui rendering
+    // For this model, EndFrame might be a no-op as PcbRenderer will grab the image data.
+    // If there were any batched operations or explicit flushing needed for BLContext, it would go here.
+    // m_blContext.flush(BL_CONTEXT_FLUSH_SYNC); // Example, if needed
 }
 
-SDL_Renderer* RenderContext::GetRenderer() const {
-    return m_renderer;
+BLContext& RenderContext::GetBlend2DContext() {
+    return m_blContext;
+}
+
+const BLImage& RenderContext::GetTargetImage() const {
+    return m_targetImage;
+}
+
+BLImage& RenderContext::GetTargetImage() {
+    return m_targetImage;
+}
+
+bool RenderContext::ResizeImage(int newWidth, int newHeight) {
+    if (newWidth <= 0 || newHeight <= 0) {
+        std::cerr << "RenderContext::ResizeImage Error: Invalid new dimensions (" 
+                  << newWidth << "x" << newHeight << ")." << std::endl;
+        return false;
+    }
+
+    if (m_blContext.isActive()) {
+        m_blContext.end(); // End context before resizing image
+    }
+
+    BLImage newImage;
+    BLResult err = newImage.create(newWidth, newHeight, BL_FORMAT_PRGB32);
+    if (err != BL_SUCCESS) {
+        std::cerr << "RenderContext::ResizeImage Error: Failed to create new BLImage: " << err << std::endl;
+        // Attempt to restart context on old image if it was valid
+        if (!m_targetImage.empty()) {
+            m_blContext.begin(m_targetImage);
+        }
+        return false;
+    }
+
+    m_targetImage = newImage; // Assign new image
+    m_imageWidth = newWidth;
+    m_imageHeight = newHeight;
+
+    err = m_blContext.begin(m_targetImage); // Re-begin context on the new image
+    if (err != BL_SUCCESS) {
+        std::cerr << "RenderContext::ResizeImage Error: Failed to begin BLContext on new image: " << err << std::endl;
+        m_targetImage.reset(); // Failed, so invalidate
+        return false;
+    }
+    std::cout << "RenderContext image resized to " << newWidth << "x" << newHeight << std::endl;
+    return true;
 }
 
 // BLContextCore* RenderContext::GetBlend2DContext() const {

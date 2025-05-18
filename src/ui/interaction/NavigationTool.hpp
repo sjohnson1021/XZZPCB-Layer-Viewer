@@ -2,9 +2,14 @@
 
 #include "ui/interaction/InteractionTool.hpp"
 
+// Forward declaration
+class ControlSettings;
+
 class NavigationTool : public InteractionTool {
 public:
-    NavigationTool(std::shared_ptr<Camera> camera, std::shared_ptr<Viewport> viewport);
+    NavigationTool(std::shared_ptr<Camera> camera, 
+                   std::shared_ptr<Viewport> viewport,
+                   std::shared_ptr<ControlSettings> controlSettings);
     ~NavigationTool() override = default;
 
     void ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isViewportHovered, ImVec2 viewportTopLeft, ImVec2 viewportSize) override;
@@ -14,6 +19,7 @@ public:
     // void SetZoomSensitivity(float sensitivity) { m_zoomSensitivity = sensitivity; }
 
 private:
+    std::shared_ptr<ControlSettings> m_controlSettings;
     // Input state specific to navigation, if needed outside of ProcessInput scope
     // e.g., bool m_isPanning;
 

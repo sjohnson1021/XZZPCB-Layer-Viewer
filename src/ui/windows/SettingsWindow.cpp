@@ -1,9 +1,24 @@
 #include "ui/windows/SettingsWindow.hpp"
 #include "view/GridSettings.hpp" // For GridColor, GridStyle, etc.
+#include "core/ControlSettings.hpp" // Added include
+#include "core/InputActions.hpp" // For InputAction enum and strings
+#include "pcb/Board.hpp" // Include Board.hpp
 #include "imgui_internal.h" // For ImGui::GetCurrentWindow(); (can be avoided if not strictly needed)
+#include <vector> // For storing actions to iterate
+#include <SDL3/SDL_log.h> // For SDL_Log
 
-SettingsWindow::SettingsWindow(std::shared_ptr<GridSettings> gridSettings)
-    : m_gridSettings(gridSettings) {
+// Remove static placeholders for layer visibility
+// static bool layer_TopCopper = true;
+// ... (all other static layer booleans removed)
+
+SettingsWindow::SettingsWindow(std::shared_ptr<GridSettings> gridSettings,
+                               std::shared_ptr<ControlSettings> controlSettings,
+                               float* applicationClearColor) // Added applicationClearColor
+    : m_gridSettings(gridSettings)
+    , m_controlSettings(controlSettings)
+    , m_appClearColor(applicationClearColor) // Store the pointer
+    , m_isOpen(false) // Default to closed
+    , m_windowName("Settings") { // Added constructor
 }
 
 SettingsWindow::~SettingsWindow() {
@@ -17,63 +32,296 @@ void SettingsWindow::ShowGridSettings() {
 
     if (ImGui::CollapsingHeader("Grid Options", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::Checkbox("Visible", &m_gridSettings->m_visible);
-        ImGui::Checkbox("Dynamic Spacing", &m_gridSettings->m_isDynamic);
-        ImGui::Checkbox("Show Axis Lines", &m_gridSettings->m_showAxisLines);
+        if (m_gridSettings->m_visible) {
+            ImGui::Indent();
+            ImGui::Checkbox("Dynamic Spacing", &m_gridSettings->m_isDynamic);
+            if (m_gridSettings->m_isDynamic) {
+                ImGui::Indent();
+                
+                // Array of power-of-2 values for the pixel step controls
+                const char* pixelStepOptions[] = { "16", "32", "64", "128", "256", "512" };
+                const int numOptions = IM_ARRAYSIZE(pixelStepOptions);
+                const float pixelStepValues[] = { 16.0f, 32.0f, 64.0f, 128.0f, 256.0f, 512.0f };
+                
+                // Min Pixel Step combo box
+                static int minPixelStepIndex = 0;
+                // Find the closest power-of-2 index for the current value
+                for (int i = 0; i < numOptions; i++) {
+                    if (m_gridSettings->m_minPixelStep <= pixelStepValues[i]) {
+                        minPixelStepIndex = i;
+                        break;
+                    }
+                    if (i == numOptions - 1) minPixelStepIndex = i;
+                }
+                
+                if (ImGui::Combo("Min Pixel Step", &minPixelStepIndex, pixelStepOptions, numOptions)) {
+                    m_gridSettings->m_minPixelStep = pixelStepValues[minPixelStepIndex];
+                    // Ensure max is not less than min
+                    if (m_gridSettings->m_maxPixelStep < m_gridSettings->m_minPixelStep) {
+                        m_gridSettings->m_maxPixelStep = m_gridSettings->m_minPixelStep;
+                    }
+                }
+                
+                // Max Pixel Step combo box
+                static int maxPixelStepIndex = 3; // Default to 128
+                // Find the closest power-of-2 index for the current value
+                for (int i = 0; i < numOptions; i++) {
+                    if (m_gridSettings->m_maxPixelStep <= pixelStepValues[i]) {
+                        maxPixelStepIndex = i;
+                        break;
+                    }
+                    if (i == numOptions - 1) maxPixelStepIndex = i;
+                }
+                
+                // Ensure maxPixelStepIndex is not less than minPixelStepIndex
+                if (maxPixelStepIndex < minPixelStepIndex) {
+                    maxPixelStepIndex = minPixelStepIndex;
+                }
+                
+                if (ImGui::Combo("Max Pixel Step", &maxPixelStepIndex, pixelStepOptions, numOptions)) {
+                    m_gridSettings->m_maxPixelStep = pixelStepValues[maxPixelStepIndex];
+                    // Ensure min is not greater than max
+                    if (m_gridSettings->m_minPixelStep > m_gridSettings->m_maxPixelStep) {
+                        m_gridSettings->m_minPixelStep = m_gridSettings->m_maxPixelStep;
+                    }
+                }
+                
+                ImGui::Unindent();
+            }
+            if (ImGui::DragFloat("Major Spacing", &m_gridSettings->m_baseMajorSpacing, 0.1f, 0.1f, 1000.0f, "%.3f")) {
+                 if (m_gridSettings->m_baseMajorSpacing < 0.1f) m_gridSettings->m_baseMajorSpacing = 0.1f;
+                 if (m_gridSettings->m_baseMajorSpacing > 1000.0f) m_gridSettings->m_baseMajorSpacing = 1000.0f;
+            }
+            ImGui::SliderInt("Subdivisions", &m_gridSettings->m_subdivisions, 1, 10);
+            
+            const char* styles[] = { "Lines", "Dots" };
+            int currentStyle = static_cast<int>(m_gridSettings->m_style);
+            if (ImGui::Combo("Style", &currentStyle, styles, IM_ARRAYSIZE(styles))) {
+                m_gridSettings->m_style = static_cast<GridStyle>(currentStyle);
+            }
 
-        // Grid Style
-        const char* styles[] = {"Lines", "Dots"};
-        int currentStyle = static_cast<int>(m_gridSettings->m_style);
-        if (ImGui::Combo("Style", &currentStyle, styles, IM_ARRAYSIZE(styles))) {
-            m_gridSettings->m_style = static_cast<GridStyle>(currentStyle);
-        }
+            ImGui::SeparatorText("Colors");
+            ImGui::ColorEdit4("Major Lines", &m_gridSettings->m_majorLineColor.r);
+            ImGui::ColorEdit4("Minor Lines", &m_gridSettings->m_minorLineColor.r);
+            ImGui::ColorEdit4("Grid Background", &m_gridSettings->m_backgroundColor.r);
 
-        // Grid Units (Display only for now, logic for unit conversion would be elsewhere)
-        const char* units[] = {"Metric", "Imperial"};
-        int currentUnit = static_cast<int>(m_gridSettings->m_unitSystem);
-        // ImGui::Combo("Unit System", &currentUnit, units, IM_ARRAYSIZE(units)); // Read-only for now
-        ImGui::Text("Unit System: %s", units[currentUnit]);
-
-        ImGui::SeparatorText("Spacing");
-        ImGui::DragFloat("Base Major Spacing", &m_gridSettings->m_baseMajorSpacing, 0.1f, 0.1f, 1000.0f, "%.2f");
-        ImGui::SliderInt("Subdivisions", &m_gridSettings->m_subdivisions, 1, 100);
-        
-        ImGui::SeparatorText("Colors");
-        ImGui::ColorEdit4("Major Line Color", &m_gridSettings->m_majorLineColor.r);
-        ImGui::ColorEdit4("Minor Line Color", &m_gridSettings->m_minorLineColor.r);
-        if (m_gridSettings->m_showAxisLines) {
-            ImGui::ColorEdit4("X-Axis Color", &m_gridSettings->m_xAxisColor.r);
-            ImGui::ColorEdit4("Y-Axis Color", &m_gridSettings->m_yAxisColor.r);
+            ImGui::Checkbox("Show Axis Lines", &m_gridSettings->m_showAxisLines);
+            if (m_gridSettings->m_showAxisLines) {
+                ImGui::Indent();
+                ImGui::ColorEdit4("X-Axis Color", &m_gridSettings->m_xAxisColor.r);
+                ImGui::ColorEdit4("Y-Axis Color", &m_gridSettings->m_yAxisColor.r);
+                ImGui::Unindent();
+            }
+            ImGui::Unindent();
         }
     }
 }
 
-void SettingsWindow::RenderUI() {
-    if (!m_isOpen) {
+namespace {
+    // Helper to capture the next key press for binding
+    KeyCombination CaptureKeybind() {
+        KeyCombination newKeybind = {};
+        ImGuiIO& io = ImGui::GetIO();
+
+        for (ImGuiKey key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_NamedKey_END; key = (ImGuiKey)(key + 1)) {
+            if (ImGui::IsKeyPressed(key, false)) { // `false` for `ImGuiKeyOwner_Any`, check if key was pressed this frame
+                newKeybind.key = key;
+                break;
+            }
+        }
+         // Also check for modifier keys that might be held *with* a non-modifier key press handled above
+        // or if only a modifier is pressed (though less common for a primary keybind key).
+        if (newKeybind.key != ImGuiKey_None) { // Only set modifiers if a main key was pressed
+            newKeybind.ctrl = io.KeyCtrl;
+            newKeybind.shift = io.KeyShift;
+            newKeybind.alt = io.KeyAlt;
+        } else {
+             // Fallback for modifier-only or special keys if needed, e.g. if a modifier itself is the bind.
+             // For now, require a non-modifier key to be part of the bind.
+        }
+        return newKeybind;
+    }
+}
+
+void SettingsWindow::ShowControlSettings() {
+    if (!m_controlSettings) {
+        ImGui::Text("ControlSettings not available.");
         return;
     }
 
-    // Make window reasonably sized by default
-    ImGui::SetNextWindowSize(ImVec2(400, 500), ImGuiCond_FirstUseEver);
+    if (ImGui::CollapsingHeader("Navigation Controls", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Checkbox("Free Camera Rotation (Hold Key)", &m_controlSettings->m_freeRotation);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::Text("If enabled, holding Q/E continuously rotates the camera.\nIf disabled, Q/E will snap rotation by 90 degrees per press.");
+            ImGui::EndTooltip();
+        }
 
-    if (ImGui::Begin(m_windowName.c_str(), &m_isOpen)) {
-        ImGui::Text("Application and View Settings");
-        ImGui::Spacing();
-
-        if (ImGui::BeginTabBar("SettingsTabs")) {
-            if (ImGui::BeginTabItem("Grid")) {
-                ShowGridSettings();
-                ImGui::EndTabItem();
-            }
-            // if (ImGui::BeginTabItem("Theme")) {
-            //     ShowThemeSettings(); // Placeholder for future theme settings
-            //     ImGui::EndTabItem();
-            // }
-            // if (ImGui::BeginTabItem("Application")) {
-            //     ShowApplicationSettings(); // Placeholder
-            //     ImGui::EndTabItem();
-            // }
-            ImGui::EndTabBar();
+        ImGui::Checkbox("Rotate Around Cursor", &m_controlSettings->m_rotateAroundCursor);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered()) {
+            ImGui::BeginTooltip();
+            ImGui::Text("If enabled, rotation will pivot around the current mouse cursor position within the viewport.\nOtherwise, rotation pivots around the viewport center.");
+            ImGui::EndTooltip();
         }
     }
-    ImGui::End();
+
+    ImGui::SeparatorText("Keybinds");
+    if (ImGui::CollapsingHeader("Application Keybinds", ImGuiTreeNodeFlags_None)) {
+        ImGui::TextWrapped("Click 'Set' then press the desired key combination for an action. Click again to cancel.");
+        ImGui::Spacing();
+
+        if (ImGui::Button("Reset All Keybinds to Default")) {
+            m_controlSettings->ResetKeybindsToDefault();
+            // Potentially mark config as dirty to be saved
+        }
+        ImGui::Spacing();
+
+        if (ImGui::BeginTable("keybindsTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+            ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+            ImGui::TableSetupColumn("Keybind", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableHeadersRow();
+
+            static InputAction actionToRebind = InputAction::Count; // Special value indicating no rebind active
+            static std::string rebindButtonText = "Set";
+
+            for (int i = 0; i < static_cast<int>(InputAction::Count); ++i) {
+                InputAction currentAction = static_cast<InputAction>(i);
+                ImGui::TableNextRow();
+                
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextUnformatted(InputActionToString(currentAction));
+
+                ImGui::TableSetColumnIndex(1);
+                KeyCombination currentKb = m_controlSettings->GetKeybind(currentAction);
+                
+                std::string buttonLabel = "Set";
+                if (actionToRebind == currentAction) {
+                    buttonLabel = "Capturing... Click to Cancel";
+                } else {
+                    buttonLabel = currentKb.ToString();
+                }
+
+                ImGui::PushID(i); // Unique ID for each button
+                if (ImGui::Button(buttonLabel.c_str(), ImVec2(-FLT_MIN, 0))) { // -FLT_MIN makes button stretch
+                    if (actionToRebind == currentAction) { // Was capturing, now cancel
+                        actionToRebind = InputAction::Count;
+                    } else { // Start capturing for this action
+                        actionToRebind = currentAction;
+                        ImGui::SetKeyboardFocusHere(); // Try to focus to capture keys, may not be fully effective
+                    }
+                }
+                ImGui::PopID();
+
+                if (actionToRebind == currentAction) {
+                    ImGui::SetItemDefaultFocus(); // Try to keep focus for key capture
+                    KeyCombination newKb = CaptureKeybind();
+                    if (newKb.IsBound()) {
+                        // Check for conflicts (optional, basic check here)
+                        bool conflict = false;
+                        for(int j=0; j < static_cast<int>(InputAction::Count); ++j) {
+                            if (i == j) continue;
+                            if (m_controlSettings->GetKeybind(static_cast<InputAction>(j)) == newKb) {
+                                // TODO: Show a more user-friendly conflict warning
+                                SDL_Log("Keybind %s already used for %s", newKb.ToString().c_str(), InputActionToString(static_cast<InputAction>(j)));
+                                conflict = true;
+                                break;
+                            }
+                        }
+                        if (!conflict) { // Or if user confirms overwrite
+                           m_controlSettings->SetKeybind(currentAction, newKb);
+                        } // else, newKb is ignored due to conflict / or user cancels
+                        actionToRebind = InputAction::Count; // Stop capturing
+                    } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsItemHovered()){
+                        // If clicked outside the button while capturing, cancel capture.
+                        // This logic might need refinement depending on ImGui behavior.
+                         actionToRebind = InputAction::Count;
+                    }
+                }
+            }
+            ImGui::EndTable();
+        }
+    }
+}
+
+void SettingsWindow::ShowLayerControls(const std::shared_ptr<Board>& currentBoard) { // Updated signature
+    ImGui::SeparatorText("PCB Layer Visibility");
+
+    if (!currentBoard) {
+        ImGui::TextDisabled("No board loaded. Layer controls unavailable.");
+        return;
+    }
+
+    if (currentBoard->GetLayerCount() == 0) {
+        ImGui::TextDisabled("Board has no layers defined.");
+        return;
+    }
+
+    // Assuming Board has an interface like:
+    // int GetLayerCount() const;
+    // std::string GetLayerName(int layerIndex) const;
+    // bool IsLayerVisible(int layerIndex) const;
+    // void SetLayerVisible(int layerIndex, bool visible);
+    // And that modifying visibility through SetLayerVisible might trigger a redraw elsewhere.
+
+    for (int i = 0; i < currentBoard->GetLayerCount(); ++i) {
+        std::string layerName = currentBoard->GetLayerName(i);
+        if (layerName.empty()) {
+            layerName = "Unnamed Layer " + std::to_string(i);
+        }
+        bool layerVisible = currentBoard->IsLayerVisible(i);
+
+        if (ImGui::Checkbox(layerName.c_str(), &layerVisible)) {
+            currentBoard->SetLayerVisible(i, layerVisible);
+            // Optionally, mark the board as dirty or trigger an event if needed
+        }
+    }
+}
+
+void SettingsWindow::ShowAppearanceSettings(const std::shared_ptr<Board>& currentBoard) { // Updated signature
+    if (!m_appClearColor) {
+        ImGui::Text("Application clear color not available.");
+        // return; // Don't return early, still show layer controls if board is present
+    } else {
+         ImGui::SeparatorText("Application Appearance");
+         ImGui::ColorEdit3("Background Color", m_appClearColor, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_DisplayRGB);
+         ImGui::Spacing();
+    }
+
+    ShowLayerControls(currentBoard); // Pass currentBoard
+}
+
+void SettingsWindow::RenderUI(const std::shared_ptr<Board>& currentBoard) { // Updated signature
+    if (!m_isOpen) {
+        return;
+    }
+    ImGui::SetNextWindowSize(ImVec2(450, 550), ImGuiCond_FirstUseEver);
+    
+    // Restore to default dockable behavior, remove NoDocking flag
+    bool window_open = ImGui::Begin(m_windowName.c_str(), &m_isOpen);
+    
+    if (!window_open) {
+        ImGui::End(); // Correctly call End even if Begin returned false
+        return;
+    }
+
+    if (ImGui::BeginTabBar("SettingsTabs")) {
+        if (ImGui::BeginTabItem("Display")) {
+            ShowAppearanceSettings(currentBoard);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Grid")) {
+            ShowGridSettings();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Controls")) {
+            ShowControlSettings();
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    ImGui::End(); // This End matches the successful Begin
 } 

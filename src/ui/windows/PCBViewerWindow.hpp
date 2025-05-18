@@ -3,13 +3,15 @@
 #include <memory>
 #include <string>
 #include "imgui.h" // For ImVec2, ImGuiWindowFlags etc.
-
+#include "core/ControlSettings.hpp"
 // Forward declarations
 class Camera;
 class Viewport;
 class Grid;
 class GridSettings;
 class InteractionManager;
+class ControlSettings;
+class Board; // Added for OnBoardLoaded
 struct SDL_Renderer;
 struct SDL_Texture; // For rendering the PCB view onto a texture
 // class InteractionManager; // Will be needed for pan/zoom etc.
@@ -20,7 +22,8 @@ public:
         std::shared_ptr<Camera> camera,
         std::shared_ptr<Viewport> viewport,
         std::shared_ptr<Grid> grid,
-        std::shared_ptr<GridSettings> gridSettings
+        std::shared_ptr<GridSettings> gridSettings,
+        std::shared_ptr<ControlSettings> controlSettings
     );
     ~PCBViewerWindow();
 
@@ -32,6 +35,8 @@ public:
     // Renders the ImGui window and manages the content within.
     // renderer is needed to create/update the SDL_Texture.
     void RenderUI(SDL_Renderer* renderer);
+
+    void OnBoardLoaded(const std::shared_ptr<Board>& board); // New method
 
     bool IsWindowFocused() const { return m_isFocused; }
     bool IsWindowHovered() const { return m_isHovered; }
@@ -45,6 +50,7 @@ private:
     std::shared_ptr<Grid> m_grid;
     std::shared_ptr<GridSettings> m_gridSettings;
     std::unique_ptr<InteractionManager> m_interactionManager;
+    std::shared_ptr<ControlSettings> m_controlSettings;
 
     SDL_Texture* m_renderTexture = nullptr;
     int m_textureWidth = 0;
@@ -57,6 +63,11 @@ private:
 
     ImVec2 m_contentRegionTopLeftScreen; // Renamed for clarity (screen coordinates)
     ImVec2 m_contentRegionSize;     // Size of the renderable content area
+
+    // For delayed texture resizing
+    ImVec2 m_desiredTextureSize = {0, 0};
+    int m_resizeCooldownFrames = 0;
+    static const int RESIZE_COOLDOWN_MAX = 5; // Frames to wait
 
     void InitializeTexture(SDL_Renderer* renderer, int width, int height);
     void ReleaseTexture();

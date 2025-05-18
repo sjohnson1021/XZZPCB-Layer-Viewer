@@ -9,11 +9,17 @@ class GridSettings;
 // Potentially other settings classes in the future
 // class ThemeSettings;
 // class ApplicationSettings;
+class ControlSettings;
+class Board; // Forward declare Board
 
 class SettingsWindow {
 public:
     // It will need access to the settings objects it can modify.
-    explicit SettingsWindow(std::shared_ptr<GridSettings> gridSettings /*, other settings */);
+    explicit SettingsWindow(
+        std::shared_ptr<GridSettings> gridSettings,
+        std::shared_ptr<ControlSettings> controlSettings,
+        float* applicationClearColor // Added pointer to application's clear color
+    );
     ~SettingsWindow();
 
     SettingsWindow(const SettingsWindow&) = delete;
@@ -21,7 +27,7 @@ public:
     SettingsWindow(SettingsWindow&&) = delete;
     SettingsWindow& operator=(SettingsWindow&&) = delete;
 
-    void RenderUI();
+    void RenderUI(const std::shared_ptr<Board>& currentBoard);
 
     bool IsWindowVisible() const { return m_isOpen; }
     void SetVisible(bool visible) { m_isOpen = visible; }
@@ -31,6 +37,8 @@ private:
     bool m_isOpen = false; // Default to closed, opened via a menu typically
 
     std::shared_ptr<GridSettings> m_gridSettings;
+    std::shared_ptr<ControlSettings> m_controlSettings;
+    float* m_appClearColor; // Pointer to Application's clear color
     // std::shared_ptr<ThemeSettings> m_themeSettings;
     // std::shared_ptr<ApplicationSettings> m_appSettings;
 
@@ -38,4 +46,7 @@ private:
     void ShowGridSettings();
     // void ShowThemeSettings();
     // void ShowApplicationSettings();
+    void ShowControlSettings();
+    void ShowAppearanceSettings(const std::shared_ptr<Board>& currentBoard);
+    void ShowLayerControls(const std::shared_ptr<Board>& currentBoard);
 }; 

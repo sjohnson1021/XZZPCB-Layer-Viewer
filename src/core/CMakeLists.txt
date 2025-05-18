@@ -9,7 +9,6 @@ set(SOURCE_FILES
     SDLRenderer.cpp
     BLRenderer.cpp
     ImGuiManager.cpp
-    ImGuiRenderer.cpp
 )
 
 # ImGui source files - no need to include them here as we already built them in the root CMakeLists.txt
