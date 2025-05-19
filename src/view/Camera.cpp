@@ -6,12 +6,12 @@
 // #include <glm/gtc/matrix_transform.hpp>
 
 // A common default zoom value
-const float DEFAULT_ZOOM = 1.0f;
+const float DEFAULT_ZOOM = 3.0f;
 const Vec2 DEFAULT_POSITION = {0.0f, 0.0f};
 const float DEFAULT_ROTATION = 0.0f;
 
 // Define zoom limits
-const float MIN_ZOOM_LEVEL = 0.10f;
+const float MIN_ZOOM_LEVEL = 0.25f;
 const float MAX_ZOOM_LEVEL = 50.0f;
 
 // Define PI if not available from cmath or a math library

@@ -132,11 +132,19 @@ void RenderContext::OptimizeForStatic() {
     // Use these settings when rendering static content
     m_blContext.setCompOp(BL_COMP_OP_SRC_OVER);
     m_blContext.setFillRule(BL_FILL_RULE_NON_ZERO);
-    m_blContext.setApproximationOptions(BL_APPROXIMATION_MODE_PRECISION);
+
+    BLApproximationOptions precisionOptions = blDefaultApproximationOptions;
+    precisionOptions.flattenTolerance = 0.1; // Default is 0.3; smaller is more precise
+    precisionOptions.simplifyTolerance = 0.0; // Default is 0.05; 0 means no/less simplification
+    m_blContext.setApproximationOptions(precisionOptions);
 }
 
 void RenderContext::OptimizeForInteractive() {
     // Use these for dynamic/interactive content
     m_blContext.setCompOp(BL_COMP_OP_SRC_OVER);
-    m_blContext.setApproximationOptions(BL_APPROXIMATION_MODE_SPEED);
+
+    BLApproximationOptions speedOptions = blDefaultApproximationOptions;
+    speedOptions.flattenTolerance = 0.5; // Larger tolerance for speed
+    speedOptions.simplifyTolerance = 0.2; // More simplification for speed
+    m_blContext.setApproximationOptions(speedOptions);
 } 

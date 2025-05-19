@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory> // For std::shared_ptr or std::unique_ptr if settings are owned
+#include <vector>
 #include <blend2d.h> // Include for BLContext
 #include "Camera.hpp"
 #include "GridSettings.hpp"
@@ -30,6 +31,20 @@ public:
     void Render(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport) const;
     // Alternate Render signature if using a general RenderContext:
     // void Render(RenderContext& context, const Camera& camera, const Viewport& viewport) const;
+
+    // Returns current effective grid spacings in world units
+    // These can be used for displaying measurement information
+    struct GridMeasurementInfo {
+        float majorSpacing;        // Effective major spacing in world units
+        float minorSpacing;        // Effective minor spacing in world units
+        int subdivisions;          // Effective subdivision count
+        bool majorLinesVisible;    // Whether major lines/dots are currently being drawn
+        bool minorLinesVisible;    // Whether minor lines/dots are currently being drawn
+        const char* unitString;    // "mm", "in", etc. based on current unit system
+    };
+    
+    // Gets measurement info based on current camera/viewport state
+    GridMeasurementInfo GetMeasurementInfo(const Camera& camera, const Viewport& viewport) const;
 
     // Update settings if needed (e.g., if settings are not owned via shared_ptr)
     // void SetSettings(const GridSettings& settings);
@@ -63,10 +78,23 @@ private:
         bool actuallyDrawMinorDots
     ) const;
     
+    // Calculates line or dot counts to enforce rendering limits
+    void EnforceRenderingLimits(
+        const Camera& camera, const Viewport& viewport,
+        float spacing, const Vec2& worldMin, const Vec2& worldMax,
+        int& outEstimatedLineCount, bool& outShouldRender
+    ) const;
+    
     void DrawGridLines(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, float spacing, const GridColor& color, const Vec2& worldMin, const Vec2& worldMax, bool isMajor, float majorSpacingForAxisCheck) const;
     void DrawGridDots(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, float spacing, const GridColor& color, const Vec2& worldMin, const Vec2& worldMax, bool isMajor, float majorSpacingForAxisCheck) const;
 
     void DrawAxis(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, const Vec2& worldMin, const Vec2& worldMax) const;
+
+    // Render measurement readout in the corner of the viewport
+    void RenderMeasurementReadout(BLContext& bl_ctx, const Viewport& viewport, const GridMeasurementInfo& info) const;
+    
+    // Generate "nice" unit values appropriate for the current unit system
+    void GetNiceUnitFactors(std::vector<float>& outFactors) const;
 
     // Helper methods for drawing, calculating line positions, etc.
     // void DrawLines(SDL_Renderer* renderer, const Camera& camera, const Viewport& viewport) const;

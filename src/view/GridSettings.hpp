@@ -26,6 +26,10 @@ class GridSettings {
 public:
     GridSettings();
 
+    // Required helper methods for unit conversion and display
+    const char* UnitToString() const;
+    float GetUnitDisplayScale() const; // For converting internal units to display units
+
     // Keep getters if some logic is involved or for read-only external access
     // but for ImGui, direct member access is simpler if we make them public.
 
@@ -33,32 +37,39 @@ public:
 public:  // Allow direct access for ImGui widgets
     bool m_visible = true;
     GridStyle m_style = GridStyle::LINES;
-    GridUnitSystem m_unitSystem = GridUnitSystem::METRIC;
+    GridUnitSystem m_unitSystem = GridUnitSystem::METRIC; // Hide from UI for now
 
-    // Base spacing for major grid lines (e.g., in millimeters or other world units)
+    // Base spacing for major grid lines in world units (mm for metric, inches for imperial)
     // This is the spacing when zoom is 1.0 and dynamic adjustment hasn't kicked in significantly.
-    int m_baseMajorSpacing = 50; // Changed from float to int
+    float m_baseMajorSpacing = 100.0f;
 
     // Number of subdivisions between major grid lines to draw minor lines
     int m_subdivisions = 10;
 
-    GridColor m_majorLineColor = {0.3f, 0.3f, 0.3f, 1.0f};
-    GridColor m_minorLineColor = {0.15f, 0.15f, 0.15f, 1.0f};
+    GridColor m_majorLineColor = {0.588f, 0.588f, 0.588f, 0.392f}; // 150,150,150,100
+    GridColor m_minorLineColor = {0.467f, 0.467f, 0.467f, 0.196f}; // 119,119,119,50
 
     bool m_isDynamic = true; 
-    float m_minPixelStep = 20.0f; // Default for dynamic grid spacing
-    float m_maxPixelStep = 80.0f; // Default for dynamic grid spacing
+    float m_minPixelStep = 8.0f;
+    float m_maxPixelStep = 1024.0f;
 
     bool m_showAxisLines = true;
-    GridColor m_xAxisColor = {0.7f, 0.2f, 0.2f, 0.9f};
-    GridColor m_yAxisColor = {0.2f, 0.7f, 0.2f, 0.9f};
+    GridColor m_xAxisColor = {0.702f, 0.2f, 0.2f, 0.902f}; // 179,51,51,230
+    GridColor m_yAxisColor = {0.2f, 0.702f, 0.2f, 0.902f}; // 51,179,51,230
 
     GridColor m_backgroundColor = {0.0f, 0.0f, 0.0f, 0.0f}; // Grid's own background color
 
-    // New members for line/dot thickness
+    // Line/dot thickness/radius settings
     float m_lineThickness = 1.0f;
     float m_axisLineThickness = 1.0f; // Can be different from regular lines
     float m_dotRadius = 1.0f;         // Radius for dots in DOTS style
+
+    // New: Show measurement readout on screen
+    bool m_showMeasurementReadout = true;
+    
+    // Safety limits to prevent excessive rendering
+    static constexpr int MAX_RENDERABLE_LINES = 5000; // Hard limit on total lines to render
+    static constexpr int MAX_RENDERABLE_DOTS = 10000; // Hard limit on total dots to render
 
     // Original public methods - can be kept or removed if direct access is preferred
     // bool IsVisible() const { return m_visible; }

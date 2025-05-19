@@ -7,6 +7,10 @@
 #include <algorithm> // For std::min/max with initializer list
 #include <vector>
 #include <iostream>
+#include <limits> // For std::numeric_limits
+#include <string> // For string formatting in measurement readout
+#include <sstream> // For string streams
+#include <iomanip> // For output formatting
 
 // Define PI if not already available from Camera.cpp or a common math header
 #ifndef M_PI
@@ -18,81 +22,150 @@ Grid::Grid(std::shared_ptr<GridSettings> settings)
 
 Grid::~Grid() {}
 
+void Grid::GetNiceUnitFactors(std::vector<float>& outFactors) const {
+    if (m_settings->m_unitSystem == GridUnitSystem::METRIC) {
+        // Metric: 1, 2, 5, 10 series
+        outFactors = {1.0f, 2.0f, 5.0f};
+    } else {
+        // Imperial: Handle both decimal inches and fractions
+        // For decimal: 0.1, 0.25, 0.5, 1.0
+        // For fractions: 1/16, 1/8, 1/4, 1/2, 1
+        outFactors = {0.0625f, 0.125f, 0.25f, 0.5f, 1.0f};
+    }
+}
+
 void Grid::GetEffectiveSpacings(
     const Camera& camera, 
     float& outMajorSpacing_world, 
     float& outMinorSpacing_world,
     int& outEffectiveSubdivisions
 ) const {
-    // Rule 0: Input Sanitization (from m_settings)
+    // --- 0. Input Sanitization & Defaults ---
     float baseMajorSpacing_world = m_settings->m_baseMajorSpacing;
-    if (baseMajorSpacing_world <= 1e-6f) baseMajorSpacing_world = 1.0f; // Ensure positive base
+    // Ensure positive base spacing, defaulting to appropriate unit-specific value if too small
+    if (baseMajorSpacing_world <= 1e-6f) {
+        baseMajorSpacing_world = (m_settings->m_unitSystem == GridUnitSystem::METRIC) ? 10.0f : 0.5f;
+    }
 
-    int base_subdivisions_count = std::max(1, m_settings->m_subdivisions);
+    // Get appropriate subdivisions based on unit system if none specified
+    int baseSubdivisions = std::max(1, m_settings->m_subdivisions);
+    if (baseSubdivisions <= 1) {
+        baseSubdivisions = (m_settings->m_unitSystem == GridUnitSystem::METRIC) ? 10 : 4;
+    }
     
-    // Ensure minPixelStep is at least 1.0f, as per Rule 0.
-    float minPixelStep_screen = std::max(1.0f, m_settings->m_minPixelStep);
-    // Ensure maxPixelStep is greater than minPixelStep, as per Rule 0.
-    float maxPixelStep_screen = std::max(minPixelStep_screen * 1.5f, m_settings->m_maxPixelStep);
-    
-    const float currentZoom = std::max(1e-6f, camera.GetZoom()); // Ensure currentZoom > 0
+    const float minPxStep = std::max(1.0f, m_settings->m_minPixelStep);
+    const float maxPxStep = std::max(minPxStep * 1.5f, m_settings->m_maxPixelStep);
+    const float zoom = std::max(1e-6f, camera.GetZoom());
 
     // Initialize outputs
     outMajorSpacing_world = baseMajorSpacing_world;
-    outEffectiveSubdivisions = base_subdivisions_count;
+    outEffectiveSubdivisions = baseSubdivisions;
 
+    // --- 1. Dynamic Spacing Mode ---
     if (m_settings->m_isDynamic) {
-        // Rule 1: Dynamic Major Line Spacing (World Units)
-        float currentMajorSpacingOnScreen = outMajorSpacing_world * currentZoom;
+        // 1a. Determine Ideal Major Spacing based on zoom and pixel steps
+        float currentMajorScreenPx = outMajorSpacing_world * zoom;
 
-        if (currentMajorSpacingOnScreen < minPixelStep_screen) {
-            float scaleFactor = minPixelStep_screen / currentMajorSpacingOnScreen;
-            float power = std::ceil(std::log2(scaleFactor));
-            outMajorSpacing_world *= std::pow(2.0f, power);
+        if (currentMajorScreenPx < minPxStep || currentMajorScreenPx > maxPxStep) {
+            float bestFitMajorSpacing = outMajorSpacing_world;
+            float smallestDiff = std::numeric_limits<float>::max();
+            float targetScreenPx = (minPxStep + maxPxStep) / 2.0f; // Aim for middle of the range
+
+            // Target world spacing that would make currentMajorScreenPx == targetScreenPx
+            float targetIdealWorldSpacing = targetScreenPx / zoom;
+            if (targetIdealWorldSpacing < 1e-7f) targetIdealWorldSpacing = 1e-7f; // Prevent log10 of zero/negative
+
+            // Determine appropriate base scale using logarithmic approach based on unit system
+            float logBase = 10.0f; // For metric system
+            if (m_settings->m_unitSystem == GridUnitSystem::IMPERIAL) {
+                logBase = 2.0f; // For imperial fractions (powers of 2)
+            }
+            
+            float baseScale = std::pow(10.0f, std::floor(std::log10(targetIdealWorldSpacing)));
+            
+            // Get "nice" factors appropriate for the current unit system
+            std::vector<float> niceFactors;
+            GetNiceUnitFactors(niceFactors);
+
+            // Try different powers around the base scale
+            for (int i = -2; i <= 2; ++i) {
+                float powerOf10 = std::pow(10.0f, i);
+                for (float factor : niceFactors) {
+                    float candidateSpacing_world = baseScale * powerOf10 * factor;
+                    if (candidateSpacing_world < 1e-6f) continue; // Avoid too small spacing
+
+                    float candidateScreenPx = candidateSpacing_world * zoom;
+                    if (candidateScreenPx >= minPxStep && candidateScreenPx <= maxPxStep) {
+                        float diff = std::abs(candidateScreenPx - targetScreenPx);
+                        if (diff < smallestDiff) {
+                            smallestDiff = diff;
+                            bestFitMajorSpacing = candidateSpacing_world;
+                        }
+                    }
+                }
+            }
+            
+            // If no "nice number" fit was found, use power-of-2 scaling as fallback
+            if (smallestDiff == std::numeric_limits<float>::max()) {
+                if (currentMajorScreenPx < minPxStep) {
+                    float scale = minPxStep / currentMajorScreenPx;
+                    bestFitMajorSpacing = outMajorSpacing_world * std::pow(2.0f, std::ceil(std::log2(scale)));
+                } else { // currentMajorScreenPx > maxPxStep
+                    float scale = maxPxStep / currentMajorScreenPx;
+                    if (scale > 0) {
+                        bestFitMajorSpacing = outMajorSpacing_world * std::pow(2.0f, std::floor(std::log2(scale)));
+                    }
+                }
+            }
+            outMajorSpacing_world = bestFitMajorSpacing;
         }
-        else if (currentMajorSpacingOnScreen > maxPixelStep_screen) {
-            float scaleFactor = maxPixelStep_screen / currentMajorSpacingOnScreen;
-            float power = std::floor(std::log2(scaleFactor));
-            outMajorSpacing_world *= std::pow(2.0f, power);
-        }
-        // Clamp effectiveMajorSpacing_world within reasonable world unit bounds (e.g., 1e-7 to 1e7)
+        
+        // Clamp to reasonable world unit bounds
         outMajorSpacing_world = std::max(1e-7f, std::min(1e7f, outMajorSpacing_world));
 
-        // Rule 2: Dynamic Minor Line Density (Effective Subdivision Count)
-        if (base_subdivisions_count > 1) { // Only adjust if there are subdivisions to begin with
-            float potentialMinorWorldSpacing_via_base_sub = outMajorSpacing_world / base_subdivisions_count;
-            float potentialMinorScreenSpacing_via_base_sub = potentialMinorWorldSpacing_via_base_sub * currentZoom;
+        // 1b. Determine Effective Subdivisions based on the new outMajorSpacing_world
+        if (baseSubdivisions > 1) {
+            float potentialMinorWorldSpacing = outMajorSpacing_world / baseSubdivisions;
+            float potentialMinorScreenPx = potentialMinorWorldSpacing * zoom;
 
-            if (potentialMinorScreenSpacing_via_base_sub < minPixelStep_screen) {
-                double sparsityFactor_double = 1.0;
-                // Ensure potentialMinorScreenSpacing_via_base_sub is positive before division
-                if (potentialMinorScreenSpacing_via_base_sub > 1e-9f) { 
-                    sparsityFactor_double = std::ceil(static_cast<double>(minPixelStep_screen) / potentialMinorScreenSpacing_via_base_sub);
-                } else { 
-                    // If potential screen spacing is tiny/zero, make sparsity high to reduce subdivisions to 1
-                    sparsityFactor_double = static_cast<double>(base_subdivisions_count) + 1.0; 
+            if (potentialMinorScreenPx < minPxStep) {
+                // Try to find appropriate subdivision count based on unit system
+                int newSubdivisions = baseSubdivisions;
+                
+                if (m_settings->m_unitSystem == GridUnitSystem::METRIC) {
+                    // For metric, prefer 10, 5, 2, 1
+                    while (newSubdivisions > 1 && (outMajorSpacing_world / newSubdivisions) * zoom < minPxStep) {
+                        if (newSubdivisions == 10) newSubdivisions = 5;
+                        else if (newSubdivisions == 5) newSubdivisions = 2;
+                        else if (newSubdivisions == 2) newSubdivisions = 1;
+                        else newSubdivisions = 1; // Fallback
+                    }
+                } else {
+                    // For imperial, prefer 8, 4, 2, 1 (power of 2 divisions)
+                    while (newSubdivisions > 1 && (outMajorSpacing_world / newSubdivisions) * zoom < minPxStep) {
+                        if (newSubdivisions == 16) newSubdivisions = 8;
+                        else if (newSubdivisions == 8) newSubdivisions = 4;
+                        else if (newSubdivisions == 4) newSubdivisions = 2;
+                        else if (newSubdivisions == 2) newSubdivisions = 1;
+                        else newSubdivisions = 1; // Fallback
+                    }
                 }
                 
-                int sparsityFactor = static_cast<int>(sparsityFactor_double);
-                // Ensure sparsityFactor is at least 1 to avoid division by zero or issues with floor
-                if (sparsityFactor <= 0) sparsityFactor = 1; 
-
-                outEffectiveSubdivisions = static_cast<int>(std::floor(static_cast<double>(base_subdivisions_count) / sparsityFactor));
-                outEffectiveSubdivisions = std::max(1, outEffectiveSubdivisions); // Ensure at least 1 subdivision
+                outEffectiveSubdivisions = std::max(1, newSubdivisions);
             } else {
-                outEffectiveSubdivisions = base_subdivisions_count;
+                outEffectiveSubdivisions = baseSubdivisions;
             }
         } else {
-            outEffectiveSubdivisions = 1; // No subdivisions if base_subdivisions_count was 1
+            outEffectiveSubdivisions = 1;
         }
-    } else {
-        // Rule 3: Static Mode Parameterization
+    }
+    // --- 2. Static Spacing Mode ---
+    else {
         outMajorSpacing_world = baseMajorSpacing_world;
-        outEffectiveSubdivisions = base_subdivisions_count;
+        outEffectiveSubdivisions = baseSubdivisions;
     }
 
-    // Final calculation for outMinorSpacing_world based on effective subdivisions
-    // outEffectiveSubdivisions is guaranteed to be >= 1 here.
+    // --- 3. Final Minor Spacing Calculation ---
     outMinorSpacing_world = outMajorSpacing_world / outEffectiveSubdivisions;
 }
 
@@ -117,6 +190,163 @@ void Grid::GetVisibleWorldBounds(const Camera& camera, const Viewport& viewport,
     }
 }
 
+void Grid::EnforceRenderingLimits(
+    const Camera& camera, const Viewport& viewport,
+    float spacing, const Vec2& worldMin, const Vec2& worldMax, 
+    int& outEstimatedLineCount, bool& outShouldRender) const
+{
+    if (spacing <= 1e-6f) {
+        outEstimatedLineCount = 0;
+        outShouldRender = false;
+        return;
+    }
+
+    // Calculate how many horizontal and vertical lines would be drawn
+    long long i_start_x = static_cast<long long>(std::ceil(worldMin.x / spacing));
+    long long i_end_x = static_cast<long long>(std::floor(worldMax.x / spacing));
+    int numHorizontalLines = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
+
+    long long i_start_y = static_cast<long long>(std::ceil(worldMin.y / spacing));
+    long long i_end_y = static_cast<long long>(std::floor(worldMax.y / spacing));
+    int numVerticalLines = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
+
+    // Total number of lines
+    outEstimatedLineCount = numHorizontalLines + numVerticalLines;
+    
+    // For dots, the estimate would be numHorizontalLines * numVerticalLines
+    // We'll use the same mechanism for both since dots also require two nested loops
+    int dotEstimate = numHorizontalLines * numVerticalLines;
+
+    // Determine if we should render based on limits
+    int maxRenderableItems;
+    if (m_settings->m_style == GridStyle::LINES) {
+        maxRenderableItems = m_settings->MAX_RENDERABLE_LINES;
+        outShouldRender = (outEstimatedLineCount <= maxRenderableItems);
+    } else { // DOTS
+        maxRenderableItems = m_settings->MAX_RENDERABLE_DOTS;
+        outShouldRender = (dotEstimate <= maxRenderableItems);
+    }
+}
+
+Grid::GridMeasurementInfo Grid::GetMeasurementInfo(const Camera& camera, const Viewport& viewport) const {
+    GridMeasurementInfo info;
+    
+    // Get current effective spacings
+    GetEffectiveSpacings(camera, info.majorSpacing, info.minorSpacing, info.subdivisions);
+    
+    // Determine visibility based on screen pixel step
+    const float currentZoom = camera.GetZoom();
+    const float minPxStep = std::max(1.0f, m_settings->m_minPixelStep);
+    
+    float majorScreenPx = info.majorSpacing * currentZoom;
+    info.majorLinesVisible = (majorScreenPx >= minPxStep);
+    
+    float minorScreenPx = info.minorSpacing * currentZoom;
+    info.minorLinesVisible = info.majorLinesVisible && 
+                             info.subdivisions > 1 && 
+                             (minorScreenPx >= minPxStep) && 
+                             (std::abs(info.majorSpacing - info.minorSpacing) > 1e-6f) && 
+                             (info.minorSpacing > 1e-6f);
+    
+    // Get unit string
+    info.unitString = m_settings->UnitToString();
+    
+    return info;
+}
+
+void Grid::RenderMeasurementReadout(BLContext& bl_ctx, const Viewport& viewport, const GridMeasurementInfo& info) const {
+    if (!m_settings->m_showMeasurementReadout) {
+        return;
+    }
+
+    // Create the measurement text
+    std::stringstream ss;
+    ss << std::fixed << std::setprecision(3); // Display up to 3 decimal places
+    
+    // Format major spacing
+    if (info.majorLinesVisible) {
+        ss << "Major: " << info.majorSpacing << info.unitString;
+    } else {
+        ss << "Major: Hidden";
+    }
+    
+    // Format minor spacing
+    ss << " | ";
+    if (info.minorLinesVisible) {
+        ss << "Minor: " << info.minorSpacing << info.unitString;
+    } else {
+        ss << "Minor: Hidden";
+    }
+    
+    std::string readoutText = ss.str();
+    
+    // Setup text position and size
+    const int padding = 10;
+    const float x = static_cast<float>(viewport.GetX() + padding);
+    const float y = static_cast<float>(viewport.GetY() + viewport.GetHeight() - padding - 20);
+    
+    // Estimate text dimensions based on character count (rough approximation)
+    // Average character width is about 8 pixels in a standard font at ~11px size
+    float charWidth = 8.0f;
+    float textWidth = static_cast<float>(readoutText.length()) * charWidth;
+    float textHeight = 16.0f; // Typical text height with some padding
+    
+    // Draw background with semi-transparent black
+    const float boxX = x - 5.0f;
+    const float boxY = y - textHeight + 5.0f;
+    const float boxWidth = textWidth + 10.0f; 
+    const float boxHeight = textHeight + 10.0f;
+    
+    bl_ctx.setFillStyle(BLRgba32(0, 0, 0, 196));
+    bl_ctx.fillRect(BLRect(boxX, boxY, boxWidth, boxHeight));
+    
+    // Create a font from the specified font file
+    static BLFontFace fontFace;
+    static bool fontFaceInitialized = false;
+    static bool fontFaceLoadFailed = false;
+    
+    // Try to load the font once and cache the result
+    if (!fontFaceInitialized) {
+        fontFaceInitialized = true;
+        
+        // Use the project's font file
+        BLResult faceResult = fontFace.createFromFile("assets/fonts/Nippo-Light.otf");
+        if (faceResult != BL_SUCCESS) {
+            // Try with full path if relative path fails
+            faceResult = fontFace.createFromFile("/home/seanj/Documents/Code/XZZPCB-Layer-Viewer/assets/fonts/Nippo-Light.otf");
+            if (faceResult != BL_SUCCESS) {
+                fontFaceLoadFailed = true;
+                std::cerr << "Failed to load font file for grid measurement readout" << std::endl;
+            }
+        }
+    }
+    
+    if (!fontFaceLoadFailed) {
+        BLFont font;
+        BLResult fontResult = font.createFromFace(fontFace, 11.0f);
+        
+        if (fontResult == BL_SUCCESS) {
+            // Draw text with solid white if font creation succeeded
+            bl_ctx.setFillStyle(BLRgba32(255, 255, 255, 255));
+            bl_ctx.fillUtf8Text(BLPoint(x, y), font, readoutText.c_str(), readoutText.length());
+        } else {
+            // Fallback if font creation failed - draw simple text indicator
+            bl_ctx.setFillStyle(BLRgba32(255, 255, 255, 255));
+            for (size_t i = 0; i < readoutText.length(); i++) {
+                bl_ctx.fillRect(BLRect(x + i * charWidth, y - textHeight/2, 
+                                      (readoutText[i] == ' ') ? charWidth/4 : charWidth/2, 1));
+            }
+        }
+    } else {
+        // Fallback if font face creation failed - draw simple text indicator
+        bl_ctx.setFillStyle(BLRgba32(255, 255, 255, 255));
+        for (size_t i = 0; i < readoutText.length(); i++) {
+            bl_ctx.fillRect(BLRect(x + i * charWidth, y - textHeight/2, 
+                                  (readoutText[i] == ' ') ? charWidth/4 : charWidth/2, 1));
+        }
+    }
+}
+
 void Grid::DrawGridLines(
     BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, 
     float spacing, const GridColor& color,
@@ -124,6 +354,15 @@ void Grid::DrawGridLines(
     bool isMajor, float majorSpacingForAxisCheck) const 
 {
     if (spacing <= 1e-6f) return;
+
+    // Check rendering limits
+    int estimatedLineCount;
+    bool shouldRender;
+    EnforceRenderingLimits(camera, viewport, spacing, worldMin, worldMax, estimatedLineCount, shouldRender);
+    
+    if (!shouldRender) {
+        return; // Too many lines, skip rendering
+    }
 
     try {
         BLRgba32 lineColor(
@@ -143,7 +382,7 @@ void Grid::DrawGridLines(
         long long i_end_y = static_cast<long long>(std::floor(worldMax.y / spacing));
         int reserveVertLines = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
         
-        const int max_reserve_per_axis = 10000;
+        const int max_reserve_per_axis = std::min(estimatedLineCount, 10000); // Respect the calculated limit
         linesPath.reserve((std::min(reserveHorizLines, max_reserve_per_axis) + std::min(reserveVertLines, max_reserve_per_axis)) * 2);
         
         std::vector<Vec2> verticalStartPoints;
@@ -223,6 +462,15 @@ void Grid::DrawGridDots(
 {
     if (spacing <= 1e-6f) return;
 
+    // Check rendering limits
+    int estimatedLineCount; // Used as an approximation for estimating dot count
+    bool shouldRender;
+    EnforceRenderingLimits(camera, viewport, spacing, worldMin, worldMax, estimatedLineCount, shouldRender);
+    
+    if (!shouldRender) {
+        return; // Too many dots, skip rendering
+    }
+
     try {
         BLRgba32 dotColor(
             static_cast<uint32_t>(color.r * 255.0f),
@@ -243,9 +491,10 @@ void Grid::DrawGridDots(
         int num_potential_dots_x = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
         int num_potential_dots_y = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
         
-        const int max_reserve_total_dots = 100000; // Arbitrary large number for total dots
+        // Use MAX_RENDERABLE_DOTS as the cap for dot reservation
+        const int max_reserve_total_dots = m_settings->MAX_RENDERABLE_DOTS; 
         if (num_potential_dots_x > 0 && num_potential_dots_y > 0) {
-            if (static_cast<double>(num_potential_dots_x) * num_potential_dots_y < max_reserve_total_dots) {
+            if (static_cast<long long>(num_potential_dots_x) * num_potential_dots_y < max_reserve_total_dots) {
                  dotsPath.reserve(num_potential_dots_x * num_potential_dots_y);
             } else {
                  dotsPath.reserve(max_reserve_total_dots); // Cap reservation
@@ -270,9 +519,15 @@ void Grid::DrawGridDots(
                         if (dotsCount < max_reserve_total_dots) {
                             dotsPath.addCircle(BLCircle(screenP.x, screenP.y, dotRadius));
                             dotsCount++;
+                        } else {
+                            // Reached limit, stop adding
+                            break;
                         }
                     }
                 }
+            }
+            if (dotsCount >= max_reserve_total_dots) {
+                break; // Reached limit, stop adding
             }
         }
         
@@ -296,10 +551,9 @@ void Grid::DrawLinesStyle(
     bool actuallyDrawMajorLines,
     bool actuallyDrawMinorLines
 ) const {
+    // All spacing validity checks are already done in Render method
     if (actuallyDrawMinorLines) {
-        if (std::abs(minorSpacing - majorSpacing) > 1e-6f && minorSpacing > 1e-6f) { 
-             DrawGridLines(bl_ctx, camera, viewport, minorSpacing, m_settings->m_minorLineColor, worldMin, worldMax, false, majorSpacing);
-        }
+        DrawGridLines(bl_ctx, camera, viewport, minorSpacing, m_settings->m_minorLineColor, worldMin, worldMax, false, majorSpacing);
     }
     if (actuallyDrawMajorLines) {
         DrawGridLines(bl_ctx, camera, viewport, majorSpacing, m_settings->m_majorLineColor, worldMin, worldMax, true, majorSpacing);
@@ -313,10 +567,9 @@ void Grid::DrawDotsStyle(
     bool actuallyDrawMajorDots,
     bool actuallyDrawMinorDots
 ) const {
+    // All spacing validity checks are already done in Render method
     if (actuallyDrawMinorDots) {
-        if (std::abs(minorSpacing - majorSpacing) > 1e-6f && minorSpacing > 1e-6f) {
-            DrawGridDots(bl_ctx, camera, viewport, minorSpacing, m_settings->m_minorLineColor, worldMin, worldMax, false, majorSpacing);
-        }
+        DrawGridDots(bl_ctx, camera, viewport, minorSpacing, m_settings->m_minorLineColor, worldMin, worldMax, false, majorSpacing);
     }
     if (actuallyDrawMajorDots) {
         DrawGridDots(bl_ctx, camera, viewport, majorSpacing, m_settings->m_majorLineColor, worldMin, worldMax, true, majorSpacing);
@@ -383,6 +636,7 @@ void Grid::Render(BLContext& bl_ctx, const Camera& camera, const Viewport& viewp
     try {
         bl_ctx.save();
 
+        // Draw background if needed
         if (m_settings->m_backgroundColor.a > 0.0f) {
             bl_ctx.setFillStyle(BLRgba32(
                 static_cast<uint32_t>(m_settings->m_backgroundColor.r * 255.0f),
@@ -393,45 +647,66 @@ void Grid::Render(BLContext& bl_ctx, const Camera& camera, const Viewport& viewp
             bl_ctx.fillRect(BLRect(0, 0, viewport.GetWidth(), viewport.GetHeight()));
         }
 
+        // Calculate effective grid spacings based on current zoom
         float effMajorSpacing_world, effMinorSpacing_world;
-        int effectiveSubdivisions;
-        GetEffectiveSpacings(camera, effMajorSpacing_world, effMinorSpacing_world, effectiveSubdivisions);
+        int effectiveSubdivisionsToConsider;
+        GetEffectiveSpacings(camera, effMajorSpacing_world, effMinorSpacing_world, effectiveSubdivisionsToConsider);
 
+        // Get visible world bounds
         Vec2 worldMin, worldMax;
         GetVisibleWorldBounds(camera, viewport, worldMin, worldMax);
-
-        float culledMajorSpacing = effMajorSpacing_world;
-        float culledMinorSpacing = effMinorSpacing_world;
         
-        float minPixelStep_setting = std::max(1.0f, m_settings->m_minPixelStep);
+        const float currentZoom = camera.GetZoom();
+        const float minPxStepSetting = std::max(1.0f, m_settings->m_minPixelStep);
 
-        // Rule 5 (modified) for Minor Elements
+        // --- Culling Decision based on minPixelStep (APPLIES TO BOTH DYNAMIC AND STATIC) ---
+        bool actuallyDrawMajorElements = false;
+        float majorScreenPx = effMajorSpacing_world * currentZoom;
+        if (majorScreenPx >= minPxStepSetting) {
+            actuallyDrawMajorElements = true;
+        }
+
         bool actuallyDrawMinorElements = false;
-        if (effectiveSubdivisions > 1) {
-            float currentMinorScreenSpacing = culledMinorSpacing * camera.GetZoom();
-            if (currentMinorScreenSpacing >= minPixelStep_setting) {
+        if (effectiveSubdivisionsToConsider > 1) { // Only consider minors if there are any
+            float minorScreenPx = effMinorSpacing_world * currentZoom;
+            // Check that minor spacing is meaningfully different from major,
+            // and that minor spacing itself is positive.
+            if (minorScreenPx >= minPxStepSetting && 
+                std::abs(effMajorSpacing_world - effMinorSpacing_world) > 1e-6f && 
+                effMinorSpacing_world > 1e-6f) {
                 actuallyDrawMinorElements = true;
             }
         }
 
-        // New: Rule 5 equivalent for Major Elements (especially for static mode)
-        bool actuallyDrawMajorElements = false;
-        float currentMajorScreenSpacing = culledMajorSpacing * camera.GetZoom();
-        if (currentMajorScreenSpacing >= minPixelStep_setting) {
-            actuallyDrawMajorElements = true;
+        // If major lines are hidden, it doesn't make sense to show minor lines either
+        if (!actuallyDrawMajorElements) {
+            actuallyDrawMinorElements = false;
         }
-
+        
+        // Clip to viewport bounds
         bl_ctx.clipToRect(BLRect(0, 0, viewport.GetWidth(), viewport.GetHeight()));
 
+        // Draw grid elements
         if (m_settings->m_style == GridStyle::LINES) {
-            DrawLinesStyle(bl_ctx, camera, viewport, culledMajorSpacing, culledMinorSpacing, worldMin, worldMax, actuallyDrawMajorElements, actuallyDrawMinorElements);
+            DrawLinesStyle(bl_ctx, camera, viewport, effMajorSpacing_world, effMinorSpacing_world, worldMin, worldMax, actuallyDrawMajorElements, actuallyDrawMinorElements);
         } else if (m_settings->m_style == GridStyle::DOTS) {
-            DrawDotsStyle(bl_ctx, camera, viewport, culledMajorSpacing, culledMinorSpacing, worldMin, worldMax, actuallyDrawMajorElements, actuallyDrawMinorElements);
+            DrawDotsStyle(bl_ctx, camera, viewport, effMajorSpacing_world, effMinorSpacing_world, worldMin, worldMax, actuallyDrawMajorElements, actuallyDrawMinorElements);
         }
 
-        // Axis lines are drawn independently of this new major/minor culling for now.
-        // They have their own m_showAxisLines setting.
+        // Draw axis lines (independent of grid culling)
         DrawAxis(bl_ctx, camera, viewport, worldMin, worldMax);
+        
+        // Create measurement readout info
+        GridMeasurementInfo info;
+        info.majorSpacing = effMajorSpacing_world;
+        info.minorSpacing = effMinorSpacing_world;
+        info.subdivisions = effectiveSubdivisionsToConsider;
+        info.majorLinesVisible = actuallyDrawMajorElements;
+        info.minorLinesVisible = actuallyDrawMinorElements;
+        info.unitString = m_settings->UnitToString();
+        
+        // Draw measurement readout
+        RenderMeasurementReadout(bl_ctx, viewport, info);
 
         bl_ctx.restore();
     }
