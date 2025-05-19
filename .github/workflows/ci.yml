@@ -175,7 +175,7 @@ jobs:
         with:
           vcpkgDirectory: ${{ env.VCPKG_ROOT_DIR }}
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
-          vcpkgJsonGlob: '${{ github.workspace }}/vcpkg.json'
+          vcpkgJsonGlob: 'vcpkg.json'
           runVcpkgInstall: true # Default is true, ensures dependencies are installed
 
      

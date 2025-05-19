@@ -23,6 +23,7 @@ target_include_directories(${LIBRARY_NAME}
 target_link_libraries(${LIBRARY_NAME}
     PUBLIC # Or INTERFACE if render_lib itself doesn't need to compile against blend2d but its headers do
     blend2d # Link against the Blend2D library target
+    SDL3::SDL3 # Link against the SDL3 library target
     view_lib # Added dependency on view_lib
 )
 

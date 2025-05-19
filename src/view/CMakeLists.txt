@@ -22,4 +22,5 @@ target_include_directories(${LIBRARY_NAME}
 target_link_libraries(${LIBRARY_NAME}
     PUBLIC
     blend2d # Grid.cpp uses BLContext
+    SDL3::SDL3 # Link against the SDL3 library target
 ) 
