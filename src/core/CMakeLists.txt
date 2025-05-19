@@ -43,4 +43,7 @@ target_link_libraries(${LIBRARY_NAME}
     imgui
     SDL3::SDL3
     blend2d
+    render_lib
+    ui_lib
+    view_lib
 ) 

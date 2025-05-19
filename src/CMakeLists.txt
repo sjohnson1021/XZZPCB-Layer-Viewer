@@ -1,7 +1,7 @@
-add_subdirectory(core) # Builds core_lib
 add_subdirectory(render) # Builds render_lib
 add_subdirectory(view)   # Builds view_lib
 add_subdirectory(ui)     # Builds ui_lib
+add_subdirectory(core)   # Builds core_lib
 
 set(EXECUTABLE_NAME XZZPCB-Layer-Viewer)
 
@@ -17,8 +17,10 @@ add_executable(${EXECUTABLE_NAME} ${MAIN_EXECUTABLE_SOURCES})
 # Link with our libraries and other dependencies
 target_link_libraries(${EXECUTABLE_NAME}
     PRIVATE
-    render_lib     # Library from src/render/
     ui_lib         # Library from src/ui/
+    core_lib       # Library from src/core/
+    view_lib       # Library from src/view/
+    render_lib     # Library from src/render/
     imgui          # Defined in root CMakeLists.txt
     SDL3::SDL3     # From external/SDL submodule
     blend2d        # From external/blend2d submodule

@@ -19,7 +19,6 @@ target_include_directories(${LIBRARY_NAME}
 
 target_link_libraries(${LIBRARY_NAME}
     PUBLIC
-    core_lib
     view_lib
     render_lib
     SDL3::SDL3
