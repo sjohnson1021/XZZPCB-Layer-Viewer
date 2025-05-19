@@ -78,7 +78,7 @@ jobs:
           fetch-depth: 0
 
       - name: Ensure submodules are up-to-date
-        run: git submodule update --init --recursive
+        run: git clone https://github.com/asmjit/asmjit external/blend2d/3rdparty/asmjit
     
       - name: Set reusable strings
         id: strings
@@ -116,6 +116,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-vcpkg-binary-cache-${{ hashFiles('**/vcpkg.json') }}-
             ${{ runner.os }}-vcpkg-binary-cache-
+
+      - name: Install ASMJIT
+        run: git clone https://github.com/asmjit/asmjit external/blend2d/3rdparty/asmjit
+
 
       # System-level dependencies (e.g. build tools for vcpkg, not libs from vcpkg.json)
       # lukka/run-vcpkg might handle some of these, but keeping them can be safer.
@@ -179,8 +183,11 @@ jobs:
           vcpkgDirectory: ${{ env.VCPKG_ROOT_DIR }}
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           vcpkgJsonGlob: '${{ github.workspace }}/vcpkg.json'
-          # runVcpkgInstall: true # Default is true, ensures dependencies are installed
+          runVcpkgInstall: true # Default is true, ensures dependencies are installed
 
+      # We are somehow not getting SDL3 installed from vcpkg.json, so we need to install it manually.
+      - name: Install SDL3
+        run: ${{ env.VCPKG_ROOT_DIR }}/vcpkg install sdl3 opengl
      
       # Configure, Build, and Test using lukka/run-cmake
       - name: Configure, Build, and Test
