@@ -176,9 +176,6 @@ jobs:
           vcpkgJsonGlob: '${{ github.workspace }}/vcpkg.json'
           runVcpkgInstall: true # Default is true, ensures dependencies are installed
 
-      # We are somehow not getting SDL3 installed from vcpkg.json, so we need to install it manually.
-      - name: Install SDL3
-        run: ${{ env.VCPKG_ROOT_DIR }}/vcpkg install sdl3 opengl
      
       # Configure, Build, and Test using lukka/run-cmake
       - name: Configure, Build, and Test
