@@ -1,6 +1,7 @@
 add_subdirectory(core) # Builds core_lib
 add_subdirectory(render) # Builds render_lib
 add_subdirectory(view)   # Builds view_lib
+add_subdirectory(ui)     # Builds ui_lib
 
 set(EXECUTABLE_NAME XZZPCB-Layer-Viewer)
 
