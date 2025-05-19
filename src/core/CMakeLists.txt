@@ -12,13 +12,6 @@ set(SOURCE_FILES
     BLRenderer.cpp
     ImGuiManager.cpp
 
-    # UI components
-    ../ui/MainMenuBar.cpp
-    ../ui/windows/PCBViewerWindow.cpp
-    ../ui/windows/SettingsWindow.cpp
-    ../ui/windows/PcbDetailsWindow.cpp
-    ../ui/interaction/InteractionManager.cpp
-    ../ui/interaction/NavigationTool.cpp
     # PCB components
     ../pcb/PcbLoader.cpp
     ../pcb/Board.cpp
@@ -47,7 +40,6 @@ target_include_directories(${LIBRARY_NAME}
 # Link libraries
 target_link_libraries(${LIBRARY_NAME}
     PUBLIC
-    view_lib   # Added dependency on view_lib
     imgui
     SDL3::SDL3
     blend2d

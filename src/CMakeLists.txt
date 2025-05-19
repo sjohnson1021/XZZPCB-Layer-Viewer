@@ -16,9 +16,8 @@ add_executable(${EXECUTABLE_NAME} ${MAIN_EXECUTABLE_SOURCES})
 # Link with our libraries and other dependencies
 target_link_libraries(${EXECUTABLE_NAME}
     PRIVATE
-    core_lib       # Library from src/core/
     render_lib     # Library from src/render/
-    view_lib       # Library from src/view/
+    ui_lib         # Library from src/ui/
     imgui          # Defined in root CMakeLists.txt
     SDL3::SDL3     # From external/SDL submodule
     blend2d        # From external/blend2d submodule
