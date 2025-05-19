@@ -64,13 +64,17 @@ jobs:
             ${{ runner.os }}-blend2d-submodule-
 
 
+
       - name: Checkout w/ Submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
 
-    
+      - name: Install ASMJIT
+        run: git clone https://github.com/asmjit/asmjit external/blend2d/3rdparty/asmjit
+
+
       - name: Set reusable strings
         id: strings
         shell: bash
@@ -108,8 +112,6 @@ jobs:
             ${{ runner.os }}-vcpkg-binary-cache-${{ hashFiles('**/vcpkg.json') }}-
             ${{ runner.os }}-vcpkg-binary-cache-
 
-      - name: Install ASMJIT
-        run: git clone https://github.com/asmjit/asmjit external/blend2d/3rdparty/asmjit
 
 
       # System-level dependencies (e.g. build tools for vcpkg, not libs from vcpkg.json)

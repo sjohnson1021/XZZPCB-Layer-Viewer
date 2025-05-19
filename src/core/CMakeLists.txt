@@ -40,7 +40,7 @@ target_include_directories(${LIBRARY_NAME}
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/external/imgui
     ${CMAKE_SOURCE_DIR}/external/imgui/backends
-    # ${CMAKE_SOURCE_DIR}/external/SDL/include # This should now be handled by linking SDL3::SDL3 from vcpkg
+    ${CMAKE_SOURCE_DIR}/external/SDL/include # This should now be handled by linking SDL3::SDL3 from vcpkg
     ${CMAKE_SOURCE_DIR}/external/ImGuiFileDialog
 )
 

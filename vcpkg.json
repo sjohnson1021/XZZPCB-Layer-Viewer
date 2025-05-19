@@ -3,7 +3,6 @@
     "version-string": "0.0.3",
     "description": "Dependencies for the XZZPCB Layer Viewer project.",
     "dependencies": [
-        "sdl3",
         "opengl"
     ]
 }
