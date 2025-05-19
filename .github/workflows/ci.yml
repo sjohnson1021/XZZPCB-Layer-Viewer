@@ -62,14 +62,7 @@ jobs:
           key: ${{ runner.os }}-blend2d-submodule-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-blend2d-submodule-
-      
-      - name: Cache ASMJIT submodule
-        uses: actions/cache@v4
-        with:
-          path: external/asmjit
-          key: ${{ runner.os }}-asmjit-submodule-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-asmjit-submodule-
+
 
       - name: Checkout w/ Submodules
         uses: actions/checkout@v4
@@ -77,8 +70,6 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Ensure submodules are up-to-date
-        run: git clone https://github.com/asmjit/asmjit external/blend2d/3rdparty/asmjit
     
       - name: Set reusable strings
         id: strings
