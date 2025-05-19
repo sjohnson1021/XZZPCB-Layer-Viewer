@@ -2,9 +2,6 @@
 	path = external/imgui
 	branch = docking
 	url = https://github.com/ocornut/imgui.git
-[submodule "external/SDL"]
-	path = external/SDL
-	url = https://github.com/libsdl-org/SDL.git
 [submodule "external/ImGuiFileDialog"]
 	path = external/ImGuiFileDialog
 	url = https://github.com/aiekick/ImGuiFileDialog

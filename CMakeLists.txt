@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(PCBViewer LANGUAGES CXX)
+project(PCBViewer LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -9,6 +9,7 @@ option(BUILD_TESTS "Build tests" OFF)
 
 # Find necessary packages
 find_package(OpenGL REQUIRED)
+find_package(SDL3 REQUIRED)
 
 # Organize output files
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -17,10 +18,9 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 # --- Dependencies (using Git Submodules in external/) ---
 
-# SDL3
-# Add SDL3 as a subdirectory. Assumes it has its own CMakeLists.txt that creates SDL3::SDL3 target.
-# Ensure your submodule in external/SDL is SDL3.
-add_subdirectory(external/SDL EXCLUDE_FROM_ALL) # EXCLUDE_FROM_ALL if you only want to link against it
+# ASMJIT
+# Add ASMJIT as a subdirectory. Assumes it has its own CMakeLists.txt that creates a 'asmjit' target.
+# Ensure your submodule is in external/asmjit.
 
 # Blend2D
 # Add Blend2D as a subdirectory. Assumes it has its own CMakeLists.txt that creates a 'blend2d' target.

@@ -37,7 +37,7 @@ public:
         const Viewport& viewport,
         const Grid& grid // Pass Grid by const reference
     );
-    const double& BL_M_PI = 3.14159265358979323846;
+    static constexpr double BL_M_PI = 3.14159265358979323846;
     // Process a single renderable item (or this could be a list)
     // void Process(RenderContext& context, IRenderable* renderable);
     // Or, the pipeline might manage a list of renderables itself
