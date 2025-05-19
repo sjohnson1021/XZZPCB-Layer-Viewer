@@ -1,5 +1,6 @@
 #include "view/Camera.hpp"
 #include <cmath> // For std::pow, std::cos, std::sin, etc. if needed for transformations
+#include <algorithm> // For std::min/max
 
 // If using GLM:
 // #include <glm/gtc/matrix_transform.hpp>
@@ -8,6 +9,10 @@
 const float DEFAULT_ZOOM = 1.0f;
 const Vec2 DEFAULT_POSITION = {0.0f, 0.0f};
 const float DEFAULT_ROTATION = 0.0f;
+
+// Define zoom limits
+const float MIN_ZOOM_LEVEL = 0.10f;
+const float MAX_ZOOM_LEVEL = 50.0f;
 
 // Define PI if not available from cmath or a math library
 #ifndef M_PI
@@ -32,8 +37,9 @@ const Vec2& Camera::GetPosition() const {
 
 void Camera::SetZoom(float zoom) {
     // Add constraints to zoom if necessary (e.g., min/max zoom)
-    if (zoom > 0.0f) { // Zoom must be positive
-        m_zoom = zoom;
+    float clampedZoom = std::max(MIN_ZOOM_LEVEL, std::min(zoom, MAX_ZOOM_LEVEL));
+    if (clampedZoom > 0.0f) { // Zoom must be positive (already ensured by MIN_ZOOM_LEVEL > 0)
+        m_zoom = clampedZoom;
         // UpdateViewMatrix();
     }
 }

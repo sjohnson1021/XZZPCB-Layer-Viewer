@@ -36,12 +36,12 @@ void SettingsWindow::ShowGridSettings() {
             ImGui::Indent();
             ImGui::Checkbox("Dynamic Spacing", &m_gridSettings->m_isDynamic);
             if (m_gridSettings->m_isDynamic) {
-                ImGui::Indent();
+                ImGui::Indent(); 
                 
                 // Array of power-of-2 values for the pixel step controls
-                const char* pixelStepOptions[] = { "16", "32", "64", "128", "256", "512" };
+                const char* pixelStepOptions[] = { "8", "16", "32", "64", "128", "256", "512", "1024", "2048", "4096", "8192", "16384", "32768", "65536" };
                 const int numOptions = IM_ARRAYSIZE(pixelStepOptions);
-                const float pixelStepValues[] = { 16.0f, 32.0f, 64.0f, 128.0f, 256.0f, 512.0f };
+                const float pixelStepValues[] = {8.0f, 16.0f, 32.0f, 64.0f, 128.0f, 256.0f, 512.0f, 1024.0f, 2048.0f, 4096.0f, 8192.0f, 16384.0f, 32768.0f, 65536.0f };
                 
                 // Min Pixel Step combo box
                 static int minPixelStepIndex = 0;
@@ -56,10 +56,12 @@ void SettingsWindow::ShowGridSettings() {
                 
                 if (ImGui::Combo("Min Pixel Step", &minPixelStepIndex, pixelStepOptions, numOptions)) {
                     m_gridSettings->m_minPixelStep = pixelStepValues[minPixelStepIndex];
-                    // Ensure max is not less than min
                     if (m_gridSettings->m_maxPixelStep < m_gridSettings->m_minPixelStep) {
                         m_gridSettings->m_maxPixelStep = m_gridSettings->m_minPixelStep;
                     }
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Minimum pixel gap on screen for grid lines.\nMajor lines will adapt their world spacing.\nMinor lines will be hidden or their count reduced if they become denser than this.");
                 }
                 
                 // Max Pixel Step combo box
@@ -88,11 +90,16 @@ void SettingsWindow::ShowGridSettings() {
                 
                 ImGui::Unindent();
             }
-            if (ImGui::DragInt("Major Spacing", &m_gridSettings->m_baseMajorSpacing, 1, 1, 10000)) {
-                if (m_gridSettings->m_baseMajorSpacing < 1) m_gridSettings->m_baseMajorSpacing = 1;
+            if (ImGui::DragInt("Major Spacing", &m_gridSettings->m_baseMajorSpacing, 8, 8, 10000)) {
+                if (m_gridSettings->m_baseMajorSpacing < 8) m_gridSettings->m_baseMajorSpacing = 8;
                 if (m_gridSettings->m_baseMajorSpacing > 10000) m_gridSettings->m_baseMajorSpacing = 10000;
             }
-            ImGui::SliderInt("Subdivisions", &m_gridSettings->m_subdivisions, 1, 10);
+
+            const char* subdivisionsLabel = m_gridSettings->m_isDynamic ? "Maximum Subdivisions" : "Subdivisions";
+            ImGui::SliderInt(subdivisionsLabel, &m_gridSettings->m_subdivisions, 1, 10);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Desired number of subdivisions between major grid lines.\nWhen Dynamic Spacing is on, the actual number of minor lines drawn may be less if they become too dense on screen (see Min Pixel Step).");
+            }
             
             const char* styles[] = { "Lines", "Dots" };
             int currentStyle = static_cast<int>(m_gridSettings->m_style);

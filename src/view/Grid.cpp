@@ -18,31 +18,82 @@ Grid::Grid(std::shared_ptr<GridSettings> settings)
 
 Grid::~Grid() {}
 
-void Grid::GetEffectiveSpacings(const Camera& camera, float& outMajorSpacing, float& outMinorSpacing) const {
-    outMajorSpacing = m_settings->m_baseMajorSpacing;
-    const int subdivisions = m_settings->m_subdivisions > 0 ? m_settings->m_subdivisions : 1;
+void Grid::GetEffectiveSpacings(
+    const Camera& camera, 
+    float& outMajorSpacing_world, 
+    float& outMinorSpacing_world,
+    int& outEffectiveSubdivisions
+) const {
+    // Rule 0: Input Sanitization (from m_settings)
+    float baseMajorSpacing_world = m_settings->m_baseMajorSpacing;
+    if (baseMajorSpacing_world <= 1e-6f) baseMajorSpacing_world = 1.0f; // Ensure positive base
+
+    int base_subdivisions_count = std::max(1, m_settings->m_subdivisions);
+    
+    // Ensure minPixelStep is at least 1.0f, as per Rule 0.
+    float minPixelStep_screen = std::max(1.0f, m_settings->m_minPixelStep);
+    // Ensure maxPixelStep is greater than minPixelStep, as per Rule 0.
+    float maxPixelStep_screen = std::max(minPixelStep_screen * 1.5f, m_settings->m_maxPixelStep);
+    
+    const float currentZoom = std::max(1e-6f, camera.GetZoom()); // Ensure currentZoom > 0
+
+    // Initialize outputs
+    outMajorSpacing_world = baseMajorSpacing_world;
+    outEffectiveSubdivisions = base_subdivisions_count;
 
     if (m_settings->m_isDynamic) {
-        const float minPixelStep = std::max(16.0f, m_settings->m_minPixelStep);
-        const float maxPixelStep = std::max(minPixelStep * 1.5f, m_settings->m_maxPixelStep);
-        const float zoom = std::max(1e-6f, camera.GetZoom());
-        float currentPixelStep = outMajorSpacing * zoom;
+        // Rule 1: Dynamic Major Line Spacing (World Units)
+        float currentMajorSpacingOnScreen = outMajorSpacing_world * currentZoom;
 
-        if (currentPixelStep < minPixelStep) {
-            float scaleFactor = minPixelStep / currentPixelStep;
+        if (currentMajorSpacingOnScreen < minPixelStep_screen) {
+            float scaleFactor = minPixelStep_screen / currentMajorSpacingOnScreen;
             float power = std::ceil(std::log2(scaleFactor));
-            scaleFactor = std::pow(2.0f, power);
-            outMajorSpacing *= scaleFactor;
+            outMajorSpacing_world *= std::pow(2.0f, power);
         }
-        else if (currentPixelStep > maxPixelStep) {
-            float scaleFactor = maxPixelStep / currentPixelStep;
+        else if (currentMajorSpacingOnScreen > maxPixelStep_screen) {
+            float scaleFactor = maxPixelStep_screen / currentMajorSpacingOnScreen;
             float power = std::floor(std::log2(scaleFactor));
-            scaleFactor = std::pow(2.0f, power);
-            outMajorSpacing *= scaleFactor;
+            outMajorSpacing_world *= std::pow(2.0f, power);
         }
-        outMajorSpacing = std::max(1e-7f, std::min(1e7f, outMajorSpacing));
+        // Clamp effectiveMajorSpacing_world within reasonable world unit bounds (e.g., 1e-7 to 1e7)
+        outMajorSpacing_world = std::max(1e-7f, std::min(1e7f, outMajorSpacing_world));
+
+        // Rule 2: Dynamic Minor Line Density (Effective Subdivision Count)
+        if (base_subdivisions_count > 1) { // Only adjust if there are subdivisions to begin with
+            float potentialMinorWorldSpacing_via_base_sub = outMajorSpacing_world / base_subdivisions_count;
+            float potentialMinorScreenSpacing_via_base_sub = potentialMinorWorldSpacing_via_base_sub * currentZoom;
+
+            if (potentialMinorScreenSpacing_via_base_sub < minPixelStep_screen) {
+                double sparsityFactor_double = 1.0;
+                // Ensure potentialMinorScreenSpacing_via_base_sub is positive before division
+                if (potentialMinorScreenSpacing_via_base_sub > 1e-9f) { 
+                    sparsityFactor_double = std::ceil(static_cast<double>(minPixelStep_screen) / potentialMinorScreenSpacing_via_base_sub);
+                } else { 
+                    // If potential screen spacing is tiny/zero, make sparsity high to reduce subdivisions to 1
+                    sparsityFactor_double = static_cast<double>(base_subdivisions_count) + 1.0; 
+                }
+                
+                int sparsityFactor = static_cast<int>(sparsityFactor_double);
+                // Ensure sparsityFactor is at least 1 to avoid division by zero or issues with floor
+                if (sparsityFactor <= 0) sparsityFactor = 1; 
+
+                outEffectiveSubdivisions = static_cast<int>(std::floor(static_cast<double>(base_subdivisions_count) / sparsityFactor));
+                outEffectiveSubdivisions = std::max(1, outEffectiveSubdivisions); // Ensure at least 1 subdivision
+            } else {
+                outEffectiveSubdivisions = base_subdivisions_count;
+            }
+        } else {
+            outEffectiveSubdivisions = 1; // No subdivisions if base_subdivisions_count was 1
+        }
+    } else {
+        // Rule 3: Static Mode Parameterization
+        outMajorSpacing_world = baseMajorSpacing_world;
+        outEffectiveSubdivisions = base_subdivisions_count;
     }
-    outMinorSpacing = outMajorSpacing / subdivisions;
+
+    // Final calculation for outMinorSpacing_world based on effective subdivisions
+    // outEffectiveSubdivisions is guaranteed to be >= 1 here.
+    outMinorSpacing_world = outMajorSpacing_world / outEffectiveSubdivisions;
 }
 
 void Grid::GetVisibleWorldBounds(const Camera& camera, const Viewport& viewport, Vec2& outMinWorld, Vec2& outMaxWorld) const {
@@ -68,14 +119,13 @@ void Grid::GetVisibleWorldBounds(const Camera& camera, const Viewport& viewport,
 
 void Grid::DrawGridLines(
     BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, 
-    float spacing, const GridColor& color, 
+    float spacing, const GridColor& color,
     const Vec2& worldMin, const Vec2& worldMax, 
     bool isMajor, float majorSpacingForAxisCheck) const 
 {
     if (spacing <= 1e-6f) return;
 
     try {
-        // Set color
         BLRgba32 lineColor(
             static_cast<uint32_t>(color.r * 255.0f),
             static_cast<uint32_t>(color.g * 255.0f),
@@ -83,76 +133,36 @@ void Grid::DrawGridLines(
             static_cast<uint32_t>(color.a * 255.0f)
         );
         
-        // Create a single path for all lines
         BLPath linesPath;
+
+        long long i_start_x = static_cast<long long>(std::ceil(worldMin.x / spacing));
+        long long i_end_x = static_cast<long long>(std::floor(worldMax.x / spacing));
+        int reserveHorizLines = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
+
+        long long i_start_y = static_cast<long long>(std::ceil(worldMin.y / spacing));
+        long long i_end_y = static_cast<long long>(std::floor(worldMax.y / spacing));
+        int reserveVertLines = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
         
-        // Culling optimization - limit maximum lines per render pass
-        const int maxLinesPerAxis = 200;
+        const int max_reserve_per_axis = 10000;
+        linesPath.reserve((std::min(reserveHorizLines, max_reserve_per_axis) + std::min(reserveVertLines, max_reserve_per_axis)) * 2);
         
-        // Vertical lines
-        float startX = std::ceil(worldMin.x / spacing) * spacing;
-        float endX = worldMax.x;
-        int horizLines = std::ceil((endX - startX) / spacing);
-        
-        // Horizontal lines
-        float startY = std::ceil(worldMin.y / spacing) * spacing;
-        float endY = worldMax.y;
-        int vertLines = std::ceil((endY - startY) / spacing);
-        
-        // Total number of lines
-        int totalLines = horizLines + vertLines;
-        
-        // Very dense grid detection (implement pattern-based approach for extremely dense grids)
-        const int ultraDenseThreshold = 1000;
-        if (totalLines > ultraDenseThreshold) {
-            // For extremely dense grids, we can draw a pattern instead
-            float scaleFactor = std::max(
-                horizLines > 0 ? static_cast<float>(horizLines) / maxLinesPerAxis : 1.0f,
-                vertLines > 0 ? static_cast<float>(vertLines) / maxLinesPerAxis : 1.0f
-            );
-            
-            // Round up scaling to the nearest power of 2 for consistent grid appearance
-            int power = std::ceil(std::log2(scaleFactor));
-            scaleFactor = std::pow(2.0f, power);
-            
-            // Increase spacing
-            spacing *= scaleFactor;
-            
-            // Recalculate start positions with new spacing
-            startX = std::ceil(worldMin.x / spacing) * spacing;
-            startY = std::ceil(worldMin.y / spacing) * spacing;
-            
-            // Recalculate number of lines with new spacing
-            horizLines = std::ceil((endX - startX) / spacing);
-            vertLines = std::ceil((endY - startY) / spacing);
-        }
-        
-        // Reserve memory for the path (significant optimization)
-        // Each line needs 2 points (moveTo + lineTo)
-        linesPath.reserve((horizLines + vertLines) * 2);
-        
-        // Pre-transform all line endpoints at once
-        // For vertical lines
         std::vector<Vec2> verticalStartPoints;
         std::vector<Vec2> verticalEndPoints;
-        verticalStartPoints.reserve(horizLines);
-        verticalEndPoints.reserve(horizLines);
+        verticalStartPoints.reserve(std::min(reserveHorizLines, max_reserve_per_axis));
+        verticalEndPoints.reserve(std::min(reserveHorizLines, max_reserve_per_axis));
         
-        // For horizontal lines
         std::vector<Vec2> horizontalStartPoints;
         std::vector<Vec2> horizontalEndPoints;
-        horizontalStartPoints.reserve(vertLines);
-        horizontalEndPoints.reserve(vertLines);
+        horizontalStartPoints.reserve(std::min(reserveVertLines, max_reserve_per_axis));
+        horizontalEndPoints.reserve(std::min(reserveVertLines, max_reserve_per_axis));
         
-        // Calculate all screen coordinates for vertical lines
-        for (float x = startX; x <= endX; x += spacing) {
-            if (isMajor && m_settings->m_showAxisLines && std::abs(x) < spacing * 0.1f) {
-                continue; // Skip lines near axis if showing axis lines
+        for (long long i = i_start_x; i <= i_end_x; ++i) {
+            float x = static_cast<float>(i) * spacing;
+            if (isMajor && m_settings->m_showAxisLines && std::abs(x) < majorSpacingForAxisCheck * 0.1f) {
+                continue;
             }
-            
             Vec2 screenP1 = viewport.WorldToScreen({x, worldMin.y}, camera);
             Vec2 screenP2 = viewport.WorldToScreen({x, worldMax.y}, camera);
-            
             if (std::isfinite(screenP1.x) && std::isfinite(screenP1.y) && 
                 std::isfinite(screenP2.x) && std::isfinite(screenP2.y)) {
                 verticalStartPoints.push_back(screenP1);
@@ -160,15 +170,13 @@ void Grid::DrawGridLines(
             }
         }
         
-        // Calculate all screen coordinates for horizontal lines
-        for (float y = startY; y <= endY; y += spacing) {
-            if (isMajor && m_settings->m_showAxisLines && std::abs(y) < spacing * 0.1f) {
-                continue; // Skip lines near axis if showing axis lines
+        for (long long i = i_start_y; i <= i_end_y; ++i) {
+            float y = static_cast<float>(i) * spacing;
+            if (isMajor && m_settings->m_showAxisLines && std::abs(y) < majorSpacingForAxisCheck * 0.1f) {
+                continue;
             }
-            
             Vec2 screenP1 = viewport.WorldToScreen({worldMin.x, y}, camera);
             Vec2 screenP2 = viewport.WorldToScreen({worldMax.x, y}, camera);
-            
             if (std::isfinite(screenP1.x) && std::isfinite(screenP1.y) && 
                 std::isfinite(screenP2.x) && std::isfinite(screenP2.y)) {
                 horizontalStartPoints.push_back(screenP1);
@@ -176,34 +184,25 @@ void Grid::DrawGridLines(
             }
         }
         
-        // Add all vertical lines to the path in one batch
         for (size_t i = 0; i < verticalStartPoints.size(); i++) {
             linesPath.moveTo(verticalStartPoints[i].x, verticalStartPoints[i].y);
             linesPath.lineTo(verticalEndPoints[i].x, verticalEndPoints[i].y);
         }
         
-        // Add all horizontal lines to the path in one batch
         for (size_t i = 0; i < horizontalStartPoints.size(); i++) {
             linesPath.moveTo(horizontalStartPoints[i].x, horizontalStartPoints[i].y);
             linesPath.lineTo(horizontalEndPoints[i].x, horizontalEndPoints[i].y);
         }
         
-        // Draw all lines at once if we have any
         if (!linesPath.empty()) {
             bl_ctx.setStrokeStyle(lineColor);
             bl_ctx.setStrokeWidth(m_settings->m_lineThickness);
-            
-            // Use a faster composition operation if possible
             BLCompOp savedCompOp = bl_ctx.compOp();
-            if (lineColor.a == 255) {
+            if (lineColor.a() == 255) {
                 bl_ctx.setCompOp(BL_COMP_OP_SRC_OVER);
             }
-            
-            // Stroke the entire path at once
             bl_ctx.strokePath(linesPath);
-            
-            // Restore composition op if changed
-            if (lineColor.a == 255) {
+            if (lineColor.a() == 255) {
                 bl_ctx.setCompOp(savedCompOp);
             }
         }
@@ -218,14 +217,13 @@ void Grid::DrawGridLines(
 
 void Grid::DrawGridDots(
     BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, 
-    float spacing, const GridColor& color, 
+    float spacing, const GridColor& color,
     const Vec2& worldMin, const Vec2& worldMax, 
     bool isMajor, float majorSpacingForAxisCheck) const 
 {
     if (spacing <= 1e-6f) return;
 
     try {
-        // Set color
         BLRgba32 dotColor(
             static_cast<uint32_t>(color.r * 255.0f),
             static_cast<uint32_t>(color.g * 255.0f),
@@ -233,66 +231,51 @@ void Grid::DrawGridDots(
             static_cast<uint32_t>(color.a * 255.0f)
         );
         
-        // Define dot radius from settings
         const float dotRadius = m_settings->m_dotRadius;
-        
-        // Create a path to batch all dots together
         BLPath dotsPath;
-        
-        // Calculate how many dots we'll potentially draw
         int dotsCount = 0;
-        float startX = std::ceil(worldMin.x / spacing) * spacing;
-        float startY = std::ceil(worldMin.y / spacing) * spacing;
-        float endX = worldMax.x;
-        float endY = worldMax.y;
+
+        long long i_start_x = static_cast<long long>(std::ceil(worldMin.x / spacing));
+        long long i_end_x = static_cast<long long>(std::floor(worldMax.x / spacing));
+        long long i_start_y = static_cast<long long>(std::ceil(worldMin.y / spacing));
+        long long i_end_y = static_cast<long long>(std::floor(worldMax.y / spacing));
+
+        int num_potential_dots_x = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
+        int num_potential_dots_y = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
         
-        // Culling optimization - limit maximum dots per render pass
-        const int maxDotsPerAxis = 200;
-        int horizDots = std::ceil((endX - startX) / spacing);
-        int vertDots = std::ceil((endY - startY) / spacing);
-        
-        // If we have too many dots, increase spacing for this render pass
-        if (horizDots > maxDotsPerAxis || vertDots > maxDotsPerAxis) {
-            float scaleFactor = std::max(
-                horizDots > 0 ? static_cast<float>(horizDots) / maxDotsPerAxis : 1.0f,
-                vertDots > 0 ? static_cast<float>(vertDots) / maxDotsPerAxis : 1.0f
-            );
-            
-            // Round up scaling to the nearest power of 2 for consistent grid appearance
-            int power = std::ceil(std::log2(scaleFactor));
-            scaleFactor = std::pow(2.0f, power);
-            
-            // Increase spacing
-            spacing *= scaleFactor;
-            
-            // Recalculate start positions with new spacing
-            startX = std::ceil(worldMin.x / spacing) * spacing;
-            startY = std::ceil(worldMin.y / spacing) * spacing;
+        const int max_reserve_total_dots = 100000; // Arbitrary large number for total dots
+        if (num_potential_dots_x > 0 && num_potential_dots_y > 0) {
+            if (static_cast<double>(num_potential_dots_x) * num_potential_dots_y < max_reserve_total_dots) {
+                 dotsPath.reserve(num_potential_dots_x * num_potential_dots_y);
+            } else {
+                 dotsPath.reserve(max_reserve_total_dots); // Cap reservation
+            }
         }
-        
-        // Add dots to path
-        for (float x = startX; x <= endX; x += spacing) {
-            for (float y = startY; y <= endY; y += spacing) {
+
+        for (long long i_x = i_start_x; i_x <= i_end_x; ++i_x) {
+            float x = static_cast<float>(i_x) * spacing;
+            for (long long i_y = i_start_y; i_y <= i_end_y; ++i_y) {
+                float y = static_cast<float>(i_y) * spacing;
+                
                 if (isMajor && m_settings->m_showAxisLines && 
-                    (std::abs(x) < spacing * 0.1f || std::abs(y) < spacing * 0.1f)) {
-                    continue; // Skip dots near axis if showing axis lines
+                    (std::abs(x) < majorSpacingForAxisCheck * 0.1f || std::abs(y) < majorSpacingForAxisCheck * 0.1f)) {
+                    continue;
                 }
                 
                 Vec2 screenP = viewport.WorldToScreen({x, y}, camera);
                 
                 if (std::isfinite(screenP.x) && std::isfinite(screenP.y)) {
-                    // Safety check: only draw if dot is inside or near viewport
                     if (screenP.x >= -dotRadius && screenP.x <= viewport.GetWidth() + dotRadius &&
                         screenP.y >= -dotRadius && screenP.y <= viewport.GetHeight() + dotRadius) {
-                        // Add circle to the path (much faster than drawing individually)
-                        dotsPath.addCircle(BLCircle(screenP.x, screenP.y, dotRadius));
-                        dotsCount++;
+                        if (dotsCount < max_reserve_total_dots) {
+                            dotsPath.addCircle(BLCircle(screenP.x, screenP.y, dotRadius));
+                            dotsCount++;
+                        }
                     }
                 }
             }
         }
         
-        // Draw all dots at once if we have any
         if (dotsCount > 0) {
             bl_ctx.setFillStyle(dotColor);
             bl_ctx.fillPath(dotsPath);
@@ -306,18 +289,38 @@ void Grid::DrawGridDots(
     }
 }
 
-void Grid::DrawLinesStyle(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, float majorSpacing, float minorSpacing, const Vec2& worldMin, const Vec2& worldMax) const {
-    if (m_settings->m_subdivisions > 0 && minorSpacing > 1e-6f) {
-        DrawGridLines(bl_ctx, camera, viewport, minorSpacing, m_settings->m_minorLineColor, worldMin, worldMax, false, majorSpacing);
+void Grid::DrawLinesStyle(
+    BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, 
+    float majorSpacing, float minorSpacing, 
+    const Vec2& worldMin, const Vec2& worldMax,
+    bool actuallyDrawMajorLines,
+    bool actuallyDrawMinorLines
+) const {
+    if (actuallyDrawMinorLines) {
+        if (std::abs(minorSpacing - majorSpacing) > 1e-6f && minorSpacing > 1e-6f) { 
+             DrawGridLines(bl_ctx, camera, viewport, minorSpacing, m_settings->m_minorLineColor, worldMin, worldMax, false, majorSpacing);
+        }
     }
-    DrawGridLines(bl_ctx, camera, viewport, majorSpacing, m_settings->m_majorLineColor, worldMin, worldMax, true, majorSpacing);
+    if (actuallyDrawMajorLines) {
+        DrawGridLines(bl_ctx, camera, viewport, majorSpacing, m_settings->m_majorLineColor, worldMin, worldMax, true, majorSpacing);
+    }
 }
 
-void Grid::DrawDotsStyle(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, float majorSpacing, float minorSpacing, const Vec2& worldMin, const Vec2& worldMax) const {
-    if (m_settings->m_subdivisions > 0 && minorSpacing > 1e-6f) {
-        DrawGridDots(bl_ctx, camera, viewport, minorSpacing, m_settings->m_minorLineColor, worldMin, worldMax, false, majorSpacing);
+void Grid::DrawDotsStyle(
+    BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, 
+    float majorSpacing, float minorSpacing, 
+    const Vec2& worldMin, const Vec2& worldMax,
+    bool actuallyDrawMajorDots,
+    bool actuallyDrawMinorDots
+) const {
+    if (actuallyDrawMinorDots) {
+        if (std::abs(minorSpacing - majorSpacing) > 1e-6f && minorSpacing > 1e-6f) {
+            DrawGridDots(bl_ctx, camera, viewport, minorSpacing, m_settings->m_minorLineColor, worldMin, worldMax, false, majorSpacing);
+        }
     }
-    DrawGridDots(bl_ctx, camera, viewport, majorSpacing, m_settings->m_majorLineColor, worldMin, worldMax, true, majorSpacing);
+    if (actuallyDrawMajorDots) {
+        DrawGridDots(bl_ctx, camera, viewport, majorSpacing, m_settings->m_majorLineColor, worldMin, worldMax, true, majorSpacing);
+    }
 }
 
 void Grid::DrawAxis(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, const Vec2& worldMin, const Vec2& worldMax) const {
@@ -380,7 +383,6 @@ void Grid::Render(BLContext& bl_ctx, const Camera& camera, const Viewport& viewp
     try {
         bl_ctx.save();
 
-        // Clear the grid area with the grid's specific background color
         if (m_settings->m_backgroundColor.a > 0.0f) {
             bl_ctx.setFillStyle(BLRgba32(
                 static_cast<uint32_t>(m_settings->m_backgroundColor.r * 255.0f),
@@ -388,40 +390,58 @@ void Grid::Render(BLContext& bl_ctx, const Camera& camera, const Viewport& viewp
                 static_cast<uint32_t>(m_settings->m_backgroundColor.b * 255.0f),
                 static_cast<uint32_t>(m_settings->m_backgroundColor.a * 255.0f)
             ));
-
-            // Filled rectangle with the background color
             bl_ctx.fillRect(BLRect(0, 0, viewport.GetWidth(), viewport.GetHeight()));
         }
 
-        float majorSpacing, minorSpacing;
-        GetEffectiveSpacings(camera, majorSpacing, minorSpacing);
+        float effMajorSpacing_world, effMinorSpacing_world;
+        int effectiveSubdivisions;
+        GetEffectiveSpacings(camera, effMajorSpacing_world, effMinorSpacing_world, effectiveSubdivisions);
 
         Vec2 worldMin, worldMax;
         GetVisibleWorldBounds(camera, viewport, worldMin, worldMax);
 
-        // Clip to viewport bounds to prevent drawing outside
+        float culledMajorSpacing = effMajorSpacing_world;
+        float culledMinorSpacing = effMinorSpacing_world;
+        
+        float minPixelStep_setting = std::max(1.0f, m_settings->m_minPixelStep);
+
+        // Rule 5 (modified) for Minor Elements
+        bool actuallyDrawMinorElements = false;
+        if (effectiveSubdivisions > 1) {
+            float currentMinorScreenSpacing = culledMinorSpacing * camera.GetZoom();
+            if (currentMinorScreenSpacing >= minPixelStep_setting) {
+                actuallyDrawMinorElements = true;
+            }
+        }
+
+        // New: Rule 5 equivalent for Major Elements (especially for static mode)
+        bool actuallyDrawMajorElements = false;
+        float currentMajorScreenSpacing = culledMajorSpacing * camera.GetZoom();
+        if (currentMajorScreenSpacing >= minPixelStep_setting) {
+            actuallyDrawMajorElements = true;
+        }
+
         bl_ctx.clipToRect(BLRect(0, 0, viewport.GetWidth(), viewport.GetHeight()));
 
         if (m_settings->m_style == GridStyle::LINES) {
-            DrawLinesStyle(bl_ctx, camera, viewport, majorSpacing, minorSpacing, worldMin, worldMax);
+            DrawLinesStyle(bl_ctx, camera, viewport, culledMajorSpacing, culledMinorSpacing, worldMin, worldMax, actuallyDrawMajorElements, actuallyDrawMinorElements);
         } else if (m_settings->m_style == GridStyle::DOTS) {
-            DrawDotsStyle(bl_ctx, camera, viewport, majorSpacing, minorSpacing, worldMin, worldMax);
+            DrawDotsStyle(bl_ctx, camera, viewport, culledMajorSpacing, culledMinorSpacing, worldMin, worldMax, actuallyDrawMajorElements, actuallyDrawMinorElements);
         }
 
+        // Axis lines are drawn independently of this new major/minor culling for now.
+        // They have their own m_showAxisLines setting.
         DrawAxis(bl_ctx, camera, viewport, worldMin, worldMax);
 
-        // Restore context state to not affect future drawing
         bl_ctx.restore();
     }
     catch (const std::exception& e) {
         std::cerr << "Grid::Render Exception: " << e.what() << std::endl;
-        // Try to restore context state if possible
         try { bl_ctx.restore(); } catch (...) {}
     }
     catch (...) {
         std::cerr << "Grid::Render: Unknown exception" << std::endl;
-        // Try to restore context state if possible
         try { bl_ctx.restore(); } catch (...) {}
     }
 } 
-} 
+ 

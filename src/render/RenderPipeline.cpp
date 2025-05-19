@@ -96,19 +96,17 @@ void RenderPipeline::RenderBoard(
     const Viewport& viewport)
 {
     // Use the Blend2D transform matrix for camera transformation
-    BLMatrix2D transform;
-    transform.reset();
+    // BLMatrix2D transform; // No longer needed
+    // transform.reset(); // No longer needed
     
-    // Apply viewport transform
-    bl_ctx.save();
+    bl_ctx.save(); // Save current state
     
     // Set up the world transform for correct scaling and panning
-    transform.translate(viewport.GetWidth() / 2.0, viewport.GetHeight() / 2.0); // Use floating point division
-    transform.scale(camera.GetZoom());
-    transform.rotate(camera.GetRotation()); // Assuming GetRotation() returns radians
-    transform.translate(-camera.GetPanX(), -camera.GetPanY());
-    
-    bl_ctx.setMatrix(transform);
+    // These operations modify the context's current transformation matrix
+    bl_ctx.translate(viewport.GetWidth() / 2.0, viewport.GetHeight() / 2.0);
+    bl_ctx.scale(camera.GetZoom());
+    bl_ctx.rotate(camera.GetRotation() * (BL_M_PI / 180.0)); // Convert degrees to radians
+    bl_ctx.translate(-camera.GetPosition().x, -camera.GetPosition().y);
     
     // Batch similar operations (placeholders for now)
     // RenderTraces(bl_ctx, board);

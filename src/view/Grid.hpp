@@ -34,15 +34,34 @@ public:
     // Update settings if needed (e.g., if settings are not owned via shared_ptr)
     // void SetSettings(const GridSettings& settings);
 
+    // Calculates effective spacings and subdivision count based on settings and camera zoom.
+    void GetEffectiveSpacings(
+        const Camera& camera, 
+        float& outMajorSpacing_world,      // Output: Effective major spacing in world units
+        float& outMinorSpacing_world,      // Output: Effective minor spacing in world units (derived from major and effective subdivisions)
+        int& outEffectiveSubdivisions     // Output: Effective number of subdivisions to consider for rendering
+    ) const;
+
 private:
     std::shared_ptr<GridSettings> m_settings;
 
     // Helper methods
-    void GetEffectiveSpacings(const Camera& camera, float& outMajorSpacing, float& outMinorSpacing) const;
     void GetVisibleWorldBounds(const Camera& camera, const Viewport& viewport, Vec2& outMinWorld, Vec2& outMaxWorld) const;
     
-    void DrawLinesStyle(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, float majorSpacing, float minorSpacing, const Vec2& worldMin, const Vec2& worldMax) const;
-    void DrawDotsStyle(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, float majorSpacing, float minorSpacing, const Vec2& worldMin, const Vec2& worldMax) const;
+    void DrawLinesStyle(
+        BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, 
+        float majorSpacing, float minorSpacing, 
+        const Vec2& worldMin, const Vec2& worldMax,
+        bool actuallyDrawMajorLines,
+        bool actuallyDrawMinorLines
+    ) const;
+    void DrawDotsStyle(
+        BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, 
+        float majorSpacing, float minorSpacing, 
+        const Vec2& worldMin, const Vec2& worldMax,
+        bool actuallyDrawMajorDots,
+        bool actuallyDrawMinorDots
+    ) const;
     
     void DrawGridLines(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, float spacing, const GridColor& color, const Vec2& worldMin, const Vec2& worldMax, bool isMajor, float majorSpacingForAxisCheck) const;
     void DrawGridDots(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, float spacing, const GridColor& color, const Vec2& worldMin, const Vec2& worldMax, bool isMajor, float majorSpacingForAxisCheck) const;
