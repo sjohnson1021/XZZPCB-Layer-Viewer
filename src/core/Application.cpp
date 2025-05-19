@@ -17,7 +17,6 @@
 #include "pcb/Board.hpp"
 #include "pcb/PcbLoader.hpp"
 #include "utils/StringUtils.hpp"
-#include "utils/OpenGLUtils.hpp"
 #include "imgui.h"
 #include "ImGuiFileDialog.h"
 #include <SDL3/SDL_filesystem.h>
@@ -399,18 +398,13 @@ void Application::Render()
     RenderUI(); 
 
     // 4. Clear SDL backbuffer
-    // GL_CHECK(m_renderer->Clear()); // Assuming GL_CHECK is a macro for error checking SDL/GL calls
     m_renderer->Clear();
     
     // 5. Render ImGui draw data to SDL backbuffer
-    // GL_CHECK(m_imguiManager->Render()); 
     m_imguiManager->Render();
     
     // 6. Present SDL backbuffer
-    // GL_CHECK(m_renderer->Present());
     m_renderer->Present();
-
-    // GL_CHECK_ERRORS();
 }
 
 void Application::OpenPcbFile(const std::string& filePath) {
