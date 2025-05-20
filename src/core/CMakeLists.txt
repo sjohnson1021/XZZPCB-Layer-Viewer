@@ -27,8 +27,6 @@ set(SOURCE_FILES
 # Create library
 add_library(${LIBRARY_NAME} STATIC ${SOURCE_FILES})
 
-set_property(TARGET ${LIBRARY_NAME} PROPERTY WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
-
 # Include directories
 target_include_directories(${LIBRARY_NAME}
     PUBLIC
@@ -46,6 +44,7 @@ target_link_libraries(${LIBRARY_NAME}
     SDL3::SDL3
     blend2d
     render_lib
-    ui_lib
     view_lib
+    PRIVATE
+    ui_lib
 ) 

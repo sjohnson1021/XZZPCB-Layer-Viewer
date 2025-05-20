@@ -12,8 +12,6 @@ set(SOURCE_FILES
 
 add_library(${LIBRARY_NAME} STATIC ${SOURCE_FILES})
 
-set_property(TARGET ${LIBRARY_NAME} PROPERTY WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
-
 target_include_directories(${LIBRARY_NAME}
     PUBLIC
     ${CMAKE_SOURCE_DIR}/src/
@@ -21,9 +19,10 @@ target_include_directories(${LIBRARY_NAME}
 
 target_link_libraries(${LIBRARY_NAME}
     PUBLIC
-    core_lib
     view_lib
     render_lib
     SDL3::SDL3
     imgui
+    PRIVATE
+    core_lib
 )
