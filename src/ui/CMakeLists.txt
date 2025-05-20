@@ -12,6 +12,8 @@ set(SOURCE_FILES
 
 add_library(${LIBRARY_NAME} STATIC ${SOURCE_FILES})
 
+set_property(TARGET ${LIBRARY_NAME} PROPERTY WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
+
 target_include_directories(${LIBRARY_NAME}
     PUBLIC
     ${CMAKE_SOURCE_DIR}/src/
