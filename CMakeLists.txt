@@ -25,7 +25,8 @@ add_subdirectory(external/SDL EXCLUDE_FROM_ALL) # EXCLUDE_FROM_ALL if you only w
 # Blend2D
 # Add Blend2D as a subdirectory. Assumes it has its own CMakeLists.txt that creates a 'blend2d' target.
 # Ensure your submodule is in external/blend2d.
-add_subdirectory(external/blend2d EXCLUDE_FROM_ALL)
+set(BLEND2D_STATIC TRUE) # Ensure Blend2D is built as a static library
+add_subdirectory(external/blend2d) # Process Blend2D's CMakeLists
 
 # ImGui
 # Add ImGui source files directly or create a library target for it.
