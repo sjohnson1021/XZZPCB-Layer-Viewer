@@ -186,8 +186,8 @@ void PCBViewerWindow::UpdateTextureFromPcbRenderer(SDL_Renderer* sdlRenderer, Pc
     }
 }
 
-// Main ImGui rendering function for this window
-void PCBViewerWindow::RenderUI(SDL_Renderer* sdlRenderer, PcbRenderer* pcbRenderer) {
+// Main ImGui rendering function for this window, integrating PcbRenderer callback
+void PCBViewerWindow::RenderIntegrated(SDL_Renderer* sdlRenderer, PcbRenderer* pcbRenderer, const std::function<void()>& pcbRenderCallback) {
     if (!m_isOpen && m_renderTexture) {
         ReleaseTexture(); 
         m_resizeCooldownFrames = -1; 
@@ -195,14 +195,18 @@ void PCBViewerWindow::RenderUI(SDL_Renderer* sdlRenderer, PcbRenderer* pcbRender
     }
 
     if (!m_isOpen) {
+        // Reset focus/hover states if the window is not even supposed to be open
+        m_isFocused = false;
+        m_isHovered = false;
+        m_isContentRegionHovered = false;
         return;
     }
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoTitleBar;
-    bool window_open = ImGui::Begin(m_windowName.c_str(), &m_isOpen, window_flags);
+    ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+    bool window_open_this_frame = ImGui::Begin(m_windowName.c_str(), &m_isOpen, window_flags);
 
-    if (window_open) {
+    if (window_open_this_frame) {
         ImGui::SetCursorPos(ImVec2(0.0f, 0.0f)); // Ensure cursor is at the top-left of the content area
 
         m_isFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
@@ -212,16 +216,14 @@ void PCBViewerWindow::RenderUI(SDL_Renderer* sdlRenderer, PcbRenderer* pcbRender
         m_contentRegionTopLeftScreen = ImGui::GetCursorScreenPos(); 
         bool newSizeIsValid = (m_contentRegionSize.x > 0 && m_contentRegionSize.y > 0);
 
-        // Update the shared viewport object with the current content region's screen coordinates and size
-        // This viewport is used by PcbRenderer via Application to know where/how large to render.
+        // Update the shared viewport object 
         if (m_viewport) {
              m_viewport->SetDimensions(
-                0, 0, // Use 0,0 for top-left as viewport is relative to its own render target
+                0, 0, 
                 static_cast<int>(std::round(m_contentRegionSize.x)), 
                 static_cast<int>(std::round(m_contentRegionSize.y))
             );
             // Inform PcbRenderer if its target image size needs to change.
-            // PcbRenderer is initialized with window dimensions, but this content area might be different.
             if (pcbRenderer && newSizeIsValid) {
                 const BLImage& currentPcbImage = pcbRenderer->GetRenderedImage();
                 int roundedWidth = static_cast<int>(std::round(m_contentRegionSize.x));
@@ -229,48 +231,48 @@ void PCBViewerWindow::RenderUI(SDL_Renderer* sdlRenderer, PcbRenderer* pcbRender
 
                 if (currentPcbImage.width() != roundedWidth || 
                     currentPcbImage.height() != roundedHeight) {
-                    // This will trigger PcbRenderer to resize its internal BLImage.
-                    // Application::Render will then call PcbRenderer->Render() which will use the new size.
                     pcbRenderer->OnViewportResized(roundedWidth, roundedHeight);
-                    // Note: This means PcbRenderer might re-render. The image we get later in UpdateTextureFromPcbRenderer
-                    // should ideally be the resized one. This implies a specific order of operations: 
-                    // 1. ImGui layout to find size. 
-                    // 2. Tell PcbRenderer to resize/re-render if needed.
-                    // 3. PcbRenderer renders (already done in App::Render() based on previous frame size or initial size).
-                    // This is a bit complex. The Application currently calls PcbRenderer->Render() *before* any ImGui UI is rendered.
-                    // So, OnViewportResized here will prepare PcbRenderer for the *next* frame.
-                    // For the *current* frame, we get whatever PcbRenderer has already drawn.
                 }
             }
         }
 
-        // The texture displayed (m_renderTexture) should match the PcbRenderer's output size.
-        // UpdateTextureFromPcbRenderer will handle resizing m_renderTexture if needed.
+        // Execute the PcbRenderer::Render() call via the callback
+        if (pcbRenderCallback) {
+            pcbRenderCallback();
+        }
+
+        // Update our SDL_Texture from PcbRenderer's BLImage (which should now be current)
         UpdateTextureFromPcbRenderer(sdlRenderer, pcbRenderer);
 
         if (m_renderTexture) {
             ImGui::Image(reinterpret_cast<ImTextureID>(m_renderTexture), ImVec2(m_textureWidth, m_textureHeight));
+            
+            // Handle interaction after the image is drawn, so ImGui::IsItemHovered() refers to the image
+            if (m_interactionManager && (m_isFocused || m_isHovered)) {
+                m_isContentRegionHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_RectOnly); 
+                m_interactionManager->ProcessInput(ImGui::GetIO(), m_isFocused, m_isContentRegionHovered, m_contentRegionTopLeftScreen, m_contentRegionSize);
+            } else {
+                m_isContentRegionHovered = false;
+            }
+
         } else {
             ImGui::Text("PcbRenderer output not available or texture creation failed. Desired: (%.0f, %.0f)", m_contentRegionSize.x, m_contentRegionSize.y);
         }
 
-        if (m_interactionManager && (m_isFocused || m_isHovered)) {
-            m_isContentRegionHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_RectOnly); 
-            m_interactionManager->ProcessInput(ImGui::GetIO(), m_isFocused, m_isContentRegionHovered, m_contentRegionTopLeftScreen, m_contentRegionSize);
-        } else {
-            m_isContentRegionHovered = false;
-        }
     } else {
+        // ImGui::Begin returned false (e.g. window collapsed, or m_isOpen was set to false by ImGui::Begin itself)
         m_isFocused = false;
         m_isHovered = false;
         m_isContentRegionHovered = false;
-        if (m_renderTexture) { // If window is closed, release texture
+        if (m_renderTexture) { // If window is effectively closed by ImGui, release texture
             ReleaseTexture();
         }
     }
     
-    ImGui::PopStyleVar();
+    // This PopStyleVar and End must be called if ImGui::Begin was called, 
+    // regardless of whether it returned true or false, to keep ImGui state balanced.
     ImGui::End();
+    ImGui::PopStyleVar();
 }
 
 void PCBViewerWindow::OnBoardLoaded(const std::shared_ptr<Board>& board) {

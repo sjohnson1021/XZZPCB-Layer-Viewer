@@ -68,12 +68,23 @@ void ImGuiManager::NewFrame()
     ImGui::NewFrame();
 }
 
-void ImGuiManager::Render()
+void ImGuiManager::FinalizeImGuiDrawLists()
+{
+    if (!m_initialized) {
+        return;
+    }
+    ImGui::Render();
+}
+
+void ImGuiManager::PresentImGuiDrawData()
 {
     if (!m_initialized || !m_renderer) {
         return;
     }
-
-
-    ImGui::Render();
+    SDLRenderer* sdlRenderer = dynamic_cast<SDLRenderer*>(m_renderer);
+    if (sdlRenderer && sdlRenderer->GetRenderer()) {
+        ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), sdlRenderer->GetRenderer());
+    } else {
+        std::cerr << "ImGuiManager::PresentImGuiDrawData: SDLRenderer or SDL_Renderer handle is null." << std::endl;
+    }
 } 

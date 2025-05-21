@@ -4,6 +4,7 @@
 #include <string>
 #include "imgui.h" // For ImVec2, ImGuiWindowFlags etc.
 #include "core/ControlSettings.hpp"
+#include <functional>
 // #include <blend2d.h> // Included in .cpp, forward declare if only types used here
 
 // Forward declarations
@@ -35,10 +36,11 @@ public:
     PCBViewerWindow(PCBViewerWindow&&) = delete;
     PCBViewerWindow& operator=(PCBViewerWindow&&) = delete;
 
-    // Renders the ImGui window and manages the content within.
-    // renderer is needed to create/update the SDL_Texture.
-    // pcbRenderer is needed to get the BLImage rendered by Blend2D.
-    void RenderUI(SDL_Renderer* renderer, PcbRenderer* pcbRenderer);
+    // // void RenderUI(SDL_Renderer* renderer, PcbRenderer* pcbRenderer); // OLD METHOD
+
+    // Renders the ImGui window. Integrates a callback for PcbRenderer to render its content
+    // at the correct time (after viewport sizing, before texture update and ImGui::Image).
+    void RenderIntegrated(SDL_Renderer* sdlRenderer, PcbRenderer* pcbRenderer, const std::function<void()>& pcbRenderCallback);
 
     void OnBoardLoaded(const std::shared_ptr<Board>& board); // New method
 

@@ -282,48 +282,88 @@ void Application::Update(float deltaTime)
     // (void)deltaTime;
 }
 
-void Application::RenderUI() {
-    ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
-
+void Application::RenderUI()
+{
+    // Handle main menu bar first, as it might affect the main viewport's WorkPos/WorkSize
     if (m_mainMenuBar) {
-        m_mainMenuBar->RenderUI(*this);
-    }
-
-    if (m_quitFileRequested) {
-        Quit();
-        m_quitFileRequested = false;
-    }
-
-    if (m_openFileRequested) {
-        if (m_fileDialogInstance) {
-             IGFD::FileDialogConfig config;
-             config.path = ".";
-             // Consider adding flags if specific behavior (e.g., modal) is desired:
-             // config.flags = ImGuiFileDialogFlags_Modal; 
-             m_fileDialogInstance->OpenDialog("ChooseFileDlgKey", "Choose File", ".kicad_pcb,.pcb", config);
+        m_mainMenuBar->RenderUI(*this); // This calls ImGui::BeginMainMenuBar/EndMainMenuBar
+        
+        if (m_quitFileRequested) {
+            Quit();
+            m_quitFileRequested = false; 
         }
-        m_openFileRequested = false;
     }
 
-    if (m_settingsWindow && m_showSettingsRequested) {
-        m_settingsWindow->SetVisible(true);
-        m_showSettingsRequested = false;
+    // Create a DockSpace that covers the entire main viewport area below the main menu bar
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImVec2 mainWorkPos = viewport->WorkPos; // Position of the work area (below main menu bar)
+    ImVec2 mainWorkSize = viewport->WorkSize; // Size of the work area
+
+    // Set up window flags for the dockspace host window
+    ImGuiWindowFlags dockspace_window_flags = ImGuiWindowFlags_NoDocking; // This window itself cannot be docked
+    dockspace_window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+    dockspace_window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+    dockspace_window_flags |= ImGuiWindowFlags_NoBackground; // Make it transparent
+
+    ImGui::SetNextWindowPos(mainWorkPos);
+    ImGui::SetNextWindowSize(mainWorkSize);
+    ImGui::SetNextWindowViewport(viewport->ID);
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f)); // No padding for the dockspace window
+    
+    ImGui::Begin("RootDockspaceWindow", nullptr, dockspace_window_flags);
+    ImGui::PopStyleVar(3); // Pop WindowRounding, WindowBorderSize, WindowPadding
+
+    ImGuiID dockspace_id = ImGui::GetID("ApplicationRootDockspace");
+    ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None); 
+    // Consider ImGuiDockNodeFlags_PassthruCentralNode if you want to draw directly into the central node 
+    // when nothing is docked there, but for now, a standard dockspace is fine.
+
+    ImGui::End(); // End of RootDockspaceWindow
+
+    // Handle file dialog opening (m_openFileRequested is set by MainMenuBar)
+    if (m_openFileRequested && m_fileDialogInstance) {
+        // Apply file styling for different PCB file types
+        // Arguments for SetFileStyle: flags, criteria (extension), color, icon (optional), font (optional)
+        m_fileDialogInstance->SetFileStyle(IGFD_FileStyleByExtention, ".kicad_pcb", ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "", nullptr); // Greenish
+        m_fileDialogInstance->SetFileStyle(IGFD_FileStyleByExtention, ".pcb", ImVec4(0.2f, 0.5f, 0.8f, 1.0f), "", nullptr);      // Bluish
+        // For other files, they will use default styling. To style all others, one might need a more generic filter or a functor.
+
+        IGFD::FileDialogConfig config;
+        config.path = "."; // Default path
+        // config.countSelectionMax = 1; // Default is 1 for file selection
+        // config.flags = ImGuiFileDialogFlags_Modal; // Default includes Modal
+        m_fileDialogInstance->OpenDialog("ChooseFileDlgKey", "Choose PCB File", ".kicad_pcb,.pcb", config);
+        
+        m_openFileRequested = false; // Reset flag after initiating dialog opening
     }
 
-    if (m_pcbDetailsWindow && m_showPcbDetailsRequested) {
-        m_pcbDetailsWindow->SetVisible(true);
-        m_showPcbDetailsRequested = false;
+    // Handle visibility requests for other windows, potentially set by MainMenuBar
+    if (m_showSettingsRequested) {
+        if (m_settingsWindow) m_settingsWindow->SetVisible(true);
+        m_showSettingsRequested = false; // Reset flag
     }
 
+    if (m_showPcbDetailsRequested) {
+        if (m_pcbDetailsWindow) m_pcbDetailsWindow->SetVisible(true);
+        m_showPcbDetailsRequested = false; // Reset flag
+    }
+
+    // Handle file dialog display and selection
     if (m_fileDialogInstance && m_fileDialogInstance->Display("ChooseFileDlgKey")) {
         if (m_fileDialogInstance->IsOk()) {
             std::string filePathName = m_fileDialogInstance->GetFilePathName();
+            // std::string filePath = m_fileDialogInstance->GetCurrentPath();
             OpenPcbFile(filePathName);
         }
         m_fileDialogInstance->Close();
     }
 
-    if (m_pcbViewerWindow && m_renderer) {
+
+    // --- PCBViewerWindow Rendering ---
+    if (m_pcbViewerWindow && m_renderer && m_pcbRenderer) {
         SDL_Renderer* sdlRenderer = nullptr;
         if (auto* concreteRenderer = dynamic_cast<SDLRenderer*>(m_renderer.get())) {
             sdlRenderer = concreteRenderer->GetRenderer();
@@ -333,19 +373,51 @@ void Application::RenderUI() {
                 sdlRenderer = static_cast<SDL_Renderer*>(rendererHandle);
             }
         }
+
         if (sdlRenderer) {
-            m_pcbViewerWindow->RenderUI(sdlRenderer, m_pcbRenderer.get());
+            // Call the integrated rendering method on PCBViewerWindow.
+            // This method will handle ImGui::Begin/End, viewport updates,
+            // then execute the provided lambda to render the PCB,
+            // then update its texture and draw the ImGui::Image.
+            m_pcbViewerWindow->RenderIntegrated(sdlRenderer, m_pcbRenderer.get(),
+                [&]() { // This is the pcbRenderCallback lambda
+                    bool baseComponentsValid = m_camera && m_viewport && m_grid;
+                    bool boardLoaded = m_currentBoard != nullptr;
+
+                    if (baseComponentsValid) {
+                        m_pcbRenderer->Render(boardLoaded ? m_currentBoard.get() : nullptr,
+                                              m_camera.get(),
+                                              m_viewport.get(),
+                                              m_grid.get());
+                    } else {
+                        // This case should ideally be handled by PcbRenderer::Render itself
+                        // by drawing a placeholder if components are missing.
+                        // Logging here is for Application-level awareness if needed.
+                        std::cout << "Application::RenderUI (lambda): Base component(s) for PcbRenderer::Render are NULL." << std::endl;
+                        // PcbRenderer::Render is designed to handle null components and draw a placeholder.
+                        m_pcbRenderer->Render(nullptr, nullptr, nullptr, nullptr);
+                    }
+                }
+            );
+        }
+    }
+    // --- End PCBViewerWindow Rendering ---
+
+
+    if (m_settingsWindow) {
+        m_settingsWindow->RenderUI(m_currentBoard); // Assuming this is self-contained
+    }
+    
+    if (m_pcbDetailsWindow) {
+        if (m_pcbDetailsWindow->IsWindowVisible()) { 
+             m_pcbDetailsWindow->render(); 
         }
     }
 
-    // Temporarily disable SettingsWindow and PcbDetailsWindow for diagnostics
-    if (m_settingsWindow) {
-        m_settingsWindow->RenderUI(m_currentBoard);
-    }
 
     if (m_showPcbLoadErrorModal) {
         ImGui::OpenPopup("PCB Load Error");
-        m_showPcbLoadErrorModal = false;
+        m_showPcbLoadErrorModal = false; // Reset after opening
     }
     if (ImGui::BeginPopupModal("PCB Load Error", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("%s", m_pcbLoadErrorMessage.c_str());
@@ -358,52 +430,26 @@ void Application::RenderUI() {
 
 void Application::Render()
 {
-    if (!m_pcbRenderer) {
-        // Handle cases where PcbRenderer itself might not be ready or is null.
-        // For now, we'll assume if Application is running, PcbRenderer should be available.
-        // If not, this is a more fundamental issue with initialization.
-        std::cerr << "Application::Render: m_pcbRenderer is NULL. Cannot proceed with rendering." << std::endl;
-        return;
-    }
-
-    bool baseComponentsValid = m_camera && m_viewport && m_grid;
-    bool boardLoaded = m_currentBoard != nullptr;
-
-    if (baseComponentsValid) {
-        // std::cout << "Application::Render: Base components VALID (Camera, Viewport, Grid)." << std::endl; // Too verbose for every frame
-        if (boardLoaded) {
-            // std::cout << "Application::Render: m_currentBoard is VALID. Calling m_pcbRenderer->Render with board." << std::endl; // Too verbose
-            m_pcbRenderer->Render(m_currentBoard.get(), m_camera.get(), m_viewport.get(), m_grid.get());
-        } else {
-            // std::cout << "Application::Render: m_currentBoard is NULL. Calling m_pcbRenderer->Render to render grid." << std::endl; // Too verbose
-            // Call Render with a null board pointer; PcbRenderer and RenderPipeline will handle it.
-            m_pcbRenderer->Render(nullptr, m_camera.get(), m_viewport.get(), m_grid.get());
-        }
-    } else {
-        std::cout << "Application::Render: SKIPPING m_pcbRenderer->Render() call due to NULL base component(s):" << std::endl;
-        if (!m_camera)      std::cout << "  - m_camera is NULL" << std::endl;
-        if (!m_viewport)    std::cout << "  - m_viewport is NULL" << std::endl;
-        if (!m_grid)        std::cout << "  - m_grid is NULL" << std::endl;
-        
-        // Even if base components are null, PcbRenderer might be able to produce a default/empty image.
-        // Call Render with null for all optional parts; PcbRenderer should then create a placeholder image.
-        // This ensures the UI window always gets *something* from PcbRenderer.
-        m_pcbRenderer->Render(nullptr, nullptr, nullptr, nullptr);
-    }
-
-    // 2. Start ImGui Frame
+    // 1. Start ImGui Frame (calls ImGui_ImplSDLRenderer3_NewFrame, ImGui_ImplSDL3_NewFrame, ImGui::NewFrame)
     m_imguiManager->NewFrame();
     
-    // 3. Render all ImGui based UI
+    // 2. Define all ImGui windows and their content. 
+    //    This populates ImGui's internal draw lists.
+    //    PCBViewerWindow::RenderIntegrated will call its pcbRenderCallback, 
+    //    which in turn calls PcbRenderer::Render().
     RenderUI(); 
 
-    // 4. Clear SDL backbuffer
+    // 3. Finalize ImGui's draw data (calls ImGui::Render())
+    m_imguiManager->FinalizeImGuiDrawLists();
+
+    // 4. Clear SDL backbuffer with the application's clear color
     m_renderer->Clear();
     
-    // 5. Render ImGui draw data to SDL backbuffer
-    m_imguiManager->Render();
+    // 5. Render ImGui's finalized draw data to the SDL backbuffer
+    //    (calls ImGui_ImplSDLRenderer3_RenderDrawData)
+    m_imguiManager->PresentImGuiDrawData();
     
-    // 6. Present SDL backbuffer
+    // 6. Present the SDL backbuffer to the screen
     m_renderer->Present();
 }
 

@@ -13,7 +13,8 @@ public:
     void Shutdown();
     void ProcessEvent(SDL_Event* event);
     void NewFrame();
-    void Render();
+    void FinalizeImGuiDrawLists();
+    void PresentImGuiDrawData();
 
     // UI components
     void ShowMainToolbar();
