@@ -58,79 +58,150 @@ _This document provides an overview of each source and header file in the projec
 
 ## `src/core/Application.hpp`
 
-**Purpose:** Defines the main `Application` class, which orchestrates the entire application's lifecycle. It is responsible for initializing and managing core subsystems (configuration, events, rendering, ImGui), UI elements (windows, menu bar), view components (camera, viewport, grid), and the currently loaded PCB data (`Board`). It handles the main run loop, processes events, updates application state, manages rendering, and ensures a clean shutdown.
+**Purpose:** Defines the main application class responsible for initializing, running, and shutting down the XZZPCB Layer Viewer. It manages core subsystems, UI windows, application state, and the main event loop.
+**Key Classes & Structs:**
+- `Application` – Manages the overall application lifecycle, state, and coordination of subsystems and UI elements.
 
-**Key Classes & Structs:**  
-- `Application` – Encapsulates all application logic, state, subsystems, and UI components.
+**Main Functions & Methods:**
+| Name                         | Signature                      | Description                                                                 |
+|------------------------------|--------------------------------|-----------------------------------------------------------------------------|
+| `Application()`                |                                | Constructor.                                                                |
+| `~Application()`               |                                | Destructor, ensures `Shutdown()` is called.                                    |
+| `Initialize()`               | `bool Initialize()`            | Initializes all core and UI subsystems and loads configuration.             |
+| `Run()`                      | `int Run()`                    | Executes the main application loop (event processing, updating, rendering). |
+| `Shutdown()`                 | `void Shutdown()`              | Cleans up resources, saves configuration, and shuts down subsystems.          |
+| `IsRunning()`                | `bool IsRunning() const`       | Returns whether the application is currently running.                       |
+| `Quit()`                     | `void Quit()`                  | Signals the application to terminate its main loop.                         |
+| `GetConfig()`                | `Config* GetConfig() const`    | Provides access to the application's configuration manager.                 |
+| `GetEvents()`                | `Events* GetEvents() const`    | Provides access to the event handling system.                               |
+| `GetRenderer()`              | `Renderer* GetRenderer() const`  | Provides access to the rendering subsystem.                                 |
+| `GetImGuiManager()`          | `ImGuiManager* GetImGuiManager() const` | Provides access to the ImGui integration manager.                     |
+| `SetOpenFileRequested()`     | `void SetOpenFileRequested(bool requested)` | Sets a flag to request opening the file dialog.                      |
+| `SetQuitFileRequested()`     | `void SetQuitFileRequested(bool requested)` | Sets a flag to request application quit.                             |
+| `SetShowSettingsRequested()` | `void SetShowSettingsRequested(bool requested)` | Sets a flag to request showing the settings window.                 |
+| `SetShowPcbDetailsRequested()`| `void SetShowPcbDetailsRequested(bool requested)` | Sets a flag to request showing the PCB details window.            |
 
-**Main Functions & Methods:**  
-| Name                            | Signature                                           | Description                                                                                                |
-|---------------------------------|-----------------------------------------------------|------------------------------------------------------------------------------------------------------------|
-| `Application::Application()`    | `Application()`                                     | Constructor, initializes member variables to default states.                                               |
-| `Application::~Application()`   | `~Application()`                                    | Destructor, ensures `Shutdown()` is called to release resources.                                           |
-| `Application::Initialize()`     | `bool Initialize()`                                 | Initializes all core and UI subsystems, loads configuration. Returns `true` on success, `false` on failure. |
-| `Application::Run()`            | `int Run()`                                         | Starts and manages the main application event loop. Returns an exit code.                                  |
-| `Application::Shutdown()`       | `void Shutdown()`                                   | Performs cleanup of all subsystems, saves configuration, and releases resources.                           |
-| `Application::IsRunning()`      | `bool IsRunning() const`                            | Returns `true` if the main application loop should continue, `false` otherwise.                          |
-| `Application::Quit()`           | `void Quit()`                                       | Signals the application to terminate its main loop.                                                        |
-| `Application::GetConfig()`      | `Config* GetConfig() const`                         | Provides access to the `Config` subsystem.                                                                 |
-| `Application::GetEvents()`      | `Events* GetEvents() const`                         | Provides access to the `Events` subsystem.                                                                 |
-| `Application::GetRenderer()`    | `Renderer* GetRenderer() const`                     | Provides access to the `Renderer` subsystem.                                                               |
-| `Application::GetImGuiManager()`| `ImGuiManager* GetImGuiManager() const`             | Provides access to the `ImGuiManager` subsystem.                                                           |
-| `Application::SetOpenFileRequested()` | `void SetOpenFileRequested(bool requested)`         | Sets a flag to request opening the file dialog.                                                            |
-| `Application::SetQuitFileRequested()` | `void SetQuitFileRequested(bool requested)`         | Sets a flag to request application quit.                                                                   |
-| `Application::SetShowSettingsRequested()`| `void SetShowSettingsRequested(bool requested)`   | Sets a flag to request showing the settings window.                                                        |
-| `Application::SetShowPcbDetailsRequested()`| `void SetShowPcbDetailsRequested(bool requested)`| Sets a flag to request showing the PCB details window.                                                       |
+**Dependencies:**
+- `<string>`, `<memory>`
+- `ImGuiFileDialog.h` (for `ImGuiFileDialog`)
+- Forward declarations for: `Config`, `Events`, `Renderer`, `ImGuiManager`, `ControlSettings`, `PcbRenderer`, `MainMenuBar`, `PCBViewerWindow`, `SettingsWindow`, `PcbDetailsWindow`, `Camera`, `Viewport`, `Grid`, `GridSettings`, `Board`, `BoardDataManager`.
 
-**Dependencies:**  
-- `<string>`  
-- `<memory>`  
-- `ImGuiFileDialog.h` (Used for `m_fileDialogInstance`)
-- Forward declarations for:
-    - Core Systems: `Config`, `Events`, `Renderer`, `ImGuiManager`, `ControlSettings`
-    - UI Classes: `MainMenuBar`, `PCBViewerWindow`, `SettingsWindow`, `PcbDetailsWindow`
-    - View & Data: `Camera`, `Viewport`, `Grid`, `GridSettings`, `Board`
-
-**Notes:**  
-- Manages core subsystems like `Config`, `Events`, `Renderer`, `ImGuiManager` using `std::unique_ptr`, indicating ownership.
-- Manages UI window instances (`MainMenuBar`, `PCBViewerWindow`, etc.) and the `ImGuiFileDialog` instance similarly with `std::unique_ptr`.
-- Holds shared data/view components (`Camera`, `Viewport`, `GridSettings`, `ControlSettings`, `Grid`, `currentBoard`) using `std::shared_ptr`.
-- Handles application-level state including window properties (`m_appName`, dimensions, `m_clearColor`) and UI interaction flags (e.g., `m_openFileRequested`).
-- Initialization is structured into `InitializeCoreSubsystems()` and `InitializeUISubsystems()` (private methods), which is good for organization.
-- Configuration loading (including ImGui INI data) and saving is managed. Keybinds are loaded/saved via `ControlSettings`.
-- PCB file opening and error handling (via a modal) are managed.
-- The public getters for subsystems provide controlled access. Consider if all need to be public or if some interactions can be mediated by `Application` itself.
-- The removal of `argc, argv` from `Initialize()` simplifies its signature as they were unused by `Application` directly.
+**Notes:**
+- Manages various UI state flags (`m_openFileRequested`, etc.) which are set by other components (e.g., `MainMenuBar`) and acted upon within the `Application`'s `RenderUI` loop.
+- Holds `std::unique_ptr` for owned subsystems and UI windows, and `std::shared_ptr` for shared data objects like `Camera`, `Board`, etc.
 
 ## `src/core/Application.cpp`
 
-**Purpose:** Implements the functionality of the `Application` class, including subsystem initialization, the main event loop, update logic, and rendering orchestration.  
+**Purpose:** Implements the `Application` class methods, handling the detailed logic for initialization, the main application loop, UI rendering orchestration, event processing, configuration management, and shutdown procedures.
+**Key Classes & Structs:** (N/A - Implements `Application` class from header)
+
+**Main Functions & Methods:**
+| Name                             | Signature                                   | Description                                                                                                |
+|----------------------------------|---------------------------------------------|------------------------------------------------------------------------------------------------------------|
+| `GetAppConfigFilePath()`         | `static std::string GetAppConfigFilePath()` | (Anonymous namespace) Determines the path for the application's configuration file (`XZZPCBViewer_settings.ini`). Handles platform-specific preference paths and directory creation. |
+| `Application::Application()`       |                                             | Constructor: Initializes member variables to default values.                                               |
+| `Application::~Application()`      |                                             | Destructor: Calls `Shutdown()` to ensure proper cleanup.                                                   |
+| `Application::LoadConfig()`        | `void LoadConfig()`                         | Loads application settings from the configuration file, including window dimensions and keybinds.        |
+| `Application::InitializeCoreSubsystems()` | `bool InitializeCoreSubsystems()`      | Initializes essential non-UI systems like `Events`, `Renderer`, `ImGuiManager`, and `PcbRenderer`.           |
+| `Application::InitializeUISubsystems()` | `bool InitializeUISubsystems()`        | Initializes UI-related components including `Camera`, `Viewport`, `Grid`, `BoardDataManager`, and UI windows. |
+| `Application::Initialize()`        | `bool Initialize()`                         | Orchestrates the overall initialization process: loads config, initializes core and UI subsystems.         |
+| `Application::Run()`               | `int Run()`                                 | Contains the main application loop: processes events, updates state (currently minimal), and renders.      |
+| `Application::Shutdown()`          | `void Shutdown()`                           | Saves ImGui state and application config, releases resources held by subsystems and UI elements.            |
+| `Application::IsRunning()`         | `bool IsRunning() const`                    | Returns the running state of the application.                                                              |
+| `Application::Quit()`              | `void Quit()`                               | Sets the application's running state to false, triggering shutdown.                                        |
+| `Application::GetConfig()`         | `Config* GetConfig() const`                 | Returns a pointer to the `Config` object.                                                                    |
+| `Application::GetEvents()`         | `Events* GetEvents() const`                 | Returns a pointer to the `Events` object.                                                                    |
+| `Application::GetRenderer()`       | `Renderer* GetRenderer() const`             | Returns a pointer to the `Renderer` object.                                                                |
+| `Application::GetImGuiManager()`   | `ImGuiManager* GetImGuiManager() const`     | Returns a pointer to the `ImGuiManager` object.                                                            |
+| `Application::ProcessEvents()`     | `void ProcessEvents()`                      | Polls and processes input events, checks for quit conditions.                                              |
+| `Application::Update()`            | `void Update(float deltaTime)`              | Placeholder for application-wide update logic (currently empty).                                           |
+| `Application::RenderUI()`          | `void RenderUI()`                           | Sets up the main ImGui dockspace and calls rendering methods for `MainMenuBar` and other UI windows. Manages file dialogs and popups. |
+| `Application::Render()`            | `void Render()`                             | Orchestrates the frame rendering: starts ImGui frame, calls `RenderUI`, finalizes ImGui draw lists, clears renderer, presents ImGui data, and presents the final frame. |
+| `Application::OpenPcbFile()`       | `void OpenPcbFile(const std::string& filePath)` | Loads a PCB file using the `Board` class, updates the current board state, and notifies relevant UI components. Handles loading errors. |
+
+**Dependencies:**
+- `Application.hpp` (its own header)
+- `Config.hpp`, `Events.hpp`, `Renderer.hpp`, `SDLRenderer.hpp`, `ImGuiManager.hpp`
+- `render/PcbRenderer.hpp`
+- `ui/MainMenuBar.hpp`, `ui/windows/PCBViewerWindow.hpp`, `ui/windows/SettingsWindow.hpp`, `ui/windows/PcbDetailsWindow.hpp`
+- `core/ControlSettings.hpp`
+- `view/Camera.hpp`, `view/Viewport.hpp`, `view/Grid.hpp`, `view/GridSettings.hpp`
+- `pcb/Board.hpp`, `pcb/PcbLoader.hpp` (though `PcbLoader` is not directly used by `Application`, `Board` uses it)
+- `utils/StringUtils.hpp`
+- `imgui.h`, `ImGuiFileDialog.h`
+- `<SDL3/SDL_filesystem.h>`
+- `<filesystem>`, `<iostream>`, `<chrono>`
+
+**Notes:**
+- `GetAppConfigFilePath()` in the anonymous namespace handles platform-specific configuration file paths, which is good for encapsulation.
+- The `RenderUI()` method is central to how ImGui windows are managed and displayed, including the root dockspace.
+- Error handling for PCB loading is implemented with a modal dialog.
+- ImGui INI data is explicitly saved and loaded from the application's config file, rather than relying on ImGui's default file handling. This gives more control.
+- The `Application` class holds `unique_ptr` to major subsystems and UI elements, correctly managing their lifetimes.
+- **Refactoring Cue/Bug:** `m_controlSettings` is initialized with `std::make_shared<ControlSettings>()` in `Application::LoadConfig()` (where keybinds are loaded into it) and then *again* re-initialized with a new `std::make_shared<ControlSettings>()` in `Application::InitializeUISubsystems()`. The second initialization overwrites the first, meaning the loaded keybinds are lost for the instance passed to UI windows. The instance created and configured in `LoadConfig()` should be the one used throughout. // This has been addressed.
+- The `BoardDataManager` is initialized in `InitializeUISubsystems` and passed to UI windows. It's not directly used by `Application.cpp` itself, which is appropriate as it serves other components.
+  
+## `src/core/BoardDataManager.hpp`
+
+**Purpose:** Defines the `BoardDataManager` class, responsible for managing settings related to PCB board data, particularly layer color generation. It no longer manages the board instance itself but provides parameters for its visual representation.
 **Key Classes & Structs:**  
-- (Implements `Application` class from `Application.hpp`)  
+- `BoardDataManager` – Manages parameters for board layer coloring and provides a method to apply these colors.
 
 **Main Functions & Methods:**  
-| Name                    | Signature                       | Description                     |
-|-------------------------|---------------------------------|---------------------------------|
-| `Application::InitializeSubsystems()` | `bool InitializeSubsystems()` | Initializes `Config`, `Renderer`, `ImGuiManager`, and connects `Events` to `ImGuiManager`. |
-| `Application::ProcessEvents()` | `void ProcessEvents()`         | Processes system and input events via the `Events` subsystem and handles quit conditions. |
-| `Application::Update()`   | `void Update()`                 | Handles per-frame updates, including ImGui new frame, dockspace setup, main menu bar rendering, and UI window rendering (Demo, PCB View, Layer Controls). |
-| `Application::Render()`   | `void Render()`                 | Handles rendering the application scene, including clearing the screen, drawing content in the PCB view (grid, placeholder PCB), and rendering ImGui draw data. |
+| Name                             | Signature                                          | Description                                                                               |
+|----------------------------------|----------------------------------------------------|-------------------------------------------------------------------------------------------|
+| `BoardDataManager::getBoard()`   | `std::shared_ptr<Board> getBoard() const`          | (Currently non-functional) Intended to retrieve the current board; now returns `nullptr`. |
+| `BoardDataManager::clearBoard()` | `void clearBoard()`                                | (Currently non-functional) Intended to clear the current board.                         |
+| `BoardDataManager::SetBaseLayerColor()` | `void SetBaseLayerColor(BLRgba32 color)`       | Sets the base color used for layer color generation.                                      |
+| `BoardDataManager::GetBaseLayerColor()` | `BLRgba32 GetBaseLayerColor() const`           | Retrieves the current base color for layer color generation.                              |
+| `BoardDataManager::SetLayerHueStep()` | `void SetLayerHueStep(float hueStep)`              | Sets the hue step (in degrees) used for procedural layer color generation.                |
+| `BoardDataManager::GetLayerHueStep()` | `float GetLayerHueStep() const`                    | Retrieves the current hue step for layer color generation.                                |
+| `BoardDataManager::RegenerateLayerColors()`| `void RegenerateLayerColors(std::shared_ptr<Board> board)` | Applies coloring to the layers of the provided `Board` object using the current base color and hue step. |
 
 **Dependencies:**  
-- `Application.hpp`  
-- `Config.hpp`  
-- `Events.hpp`  
-- `Renderer.hpp`  
-- `SDLRenderer.hpp` (concrete renderer implementation)  
-- `ImGuiManager.hpp`  
-- `<imgui.h>`  
-- `<iostream>` (for console logging)  
+- `<string>`  
+- `<memory>` (for `std::shared_ptr`)
+- `<mutex>` (for thread-safe access to settings)
+- `<blend2d.h>` (for `BLRgba32`)
+- `../pcb/Board.hpp` (for `Board` class, used in `RegenerateLayerColors`)
+- `../pcb/PcbLoader.hpp` (Included, but `m_pcbLoader` is an unused member in the current version)
+
 
 **Notes:**  
-- The `Update()` method currently contains ImGui layout logic. In the proposed architecture, `Application` should delegate UI rendering logic primarily to `ImGuiManager` and specific UI window classes (like `SettingsWindow`, `PCBViewerWindow`), rather than directly managing ImGui widgets itself. `Application` would orchestrate *when* these UI components render.
-- The `Render()` method includes placeholder rendering for a grid and PCB outline. This logic should be moved to the dedicated 'PCB Rendering Logic' component (e.g., `PcbRenderer` / refocused `RenderManager`) which will use Blend2D to render to an off-screen buffer, as per the proposed architecture.
-- The current PCB view interaction logic (mouse wheel zoom) is directly in `Application::Update()`. This could be delegated to an interaction manager associated with the PCB view, similar to how `InteractionManager` is set up in `main.cpp` for the `PCBViewerWindow`.
-- **Overlap/Refactoring Cue**: The UI rendering and event handling logic in `Application::Update()` and `Application::Render()` (especially for the PCB view and layer controls) has conceptual overlap with the functionality present in `PCBViewerWindow.cpp` and potentially other UI window classes currently driven by `main.cpp`. If the `Application` class becomes the primary driver, `PCBViewerWindow` and others might be owned and managed by `Application`, and their `RenderUI` methods called from `Application::Update()`.
+- This class was previously a singleton managing the active `Board` instance but has been refactored.
+- The `getBoard()` and `clearBoard()` methods are now stubs as `BoardDataManager` no longer owns/manages the board instance directly. This responsibility is now with the `Application` class.
+- The `m_pcbLoader` member is currently unused.
+- Primary responsibilities now revolve around managing parameters (`m_baseLayerColor`, `m_layerHueStep`) for procedurally generating colors for PCB layers and applying them via `RegenerateLayerColors`.
+- Thread safety for accessing color settings is ensured via `std::mutex`.
+
+## `src/core/BoardDataManager.cpp`
+
+**Purpose:** Implements the `BoardDataManager` class, providing logic for managing layer color generation parameters (base color, hue step) and applying these colors to a given `Board` object.
+**Key Classes & Structs:**  
+- (Implements `BoardDataManager` class from `BoardDataManager.hpp`)
+
+**Main Functions & Methods:**  
+| Name                             | Signature                                          | Description                                                                                               |
+|----------------------------------|----------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| `BoardDataManager::getBoard()`   | `std::shared_ptr<Board> getBoard() const`          | Returns `nullptr`. Indicates that board management has moved elsewhere (e.g., to `Application`).        |
+| `BoardDataManager::clearBoard()` | `void clearBoard()`                                | Does nothing. Indicates that board management has moved elsewhere.                                        |
+| `BoardDataManager::SetBaseLayerColor()` | `void SetBaseLayerColor(BLRgba32 color)`       | Sets the `m_baseLayerColor` member, guarded by a mutex.                                                     |
+| `BoardDataManager::GetBaseLayerColor()` | `BLRgba32 GetBaseLayerColor() const`           | Returns the `m_baseLayerColor` member, guarded by a mutex.                                                  |
+| `BoardDataManager::SetLayerHueStep()` | `void SetLayerHueStep(float hueStep)`              | Sets the `m_layerHueStep` member, guarded by a mutex.                                                       |
+| `BoardDataManager::GetLayerHueStep()` | `float GetLayerHueStep() const`                    | Returns the `m_layerHueStep` member, guarded by a mutex.                                                    |
+| `BoardDataManager::RegenerateLayerColors()`| `void RegenerateLayerColors(std::shared_ptr<Board> board)` | If a valid `Board` with layers is provided, iterates through its layers and assigns a new color to each `LayerInfo::color` member, generated by `ColorUtils::GenerateLayerColor` using the stored base color and hue step. Guarded by a mutex. |
+
+**Dependencies:**  
+- `core/BoardDataManager.hpp`
+- `utils/ColorUtils.hpp` (for `ColorUtils::GenerateLayerColor`)
+- `<mutex>` (Used for `std::lock_guard`)
+
+**Notes:**  
+- Comments in the file explicitly state "Removed getInstance(), loadBoard(), and m_currentBoard related logic", confirming its refactoring away from direct board ownership.
+- The methods `getBoard()` and `clearBoard()` are now stubs as `BoardDataManager` no longer owns/manages the board instance directly. This responsibility is now with the `Application` class.
+- The `m_pcbLoader` member is currently unused.
+- Primary responsibilities now revolve around managing parameters (`m_baseLayerColor`, `m_layerHueStep`) for procedurally generating colors for PCB layers and applying them via `RegenerateLayerColors`.
+- Thread safety for accessing color settings is ensured via `std::mutex`.
 
 ## `src/core/Config.hpp`
 
@@ -317,6 +388,7 @@ _This document provides an overview of each source and header file in the projec
 | `Events::ShouldQuit()`  | `bool ShouldQuit() const`       | Returns the current state of the `m_shouldQuit` flag.                                                                                                                      |
 | `Events::SetImGuiManager()`| `void SetImGuiManager(ImGuiManager* imgui)` | Assigns the provided `ImGuiManager` pointer to the `m_imguiManager` member, allowing it to receive events in `ProcessEvents()`.                                                   |
 
+
 **Dependencies:**  
 - `Events.hpp`  
 - `ImGuiManager.hpp` (For calling `ImGuiManager::ProcessEvent()`)
@@ -331,31 +403,33 @@ _This document provides an overview of each source and header file in the projec
 
 ## `src/core/ImGuiManager.hpp`
 
-**Purpose:** Defines the `ImGuiManager` class, which is responsible for initializing and managing the Dear ImGui context, handling its lifecycle (setup, shutdown, new frames, rendering), and processing input events for ImGui within an SDL3 environment. It also declares methods for rendering specific UI components.  
+**Purpose:** Defines the `ImGuiManager` class, which is responsible for initializing and managing the Dear ImGui context, handling its lifecycle (setup, shutdown, new frames, rendering), and processing input events for ImGui within an SDL3 environment.
 **Key Classes & Structs:**  
 - `ImGuiManager` – Encapsulates all ImGui-related operations, acting as an interface between the application and the ImGui library.  
 
 **Main Functions & Methods:**  
-| Name                    | Signature                       | Description                     |
-|-------------------------|---------------------------------|---------------------------------|
-| `ImGuiManager::ImGuiManager()` | `ImGuiManager(Renderer* renderer)` | Constructor, takes a pointer to a generic `Renderer` object. |
-| `ImGuiManager::~ImGuiManager()` | `~ImGuiManager()`               | Destructor, calls `Shutdown()`.      |
-| `ImGuiManager::Initialize()` | `bool Initialize()`             | Sets up the ImGui context, style, platform/renderer backends, and IO flags. |
-| `ImGuiManager::Shutdown()`  | `void Shutdown()`               | Shuts down ImGui backends and destroys the ImGui context. |
-| `ImGuiManager::ProcessEvent()` | `void ProcessEvent(SDL_Event* event)` | Passes SDL events to ImGui for processing. |
-| `ImGuiManager::NewFrame()`  | `void NewFrame()`               | Starts a new ImGui frame.         |
-| `ImGuiManager::Render()`    | `void Render()`                 | Renders the ImGui draw data.        |
-| `ImGuiManager::ShowMainToolbar()` | `void ShowMainToolbar()`        | (Declared) Intended to render the application's main toolbar. |
-| `ImGuiManager::ShowConfigWindow()` | `void ShowConfigWindow(bool* p_open = nullptr)` | (Declared) Intended to render a configuration window. |
+| Name                               | Signature                       | Description                                                                 |
+|------------------------------------|---------------------------------|-----------------------------------------------------------------------------|
+| `ImGuiManager::ImGuiManager()`       | `ImGuiManager(Renderer* renderer)` | Constructor, takes a pointer to a generic `Renderer` object.                |
+| `ImGuiManager::~ImGuiManager()`      | `~ImGuiManager()`               | Destructor, calls `Shutdown()`.                                             |
+| `ImGuiManager::Initialize()`         | `bool Initialize()`             | Sets up the ImGui context, style, platform/renderer backends, and IO flags. |
+| `ImGuiManager::Shutdown()`           | `void Shutdown()`               | Shuts down ImGui backends and destroys the ImGui context.                   |
+| `ImGuiManager::ProcessEvent()`       | `void ProcessEvent(SDL_Event* event)` | Passes SDL events to ImGui for processing.                                  |
+| `ImGuiManager::NewFrame()`           | `void NewFrame()`               | Starts a new ImGui frame by calling the necessary ImGui backend and core functions. |
+| `ImGuiManager::FinalizeImGuiDrawLists()`| `void FinalizeImGuiDrawLists()` | Calls `ImGui::Render()` to finalize ImGui's internal draw lists.            |
+| `ImGuiManager::PresentImGuiDrawData()`| `void PresentImGuiDrawData()`   | Renders the finalized ImGui draw data using the appropriate backend function. |
+| `ImGuiManager::ShowMainToolbar()`    | `void ShowMainToolbar()`        | (Declared, stub) Intended to render the application's main toolbar.       |
+| `ImGuiManager::ShowConfigWindow()`   | `void ShowConfigWindow(bool* p_open = nullptr)` | (Declared, stub) Intended to render a configuration window.             |
 
 **Dependencies:**  
 - `<SDL3/SDL.h>` (for `SDL_Event`)  
 - Forward declares `Renderer`.  
 
 **Notes:**  
-- Stores a pointer to a `Renderer` instance, which is expected to be an `SDLRenderer` for the current implementation.
-- Member variables `m_initialized` and `m_showConfigWindow` are declared but `m_initialized` is not used in the provided `ImGuiManager.cpp` and `m_showConfigWindow` seems intended for use with `ShowConfigWindow`.
-- The methods `ShowMainToolbar()` and `ShowConfigWindow()` are declared. However, given the new architecture where `ImGuiManager` handles ImGui's core setup and rendering calls, consider if these specific UI components should be rendered by dedicated classes (e.g., `SettingsWindow` already exists, a `MainMenuBar` class could be created) which are then called by `Application` during its update/render phase. `ImGuiManager` would ensure ImGui is ready for them to draw.
+- Stores a pointer to a `Renderer` instance (`m_renderer`), which is expected to be an `SDLRenderer` for the current implementation.
+- `m_initialized` flag tracks whether ImGui has been successfully set up.
+- `m_showConfigWindow` is declared but currently unused within `ImGuiManager`'s own methods.
+- The methods `ShowMainToolbar()` and `ShowConfigWindow()` are declared as stubs. It's recommended these UI components be implemented in dedicated classes (e.g., `MainMenuBar`, `SettingsWindow`) managed by the `Application` class, with `ImGuiManager` focusing on core ImGui setup and the render loop integration.
 
 ## `src/core/ImGuiManager.cpp`
 
@@ -364,75 +438,32 @@ _This document provides an overview of each source and header file in the projec
 - (Implements `ImGuiManager` class from `ImGuiManager.hpp`)  
 
 **Main Functions & Methods:**  
-| Name                    | Signature                       | Description                     |
-|-------------------------|---------------------------------|---------------------------------|
-| `ImGuiManager::ImGuiManager()` | `ImGuiManager(Renderer* renderer)` | Constructor, stores the provided `Renderer`. |
-| `ImGuiManager::~ImGuiManager()` | `~ImGuiManager()`               | Destructor, ensures `Shutdown()` is called. |
-| `ImGuiManager::Initialize()` | `bool Initialize()`             | Creates ImGui context, sets IO flags (Keyboard, Gamepad, Docking), configures style (Dark), and initializes ImGui backends for SDL3 and SDLRenderer3. Requires `m_renderer` to be an `SDLRenderer`. |
-| `ImGuiManager::Shutdown()`  | `void Shutdown()`               | Calls the shutdown functions for `ImGui_ImplSDLRenderer3` and `ImGui_ImplSDL3`, then destroys the ImGui context. |
-| `ImGuiManager::ProcessEvent()` | `void ProcessEvent(SDL_Event* event)` | Delegates event processing to `ImGui_ImplSDL3_ProcessEvent`. |
-| `ImGuiManager::NewFrame()`  | `void NewFrame()`               | Calls `ImGui_ImplSDLRenderer3_NewFrame()`, `ImGui_ImplSDL3_NewFrame()`, and `ImGui::NewFrame()` to prepare for UI rendering. |
-| `ImGuiManager::Render()`    | `void Render()`                 | Calls `ImGui::Render()` to finalize draw data, then `ImGui_ImplSDLRenderer3_RenderDrawData` to render it using the SDL_Renderer from `m_renderer`. |
+| Name                               | Signature                       | Description                                                                                                                               |
+|------------------------------------|---------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| `ImGuiManager::ImGuiManager()`       | `ImGuiManager(Renderer* renderer)` | Constructor, stores the provided `Renderer` and sets `m_initialized` to `false`.                                                          |
+| `ImGuiManager::~ImGuiManager()`      | `~ImGuiManager()`               | Destructor, ensures `Shutdown()` is called.                                                                                               |
+| `ImGuiManager::Initialize()`         | `bool Initialize()`             | Creates ImGui context, sets IO flags (Keyboard, Gamepad, Docking), configures style (Dark), and initializes ImGui backends for SDL3 and SDLRenderer3. Requires `m_renderer` to be an `SDLRenderer`. Sets `m_initialized` to `true` on success. |
+| `ImGuiManager::Shutdown()`           | `void Shutdown()`               | Calls the shutdown functions for `ImGui_ImplSDLRenderer3` and `ImGui_ImplSDL3`, then destroys the ImGui context.                             |
+| `ImGuiManager::ProcessEvent()`       | `void ProcessEvent(SDL_Event* event)` | Delegates event processing to `ImGui_ImplSDL3_ProcessEvent`.                                                                            |
+| `ImGuiManager::NewFrame()`           | `void NewFrame()`               | Calls `ImGui_ImplSDLRenderer3_NewFrame()`, `ImGui_ImplSDL3_NewFrame()`, and `ImGui::NewFrame()` to prepare for UI rendering.                 |
+| `ImGuiManager::FinalizeImGuiDrawLists()`| `void FinalizeImGuiDrawLists()` | If initialized, calls `ImGui::Render()` to compile ImGui's draw data.                                                                       |
+| `ImGuiManager::PresentImGuiDrawData()`| `void PresentImGuiDrawData()`   | If initialized and `m_renderer` is valid, renders the ImGui draw data using `ImGui_ImplSDLRenderer3_RenderDrawData` with the SDL_Renderer from `m_renderer`. |
 
 **Dependencies:**  
 - `ImGuiManager.hpp`  
 - `Renderer.hpp` (abstract base for `m_renderer`)  
-- `SDLRenderer.hpp` (concrete renderer, used via `dynamic_cast` to get SDL_Window and SDL_Renderer)  
+- `SDLRenderer.hpp` (concrete renderer, used via `dynamic_cast` to get `SDL_Window*` and `SDL_Renderer*`)
 - `<imgui.h>`  
 - `<imgui_impl_sdl3.h>`  
 - `<imgui_impl_sdlrenderer3.h>`  
-- `<iostream>` (for error logging if `SDLRenderer` cast fails)  
+- `<iostream>` (for error logging)
 
 **Notes:**  
 - `Initialize()` performs a `dynamic_cast` on `m_renderer` to ensure it's an `SDLRenderer`, as this is required by the ImGui SDL backends. If the cast fails, initialization is aborted.
 - Specific ImGuiIO flags are set: `ImGuiConfigFlags_NavEnableKeyboard`, `ImGuiConfigFlags_NavEnableGamepad`, `ImGuiConfigFlags_DockingEnable`.
 - Performance-related ImGuiIO settings `ConfigMemoryCompactTimer` and `ConfigWindowsMoveFromTitleBarOnly` are configured.
-- The methods `ShowMainToolbar()` and `ShowConfigWindow()` are declared in the header. However, given the new architecture where `ImGuiManager` handles ImGui's core setup and rendering calls, consider if these specific UI components should be rendered by dedicated classes (e.g., `SettingsWindow` already exists, a `MainMenuBar` class could be created) which are then called by `Application` during its update/render phase. `ImGuiManager` would ensure ImGui is ready for them to draw. (This note mirrors the one in ImGuiManager.hpp for consistency).
-
-## `src/core/ImGuiRenderer.hpp`
-
-**Purpose:** Defines the `ImGuiRenderer` class, which appears to be a basic structure for managing an ImGui rendering context or related resources. Its current form is minimal, primarily holding a reference to a generic `Renderer`.  
-**Key Classes & Structs:**  
-- `ImGuiRenderer` – A class intended for ImGui rendering tasks, currently with basic initialization and shutdown logic.  
-
-**Main Functions & Methods:**  
-| Name                    | Signature                       | Description                     |
-|-------------------------|---------------------------------|---------------------------------|
-| `ImGuiRenderer::ImGuiRenderer()` | `ImGuiRenderer(Renderer* renderer)` | Constructor, takes a pointer to a generic `Renderer` object. |
-| `ImGuiRenderer::~ImGuiRenderer()` | `~ImGuiRenderer()`              | Destructor, calls `Shutdown()`. |
-| `ImGuiRenderer::Initialize()` | `bool Initialize()`             | Basic initialization logic; currently checks for a valid `Renderer` and sets an internal flag. |
-| `ImGuiRenderer::Shutdown()`  | `void Shutdown()`               | Basic shutdown logic; currently resets an internal flag. |
-
-**Dependencies:**  
-- Forward declares `Renderer`.  
-
-**Notes:**  
-- The comment "Custom ImGui rendering methods can be added here" suggests this class is a placeholder or a base for more specific ImGui rendering components.
-- It holds a pointer to a `Renderer` and an `m_initialized` flag.
-- Currently, this class does not include any ImGui headers or directly interact with the ImGui API. Its role in the overall ImGui rendering pipeline is unclear compared to `ImGuiManager`.
-
-## `src/core/ImGuiRenderer.cpp`
-
-**Purpose:** Implements the `ImGuiRenderer` class. The current implementation provides a skeleton for initialization and shutdown but does not contain any actual ImGui rendering logic.  
-**Key Classes & Structs:**  
-- (Implements `ImGuiRenderer` class from `ImGuiRenderer.hpp`)  
-
-**Main Functions & Methods:**  
-| Name                    | Signature                       | Description                     |
-|-------------------------|---------------------------------|---------------------------------|
-| `ImGuiRenderer::ImGuiRenderer()` | `ImGuiRenderer(Renderer* renderer)` | Constructor, stores the renderer pointer and sets `m_initialized` to `false`. |
-| `ImGuiRenderer::~ImGuiRenderer()` | `~ImGuiRenderer()`              | Destructor, calls `Shutdown()`. |
-| `ImGuiRenderer::Initialize()` | `bool Initialize()`             | Sets `m_initialized` to `true` if `m_renderer` is not null. Returns `false` if `m_renderer` is null. |
-| `ImGuiRenderer::Shutdown()`  | `void Shutdown()`               | Sets `m_initialized` to `false` if it was true. |
-
-**Dependencies:**  
-- `ImGuiRenderer.hpp`  
-- `Renderer.hpp` (Though `m_renderer` is only checked for nullity, its methods are not used).  
-
-**Notes:**  
-- The class implementation is very basic and does not perform any ImGui-specific setup (like context creation, backend initialization) or rendering.
-- **Overlap/Redundancy**: Given the defined role of `ImGuiManager` in the proposed architecture for all ImGui setup, lifecycle, and backend interaction, `ImGuiRenderer` appears to be redundant and should likely be removed. `ImGuiManager` should fulfill all responsibilities previously envisioned for `ImGuiRenderer`.
-- If this class is intended to provide custom ImGui drawing routines, it would need to include ImGui headers and likely interact with the ImGui context established by `ImGuiManager`.
+- The class correctly separates `ImGui::Render()` (finalizing draw lists) into `FinalizeImGuiDrawLists()` and the actual drawing via SDL into `PresentImGuiDrawData()`.
+- The stubs `ShowMainToolbar()` and `ShowConfigWindow()` are not implemented in this file, reinforcing the recommendation that dedicated UI classes handle their own rendering logic.
 
 ## `src/core/InputActions.hpp`
 
@@ -622,14 +653,14 @@ _This document provides an overview of each source and header file in the projec
 **Main Functions & Methods:**  
 | Name        | Signature                                                                    | Description                                     |
 |-------------|------------------------------------------------------------------------------|-------------------------------------------------|
-| `Arc::Arc()`| `Arc(int layer_id, double x_center, double y_center, double radius_val, double start_angle_deg, double end_angle_deg)` | Constructor initializing the arc's properties. |
+| `Arc::Arc()`| `Arc(int layer_id, double x_center, double y_center, double radius_val, double start_angle_deg, double end_angle_deg, double thickness_val = 0.1, int net = -1)` | Constructor initializing the arc's properties, including optional thickness and net ID. |
 
 **Dependencies:**  
 - `<string>`  
 - `<cstdint>` (commented as "For fixed-width types if absolutely needed")  
 
 **Notes:**  
-- Stores `layer`, center coordinates (`cx`, `cy`), `radius`, `start_angle` (degrees), `end_angle` (degrees), `thickness`, and `net_id`.  
+- Stores `layer`, center coordinates (`cx`, `cy`), `radius`, `start_angle` (degrees), `end_angle` (degrees), `thickness` (defaulting to 0.1), and `net_id` (defaulting to -1).  
 - A commented-out field `scale` from a previous loader suggests `thickness` is its more explicit replacement.  
 - The `net_id` allows associating the arc with a specific electrical net.  
 
@@ -667,7 +698,7 @@ _This document provides an overview of each source and header file in the projec
 **Main Functions & Methods:**  
 | Name       | Signature                                               | Description                                                        |
 |------------|---------------------------------------------------------|--------------------------------------------------------------------|
-| `Pin::Pin()`| `Pin(double x, double y, const std::string& name, PadShape shape)` | Constructor initializing the pin's coordinates, name, and pad shape. |
+| `Pin::Pin()`| `Pin(double x, double y, const std::string& name, PadShape shape, int lyr = 0, int net = -1 /*...other_params...*/) ` | Constructor initializing the pin's coordinates, name, pad shape, and optional layer and net ID. |
 
 **Dependencies:**  
 - `<string>`  
@@ -675,8 +706,8 @@ _This document provides an overview of each source and header file in the projec
 - `<vector>` (commented as "If we later find a need for multiple outlines or complex shapes")  
 
 **Notes:**  
-- A `Pin` has `x_coord`, `y_coord`, `pin_name`, `net_id`, and a `pad_shape`.  
-- It also includes members like `layer`, `side` (e.g., top/bottom), `diode_reading`, and `orientation`, adopted from a previous data structure.  
+- A `Pin` has `x_coord`, `y_coord`, `pin_name`, `pad_shape`, `layer` (defaulting to 0), and `net_id` (defaulting to -1).  
+- It also includes members like `side` (e.g., top/bottom), `diode_reading`, and `orientation`, adopted from a previous data structure.  
 - Comments suggest potential future additions like distinguishing plated/non-plated holes (for vias acting as pins) and thermal relief properties.  
 - Helper functions for bounding box or area calculations based on `pad_shape` are suggested.  
 
@@ -689,14 +720,15 @@ _This document provides an overview of each source and header file in the projec
 **Main Functions & Methods:**  
 | Name             | Signature                                                                | Description                                                     |
 |------------------|--------------------------------------------------------------------------|-----------------------------------------------------------------|
-| `TextLabel::TextLabel()` | `TextLabel(const std::string& content, double pos_x, double pos_y, int layer_id, double size)` | Constructor initializing text content, position, layer, and font size. |
+| `TextLabel::TextLabel()` | `TextLabel(const std::string& content, double pos_x, double pos_y, int layer_id, double size, double rot = 0.0, const std::string& font = "Default", bool visible = true)` | Constructor initializing text content, position, layer, font size, and optional rotation, font family, and visibility. |
 
 **Dependencies:**  
 - `<string>`  
 - `<cstdint>`  
 
 **Notes:**  
-- Stores `text_content`, position (`x`, `y`), `layer`, `font_size`, `scale`, `rotation` (degrees), `is_visible`, `ps06_flag` (meaning TBD), and `font_family`.  
+- Stores `text_content`, position (`x`, `y`), `layer`, `font_size`, `rotation` (degrees, default 0.0), `font_family` (default "Default"), and `is_visible` (default true).  
+- The `scale` member from original data is superseded by `font_size`. The `ps06_flag` member's meaning is TBD.  
 - Comments suggest potential future additions for text justification, orientation, and color.  
 - The `ps06_flag` and `scale` members are from an original data structure, with `scale` likely being a general scaling factor.  
 
@@ -709,13 +741,13 @@ _This document provides an overview of each source and header file in the projec
 **Main Functions & Methods:**  
 | Name         | Signature                                                                         | Description                                                  |
 |--------------|-----------------------------------------------------------------------------------|--------------------------------------------------------------|
-| `Trace::Trace()`| `Trace(int layer_id, double start_x, double start_y, double end_x, double end_y, double width_val)` | Constructor initializing the trace's layer, endpoints, and width. |
+| `Trace::Trace()`| `Trace(int layer_id, double start_x, double start_y, double end_x, double end_y, double width_val, int net = -1)` | Constructor initializing the trace's layer, endpoints, width, and optional net ID. |
 
 **Dependencies:**  
 - `<cstdint>`  
 
 **Notes:**  
-- Stores `layer`, start coordinates (`x1`, `y1`), end coordinates (`x2`, `y2`), `width`, and `net_id`.  
+- Stores `layer`, start coordinates (`x1`, `y1`), end coordinates (`x2`, `y2`), `width`, and `net_id` (defaulting to -1).  
 - A comment suggests a potential `getLength()` helper method.  
 
 ## `src/pcb/elements/Via.hpp`
@@ -727,14 +759,14 @@ _This document provides an overview of each source and header file in the projec
 **Main Functions & Methods:**  
 | Name      | Signature                                                                                        | Description                                                                     |
 |-----------|--------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------|
-| `Via::Via()`| `Via(double x_coord, double y_coord, int start_layer, int end_layer, double radius_start_layer, double radius_end_layer)` | Constructor initializing via position, layer span, and pad radii on start/end layers. |
+| `Via::Via()`| `Via(double x_coord, double y_coord, int start_layer, int end_layer, double drill_dia, double radius_start_layer, double radius_end_layer, int net = -1, const std::string& text = "")` | Constructor initializing via position, layer span, drill diameter, pad radii, and optional net ID and text. |
 
 **Dependencies:**  
 - `<string>`  
 - `<cstdint>`  
 
 **Notes:**  
-- Stores position (`x`, `y`), layer span (`layer_from`, `layer_to`), `drill_diameter`, pad radii (`pad_radius_from`, `pad_radius_to`), `net_id`, and `optional_text`.  
+- Stores position (`x`, `y`), layer span (`layer_from`, `layer_to`), `drill_diameter`, pad radii (`pad_radius_from`, `pad_radius_to`), `net_id` (defaulting to -1), and `optional_text` (default empty).  
 - Comments suggest alternative for symmetrical pads (`double pad_radius`) and potential additions like `is_tented` or `is_filled` for solder mask/paste properties.  
 
 ## `src/pcb/elements/Component.hpp`
@@ -750,7 +782,7 @@ _This document provides an overview of each source and header file in the projec
 **Main Functions & Methods:**  
 | Name              | Signature                                                                 | Description                                                                   |
 |-------------------|---------------------------------------------------------------------------|-------------------------------------------------------------------------------|
-| `Component::Component()` | `Component(const std::string& ref_des, const std::string& val, double x, double y)` | Constructor initializing reference designator, value, and center position. |
+| `Component::Component()` | `Component(const std::string& ref_des, const std::string& val, double center_x_pos, double center_y_pos, const std::string& footprint = "", double rot = 0.0, int lyr = 0, MountingSide side_val = MountingSide::Top, ComponentType type_val = ComponentType::Other)` | Constructor initializing reference designator, value, position, and optional footprint, rotation, layer, mounting side, and component type. |
 
 **Dependencies:**  
 - `<string>`  
@@ -759,7 +791,7 @@ _This document provides an overview of each source and header file in the projec
 - `TextLabel.hpp` (for `TextLabel` class)  
 
 **Notes:**  
-- A `Component` stores `reference_designator`, `value`, `footprint_name`, `center_x`, `center_y`, `rotation`, `layer`, `side`, and `type`.  
+- A `Component` stores `reference_designator`, `value`, `footprint_name` (default empty), `center_x`, `center_y`, `rotation` (default 0.0), `layer` (default 0), `side` (default `MountingSide::Top`), and `type` (default `ComponentType::Other`).  
 - It contains vectors of `Pin` objects, `TextLabel` objects (for silkscreen text like ref des or value), and `LineSegment` objects (for silkscreen outlines, courtyard, etc.).  
 - Comments suggest that bounding box (`width`, `height`) could be calculated or stored explicitly.  
 - The `MountingSide::Both` enum value's validity for a single component instance is questioned in a comment.  
@@ -857,181 +889,282 @@ _This document provides an overview of each source and header file in the projec
 
 ## `src/pcb/PcbLoader.hpp`
 
-- The loader handles a complex binary format involving multiple data sections, different block types, XOR encryption for the main file, and DES encryption for component blocks.  
-- Parsing logic for individual elements (arc, via, trace, text, component, pin) is based on reverse-engineered struct layouts from a hex editor pattern file (`.hexpat`) and previous loader implementations.  
-- String reading uses a basic `readCB2312String` method; proper multi-byte character set conversion (e.g., to UTF-8) would be more robust.  
-- Diode reading parsing supports two formats, distinguished by initial byte markers, and stores them in the `diodeReadings_` map to be associated with pins later.  
-- Pin parsing includes logic to determine pad shape (Circle, Rectangle, Capsule) based on dimensions and type flags from the file.  
-- Error handling is present (e.g., boundary checks, exception handling for `readLE`), but logging is often commented out and could be enhanced.  
-- The file structure implies an older format ("XZZPCB") with later additions (e.g., "post-v6" block).  
+**Purpose:** Defines the `PcbLoader` class, responsible for reading and parsing a specific binary PCB file format ("XZZPCB"). It handles file I/O, decryption (XOR and DES), and parsing of various data blocks to populate a `Board` object with its constituent elements and metadata.
+**Key Classes & Structs:**
+- `PcbLoader` – Encapsulates the logic for loading and interpreting XZZPCB files.
+
+**Main Functions & Methods:**
+| Name                       | Signature                                               | Description                                                                                                |
+|----------------------------|---------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
+| `PcbLoader::loadFromFile()`| `std::unique_ptr<Board> loadFromFile(const std::string& filePath)` | Main public method. Orchestrates file reading, verification, decryption, and parsing to return a populated `Board` object. |
+
+**Dependencies:**
+- `<string>`
+- `<vector>`
+- `<memory>` (for `std::unique_ptr`)
+- `<cstdint>`
+- `<cstring>`
+- `Board.hpp` (for the `Board` data model and its elements)
+- `../utils/des.h` (for DES decryption functionality)
+
+**Notes:**
+- The loader is designed to handle a complex, proprietary binary format.
+- It manages internal state for parsing, such as `diodeReadings_` discovered during the post-v6 block parsing.
+- Includes private helper methods for each stage of loading: file reading, format verification, decryption, header parsing, main data block parsing, net block parsing, post-v6 block parsing, and individual element parsing.
+- Contains specific logic for DES key generation and component block decryption.
+- Employs a template `readLE<T>` for reading little-endian data types.
+
+## `src/pcb/PcbLoader.cpp`
+
+**Purpose:** Implements the `PcbLoader` class, providing the detailed logic for reading, decrypting, and parsing XZZPCB binary files. It translates the raw file data into a structured `Board` representation, including all its geometric elements, nets, and metadata.
+**Key Classes & Structs:**  
+- (Implements `PcbLoader` class from `PcbLoader.hpp`)
+
+**Main Functions & Methods:**  
+| Name                                  | Signature                                                                                                | Description                                                                                                                                    |
+|---------------------------------------|----------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------|
+| `PcbLoader::loadFromFile()`           | `std::unique_ptr<Board> loadFromFile(const std::string& filePath)`                                         | Orchestrates the entire loading process: calls `readFileData`, `verifyFormat`, `decryptFileDataIfNeeded`, then parsing methods.                      |
+| `PcbLoader::readFileData()`           | `bool readFileData(const std::string& filePath, std::vector<char>& fileData)`                              | Reads the entire content of the specified file into a character vector.                                                                        |
+| `PcbLoader::verifyFormat()`           | `bool verifyFormat(const std::vector<char>& fileData)`                                                   | Checks for the "XZZPCB" signature, including a check for XOR-encrypted files.                                                                  |
+| `PcbLoader::decryptFileDataIfNeeded()`| `bool decryptFileDataIfNeeded(std::vector<char>& fileData)`                                              | Performs XOR decryption on the file data if an XOR key is detected at offset 0x10. Skips the post-v6 block if present.                           |
+| `PcbLoader::decryptComponentBlock()`  | `void decryptComponentBlock(std::vector<char>& blockData)`                                               | Decrypts a block of component data using DES. Derives the DES key from static data (`des_key_byte_list`) and applies specific transformations. | 
+| `PcbLoader::readCB2312String()`       | `std::string readCB2312String(const char* data, size_t length)`                                          | Reads a string from raw data, with basic handling for CB2312 (currently treats non-ASCII as '?').                                            |
+| `PcbLoader::parseHeader()`            | `bool parseHeader(..., uint32_t& outMainDataOffset, ...)`                                                | Parses the file header to extract offsets for main data, net data, image data, and the size of main data blocks. Populates `board.board_name`.  |
+| `PcbLoader::parseMainDataBlocks()`    | `bool parseMainDataBlocks(..., uint32_t mainDataOffset, uint32_t mainDataBlocksSize)`                    | Iterates through the main data section, parsing individual blocks (arcs, vias, traces, text, components) based on their type codes.            |
+| `PcbLoader::parseArc()`               | `void parseArc(const char* data, Board& board)`                                                          | Parses arc element data and adds it to the `Board`.                                                                                            |
+| `PcbLoader::parseVia()`               | `void parseVia(const char* data, uint32_t blockSize, Board& board)`                                      | Parses via element data, including optional text, and adds it to the `Board`.                                                                  |
+| `PcbLoader::parseTrace()`             | `void parseTrace(const char* data, Board& board)`                                                        | Parses trace element data and adds it to the `Board`.                                                                                          |
+| `PcbLoader::parseTextLabel()`         | `void parseTextLabel(const char* data, Board& board, bool isStandalone)`                                 | Parses standalone text label data and adds it to the `Board`.                                                                                  |
+| `PcbLoader::parseComponent()`         | `void parseComponent(const char* rawComponentData, uint32_t componentBlockSize, Board& board)`           | Decrypts component data, then parses its structure including sub-elements like pins, graphical segments, and text labels, adding to `Board`. | 
+| `PcbLoader::parsePostV6Block()`       | `bool parsePostV6Block(..., std::vector<char>::const_iterator v6_iter)`                                  | Parses the data block found after a "v6v6555v6v6" marker, typically containing diode readings. Stores readings in `m_diodeReadings_`.         |
+| `PcbLoader::parseNetBlock()`          | `bool parseNetBlock(const std::vector<char>& fileData, Board& board, uint32_t netDataOffset)`            | Parses the net data block, reading net IDs and names, and adds them to the `Board`.                                                            |
+| `PcbLoader::readLE<T>()`              | `template<typename T> T readLE(const char* data)`                                                        | Generic helper to read little-endian data of type `T` from a character buffer.                                                                  |
+
+**Static Data (Internal Linkage):**
+- `hexconv[]`: Lookup table for hex character to byte conversion.
+- `des_key_byte_list`: Static data used for DES key generation.
+
+**Dependencies:**  
+- `PcbLoader.hpp`
+- `<fstream>`
+- `<vector>`
+- `<string>`
+- `<stdexcept>`
+- `<algorithm>` (for `std::search`)
+- `<cstring>` (for `std::memcpy`)
+- `<iomanip>` (for `std::setw`, `std::setfill`, `std::hex` in DES key gen)
+- `<sstream>` (for `std::ostringstream` in DES key gen)
+- `../utils/des.h` (for the `des()` function)
+
+**Notes:**  
+- The loader meticulously parses a complex binary format, handling various data types, offsets, and conditional decryption.
+- Component data undergoes DES decryption before parsing.
+- The main file data can undergo XOR decryption.
+- Parsing of individual elements (`Arc`, `Via`, `Trace`, `TextLabel`, `Component` with its sub-elements like `Pin`, `LineSegment`) is based on specific byte offsets and data types derived from format analysis.
+- String reading uses `readCB2312String`, which currently offers basic non-ASCII handling; full GB2312 to UTF-8 conversion would be more robust for international characters.
+- Diode readings from the "post-v6" block are parsed and stored in `m_diodeReadings_` for later association with pins, potentially during component parsing or by a post-processing step.
+- The file includes detailed error checks for block sizes and offsets to prevent reading past buffer boundaries.
+- The DES key generation process (`decryptComponentBlock`) involves specific XOR operations and hex conversions.
+
+
+
+## `src/render/PcbRenderer.hpp`
+
+**Purpose:** Defines the `PcbRenderer` class, responsible for orchestrating the rendering of PCB data (board, grid, etc.) to an off-screen `BLImage` using a `RenderContext` (for Blend2D resources) and a `RenderPipeline`. This class acts as the primary manager for the Blend2D rendering phase.
+**Key Classes & Structs:**  
+- `PcbRenderer` – Manages the off-screen Blend2D rendering process for the PCB visualization.
+
+**Main Functions & Methods:**  
+| Name                           | Signature                                                                           | Description                                                                                                |
+|--------------------------------|-------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
+| `PcbRenderer::PcbRenderer()`   | `PcbRenderer()`                                                                     | Constructor.                                                                                               |
+| `PcbRenderer::~PcbRenderer()`  | `~PcbRenderer()`                                                                    | Destructor, ensures `Shutdown()` is called.                                                                  |
+| `PcbRenderer::Initialize()`    | `bool Initialize(int initialWidth, int initialHeight)`                              | Initializes the `RenderContext` and `RenderPipeline` with initial dimensions for the rendering surface.    |
+| `PcbRenderer::Shutdown()`      | `void Shutdown()`                                                                   | Shuts down and releases resources held by `RenderContext` and `RenderPipeline`.                              |
+| `PcbRenderer::Render()`        | `void Render(const Board* board, const Camera* camera, const Viewport* viewport, const Grid* grid)` | Orchestrates a single frame of PCB rendering to an internal `BLImage`. Handles context/pipeline execution. |
+| `PcbRenderer::GetRenderedImage()`| `const BLImage& GetRenderedImage() const`                                           | Returns a constant reference to the `BLImage` containing the latest rendered PCB scene.                    |
+| `PcbRenderer::OnViewportResized()`| `void OnViewportResized(int newWidth, int newHeight)`                               | Notifies the renderer that the target viewport has resized, triggering a resize of the internal `BLImage`. |
+
+**Dependencies:**  
+- `<memory>` (for `std::unique_ptr`)
+- `<blend2d.h>` (for `BLImage` type)
+- Forward declares: `RenderContext`, `RenderPipeline`, `Board`, `Camera`, `Viewport`, `Grid`.
+
+**Notes:**
+- This class is non-copyable and non-movable.
+- Owns `m_renderContext` and `m_renderPipeline` via `std::unique_ptr`.
+- Acts as the `BD_PcbRenderer` component depicted in the application architecture diagram, managing the CPU-based Blend2D rendering.
+
+## `src/render/PcbRenderer.cpp`
+
+**Purpose:** Implements the `PcbRenderer` class, providing the logic to manage `RenderContext` and `RenderPipeline` for rendering PCB data to an off-screen `BLImage`. It handles initialization, frame rendering orchestration, and viewport resize events.
+**Key Classes & Structs:**
+- (Implements `PcbRenderer` class from `PcbRenderer.hpp`)
+
+**Main Functions & Methods:**
+| Name                           | Signature                                                                           | Description                                                                                                                                            |
+|--------------------------------|-------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `PcbRenderer::PcbRenderer()`   | `PcbRenderer()`                                                                     | Constructor.                                                                                                                                           |
+| `PcbRenderer::~PcbRenderer()`  | `~PcbRenderer()`                                                                    | Destructor, calls `Shutdown()`.                                                                                                                        |
+| `PcbRenderer::Initialize()`    | `bool Initialize(int initialWidth, int initialHeight)`                              | Creates and initializes `m_renderContext` and `m_renderPipeline`. Returns `false` if initialization of sub-components fails.                           |
+| `PcbRenderer::Shutdown()`      | `void Shutdown()`                                                                   | Calls `Shutdown()` on `m_renderPipeline` and `m_renderContext` then resets the unique pointers.                                                        |
+| `PcbRenderer::Render()`        | `void Render(const Board* board, const Camera* camera, const Viewport* viewport, const Grid* grid)` | Main rendering loop. Checks for valid state and inputs. Resizes `RenderContext`'s image if viewport dimensions changed. Executes the `RenderPipeline`. |                                                                          |
+| `PcbRenderer::GetRenderedImage()`| `const BLImage& GetRenderedImage() const`                                           | Retrieves the target `BLImage` from `m_renderContext`. Returns a static empty image if context is null.                                                |
+| `PcbRenderer::OnViewportResized()`| `void OnViewportResized(int newWidth, int newHeight)`                               | Calls `ResizeImage()` on `m_renderContext` to adapt the rendering surface. Logs errors on failure.                                                      |
+
+**Dependencies:**
+- `render/PcbRenderer.hpp`
+- `render/RenderContext.hpp`  
+- `render/RenderPipeline.hpp`
+- `pcb/Board.hpp`
+- `view/Camera.hpp`
+- `view/Viewport.hpp`
+- `view/Grid.hpp`
+- `<iostream>` (for logging errors and informational messages)
+
+**Notes:**  
+- The `Render` method includes critical safety checks for null pointers (camera, viewport, grid) and invalid viewport dimensions, rendering placeholders or skipping if necessary.
+- Handles dynamic resizing of the `RenderContext`'s target `BLImage` to match viewport dimensions before rendering.
+- Uses a `try-catch` block around `RenderPipeline` execution to handle potential exceptions during the drawing process.
+- Logging (`std::cout`, `std::cerr`) is used for important events like initialization, resizing, and errors.
+
 
 ## `src/render/RenderContext.hpp`
 
-**Purpose:** Defines the `RenderContext` class, intended to encapsulate rendering-related resources and states. It currently focuses on managing an SDL_Renderer instance associated with an SDL_Window.  
-**Key Classes & Structs:**  
-- `RenderContext` – Manages graphics rendering context, primarily SDL_Renderer.  
+**Purpose:** Defines the `RenderContext` class, responsible for managing core Blend2D rendering resources. This includes an off-screen `BLImage` that serves as the render target and a `BLContext` that performs drawing operations onto this image. It handles initialization, shutdown, frame setup (clearing), and image resizing for the Blend2D environment.
 
-**Main Functions & Methods:**  
-| Name                       | Signature                       | Description                                                                                    |
-|----------------------------|---------------------------------|------------------------------------------------------------------------------------------------|
-| `RenderContext::RenderContext()`| `RenderContext()`                 | Constructor.                                                                                   |
-| `RenderContext::~RenderContext()`| `~RenderContext()`                | Destructor, calls `Shutdown()` if resources are still held.                                    |
-| `RenderContext::Initialize()`| `bool Initialize(SDL_Window* window)` | Initializes the context with a given `SDL_Window*`, creates an `SDL_Renderer` for it.         |
-| `RenderContext::Shutdown()`  | `void Shutdown()`                 | Destroys the managed `SDL_Renderer` and releases its reference to `SDL_Window`.                  |
-| `RenderContext::BeginFrame()`| `void BeginFrame()`               | Placeholder for operations at the start of a frame (e.g., clearing the screen). Currently empty. |
-| `RenderContext::EndFrame()`  | `void EndFrame()`                 | Placeholder for operations at the end of a frame (e.g., `SDL_RenderPresent`). Currently empty.   |
-| `RenderContext::GetRenderer()`| `SDL_Renderer* GetRenderer() const` | Returns a pointer to the managed `SDL_Renderer`.                                               |
+**Key Classes & Structs:**
+- `RenderContext` – Encapsulates a `BLImage` and `BLContext` for off-screen 2D graphics rendering using Blend2D.
 
-**Dependencies:**  
-- Forward declares `SDL_Window`, `SDL_Renderer`.  
-- Comments suggest potential for Blend2D (`BLContextCore`) integration.  
+**Main Functions & Methods:**
+| Name                             | Signature                                  | Description                                                                                              |
+|----------------------------------|--------------------------------------------|----------------------------------------------------------------------------------------------------------|
+| `RenderContext::RenderContext()` | `RenderContext()`                          | Constructor, initializes members to default states.                                                      |
+| `RenderContext::~RenderContext()`| `~RenderContext()`                         | Destructor, ensures `Shutdown()` is called.                                                              |
+| `RenderContext::Initialize()`    | `bool Initialize(int width, int height)`   | Creates the `m_targetImage` with specified dimensions and `BL_FORMAT_PRGB32`. Begins the `m_blContext` on this image. Returns `false` on failure. |
+| `RenderContext::Shutdown()`      | `void Shutdown()`                          | Ends the `m_blContext` if active and resets the `m_targetImage`, releasing its data.                     |
+| `RenderContext::BeginFrame()`    | `void BeginFrame()`                        | Prepares for a new frame. If `m_clearOnBeginFrame` is true, clears the `m_targetImage` using `m_clearColor`. |
+| `RenderContext::EndFrame()`      | `void EndFrame()`                          | Placeholder for finalization operations on `m_blContext` if needed (currently a no-op).                  |
+| `RenderContext::GetBlend2DContext()`| `BLContext& GetBlend2DContext()`          | Returns a reference to the `BLContext` for drawing operations.                                           |
+| `RenderContext::GetTargetImage()`| `const BLImage& GetTargetImage() const`    | Returns a constant reference to the `BLImage` (the render target).                                       |
+| `RenderContext::GetTargetImage()`| `BLImage& GetTargetImage()`                | Returns a writable reference to the `BLImage`.                                                           |
+| `RenderContext::GetImageWidth()` | `int GetImageWidth() const`                | Returns the current width of the `m_targetImage`.                                                        |
+| `RenderContext::GetImageHeight()`| `int GetImageHeight() const`               | Returns the current height of the `m_targetImage`.                                                       |
+| `RenderContext::ResizeImage()`   | `bool ResizeImage(int newWidth, int newHeight)` | Resizes the `m_targetImage`. Ends the current `m_blContext`, creates a new `BLImage` with the new dimensions, and re-begins the `m_blContext` on it. |
+| `RenderContext::SetClearColor()` | `void SetClearColor(float r, float g, float b, float a)` | Sets the color used to clear the `m_targetImage` in `BeginFrame()`.                                     |
+| `RenderContext::SetClearOnBeginFrame()` | `void SetClearOnBeginFrame(bool shouldClear)` | Controls whether `BeginFrame()` performs a clear operation.                                              |
+| `RenderContext::OptimizeForStatic()` | `void OptimizeForStatic()`              | Adjusts `BLContext` approximation options for higher quality rendering of static content.                |
+| `RenderContext::OptimizeForInteractive()` | `void OptimizeForInteractive()`     | Adjusts `BLContext` approximation options for faster rendering of dynamic/interactive content.           |
 
-**Notes:**  
-- The class explicitly deletes copy and move constructors/assignment operators to prevent unintended copying/moving.  
-- `m_window` is a raw pointer; its ownership is stated to be managed elsewhere (e.g., by an `Application` class).  
-- `m_renderer` is created and destroyed by `RenderContext`.  
-- This class is a prime candidate for managing the Blend2D rendering environment. As per the proposed architecture, it should encapsulate the `BLContext` and the target off-screen `BLImage` used for rendering the PCB content with Blend2D.  
-- Comments indicate placeholders for methods like `SetClearColor` and `Clear` that would be relevant for managing the `BLImage` rendering.
+**Dependencies:**
+- `<blend2d.h>` (For `BLImage`, `BLContext`, `BLResult`, `BL_FORMAT_PRGB32`, `BLRgba32`, `BLApproximationOptions`, etc.)
+- `<memory>` (Used by `PcbRenderer` which owns `RenderContext` via `unique_ptr`, though not directly in `RenderContext.hpp`'s public interface)
+
+**Notes:**
+- This class is non-copyable and non-movable due to deleted copy/move constructors and assignment operators, which is appropriate for a class managing unique graphics resources.
+- It no longer manages any SDL_Window or SDL_Renderer resources; its focus is purely on the Blend2D off-screen rendering setup.
+- The `m_targetImage` is the primary output, intended to be used as a source for an SDL_Texture by a higher-level component (e.g., `PcbRenderer` provides access, `PCBViewerWindow` would create an SDL_Texture from it).
 
 ## `src/render/RenderContext.cpp`
 
-**Purpose:** Implements the `RenderContext` class, providing functionality to initialize and manage an SDL_Renderer. It handles the creation and destruction of the SDL_Renderer based on a provided SDL_Window.  
-**Key Classes & Structs:**  
-- (Implements `RenderContext` class from `RenderContext.hpp`)  
+**Purpose:** Implements the `RenderContext` class, providing the logic for managing Blend2D resources (`BLImage` and `BLContext`). This includes initialization, creating and resizing the off-screen image buffer, beginning and ending the Blend2D context, and frame management operations like clearing the image.
 
-**Main Functions & Methods:**  
-| Name                       | Signature                       | Description                                                                                                |
-|----------------------------|---------------------------------|------------------------------------------------------------------------------------------------------------|
-| `RenderContext::RenderContext()`| `RenderContext()`                 | Constructor, initializes member pointers to `nullptr`.                                                      |
-| `RenderContext::~RenderContext()`| `~RenderContext()`                | Destructor, calls `Shutdown()` to ensure resources are released if not done explicitly.                        |
-| `RenderContext::Initialize()`| `bool Initialize(SDL_Window* window)` | Takes an `SDL_Window*`. Creates an `SDL_Renderer` for this window. Sets the renderer's blend mode to `SDL_BLENDMODE_BLEND`. Returns `false` on failure. |
-| `RenderContext::Shutdown()`  | `void Shutdown()`                 | Destroys the `m_renderer` if it exists and sets both `m_renderer` and `m_window` pointers to `nullptr`.         |
-| `RenderContext::BeginFrame()`| `void BeginFrame()`               | Currently empty. Comments suggest it could be used for clearing the screen.                                  |
-| `RenderContext::EndFrame()`  | `void EndFrame()`                 | Currently empty. Comments note that `SDL_RenderPresent` is typically done by the main loop after ImGui.         |
-| `RenderContext::GetRenderer()`| `SDL_Renderer* GetRenderer() const` | Returns the `m_renderer` pointer.                                                                            |
-
-**Dependencies:**  
-- `render/RenderContext.hpp`  
-- `<SDL3/SDL.h>`  
-- `<stdexcept>` (for `std::runtime_error`, though not explicitly thrown in the provided code)  
-- Comments mention potential for `<blend2d.h>` and `<iostream>`.  
-
-**Notes:**  
-- The `Initialize` method creates an `SDL_Renderer` without specific flags, relying on SDL's defaults, but then sets `SDL_BLENDMODE_BLEND`. This SDL-specific initialization will need to be re-evaluated based on its new role.
-- The `m_window` is explicitly stated as not being owned by `RenderContext`, so it's not destroyed in `Shutdown()`, only its pointer is nullified. This aspect may change if it directly manages a `BLImage` without direct SDL window interaction.
-- `BeginFrame` and `EndFrame` are currently stubs; their intended functionality will shift towards preparing and finalizing rendering on the `BLImage`.
-- Placeholders and commented-out code suggest planned or considered integration with Blend2D and more explicit frame management – this aligns with its new proposed role.
-- **Refactoring Cue & Role Clarification**: In the proposed architecture, `SDLRenderer` (from `src/core/`) serves as the final hardware compositor (BE_Renderer). `RenderContext` should **not** be an SDL-specific helper in parallel. Instead, `RenderContext` should be refocused to manage the **Blend2D rendering environment**. This includes setting up and providing access to the `BLContext` and the target `BLImage` for the off-screen rendering of PCB data. Its output (the `BLImage`'s pixel data) would then be passed to the `SDLRenderer` (likely via an `SDL_Texture` managed by a view component like `PCBViewerWindow`) for final display.
-
-## `src/render/RenderManager.hpp`
-
-**Purpose:** Defines the `RenderManager` class, responsible for managing the overall rendering process, including initialization, shutdown, and frame-by-frame rendering operations.
 **Key Classes & Structs:**
-- `RenderManager` – Orchestrates the rendering pipeline and manages rendering resources.
+- (Implements `RenderContext` class from `RenderContext.hpp`)
 
 **Main Functions & Methods:**
-| Name                    | Signature                       | Description                                          |
-|-------------------------|---------------------------------|------------------------------------------------------|
-| `RenderManager::RenderManager()` | `RenderManager()`                 | Constructor.                                         |
-| `RenderManager::~RenderManager()`| `~RenderManager()`                | Destructor.                                          |
-| `RenderManager::Initialize()` | `void Initialize()`               | Initializes the rendering system.                    |
-| `RenderManager::Shutdown()`   | `void Shutdown()`                 | Shuts down the rendering system and releases resources. |
-| `RenderManager::BeginFrame()` | `void BeginFrame()`               | Prepares for rendering a new frame.                  |
-| `RenderManager::EndFrame()`   | `void EndFrame()`                 | Finalizes frame rendering.                           |
-| `RenderManager::Render()`     | `void Render()`                   | Executes the main rendering loop for a frame.        |
+| Name                             | Signature                                  | Description                                                                                              |
+|----------------------------------|--------------------------------------------|----------------------------------------------------------------------------------------------------------|
+| `RenderContext::RenderContext()` | `RenderContext()`                          | Constructor: Initializes image dimensions to 0 and default clear color to transparent black.           |
+| `RenderContext::~RenderContext()`| `~RenderContext()`                         | Destructor: Calls `Shutdown()` to release Blend2D resources.                                               |
+| `RenderContext::Initialize()`    | `bool Initialize(int width, int height)`   | Creates `m_targetImage` of specified size and `BL_FORMAT_PRGB32`. Begins `m_blContext` on this image. Logs errors to `std::cerr`. |
+| `RenderContext::Shutdown()`      | `void Shutdown()`                          | Ends `m_blContext` if it's valid and resets `m_targetImage`. Resets image dimensions.                    |
+| `RenderContext::BeginFrame()`    | `void BeginFrame()`                        | If `m_clearOnBeginFrame` is true, clears `m_targetImage` to `m_clearColor` using `BL_COMP_OP_SRC_COPY`.  |
+| `RenderContext::EndFrame()`      | `void EndFrame()`                          | Currently a no-op. Comments suggest `m_blContext.flush(BL_CONTEXT_FLUSH_SYNC)` as a potential operation. |
+| `RenderContext::GetBlend2DContext()`| `BLContext& GetBlend2DContext()`          | Returns a reference to `m_blContext`.                                                                    |
+| `RenderContext::GetTargetImage()`| `const BLImage& GetTargetImage() const`    | Returns a const reference to `m_targetImage`.                                                            |
+| `RenderContext::GetTargetImage()`| `BLImage& GetTargetImage()`                | Returns a writable reference to `m_targetImage`.                                                         |
+| `RenderContext::ResizeImage()`   | `bool ResizeImage(int newWidth, int newHeight)` | Ends context, creates a new `BLImage` (`newImage`), assigns it to `m_targetImage`, updates dimensions, and re-begins `m_blContext` on the new image. Logs errors. |
+| `RenderContext::OptimizeForStatic()` | `void OptimizeForStatic()`              | Sets `BL_COMP_OP_SRC_OVER`, `BL_FILL_RULE_NON_ZERO`, and specific `BLApproximationOptions` (lower flattenTolerance, zero simplifyTolerance) for quality. |
+| `RenderContext::OptimizeForInteractive()` | `void OptimizeForInteractive()`     | Sets `BL_COMP_OP_SRC_OVER` and specific `BLApproximationOptions` (higher flattenTolerance and simplifyTolerance) for speed. |
 
 **Dependencies:**
-- `<memory>`
+- `render/RenderContext.hpp`
+- `<SDL3/SDL.h>` (Only for `SDL_LogMessage` or similar, typically via `<iostream>` if using C++ streams for logging, as seen with `std::cerr` and `std::cout`). The actual include in the provided code is `<SDL3/SDL.h>` but it's only used by `iostream`.
+- `<stdexcept>` (Mentioned for `std::runtime_error`, though direct throws are not in this snippet; used for standard exception types if error handling were more advanced).
+- `<iostream>` (For `std::cerr` and `std::cout` for logging messages).
 
 **Notes:**
-- The class explicitly deletes copy and move constructors/assignment operators to ensure single ownership.
-- Forward declarations for `RenderContext` and `RenderPipeline` are present (though were commented out, they are relevant to its refocused role).
-- Commented-out member variables (`m_context`, `m_pipeline`, `m_renderables`) and methods (`SetRenderTarget`, `RegisterRenderable`, `UnregisterRenderable`, `GetContext`, `GetPipeline`) indicate functionality that aligns with its proposed role as the 'PCB Rendering Logic' (Blend2D orchestrator).
-
-## `src/render/RenderManager.cpp`
-
-**Purpose:** Implements the `RenderManager` class, providing the logic for initializing, managing, and shutting down rendering subsystems, as well as coordinating frame rendering.
-**Key Classes & Structs:**
-- (Implements `RenderManager` class from `RenderManager.hpp`)
-
-**Main Functions & Methods:**
-| Name                    | Signature                       | Description                                                            |
-|-------------------------|---------------------------------|------------------------------------------------------------------------|
-| `RenderManager::RenderManager()` | `RenderManager()`                 | Constructor implementation.                                            |
-| `RenderManager::~RenderManager()`| `~RenderManager()`                | Destructor implementation.                                               |
-| `RenderManager::Initialize()` | `void Initialize()`               | Implements initialization of rendering subsystems.                       |
-| `RenderManager::Shutdown()`   | `void Shutdown()`                 | Implements shutdown of rendering subsystems and resource cleanup.        |
-| `RenderManager::BeginFrame()` | `void BeginFrame()`               | Implements preparations for a new frame.                               |
-| `RenderManager::EndFrame()`   | `void EndFrame()`                 | Implements finalization of frame rendering.                            |
-| `RenderManager::Render()`     | `void Render()`                   | Implements the main rendering loop or process.                         |
-
-**Dependencies:**
-- `render/RenderManager.hpp`
-- `#include <iostream>` (commented out, used for temporary logging in stubs)
-
-**Notes:**
-- The current implementations are stubs.
-- The commented-out `std::cout` lines indicate placeholders for logging.
-- Implementations for other methods declared (but commented out) in the header are also stubbed out with comments; these stubs can form the basis for its Blend2D rendering responsibilities.
-- **Refactoring Cue & Role Clarification**: While `Application` is the top-level orchestrator, `RenderManager` can be refocused to act as the 'PCB Rendering Logic' (BD_PcbRenderer) component in the diagram. In this role, it would be responsible for managing the **Blend2D rendering process**. This includes owning/managing the Blend2D-focused `RenderContext` (which holds the `BLImage` and `BLContext`) and a `RenderPipeline` specifically for sequencing Blend2D drawing operations for the PCB and related elements (like the grid). It would produce the final `BLImage` containing the rendered PCB view.
+- Error handling primarily uses `std::cerr` for logging.
+- `BeginFrame()` uses `BL_COMP_OP_SRC_COPY` for clearing to ensure an overwrite.
+- `ResizeImage()` correctly handles ending and re-beginning the `BLContext` around the `BLImage` recreation.
+- `OptimizeForStatic()` and `OptimizeForInteractive()` provide simple presets for common Blend2D rendering scenarios by adjusting approximation options.
 
 ## `src/render/RenderPipeline.hpp`
 
-**Purpose:** Defines the `RenderPipeline` class, responsible for managing a sequence of rendering operations or stages. It orchestrates how renderable objects are processed and drawn within a given `RenderContext`.
+**Purpose:** Defines the `RenderPipeline` class, responsible for orchestrating the rendering of various scene elements (like the PCB board and grid) onto a `BLContext` provided by a `RenderContext`. It manages the sequence and execution of drawing operations.
+
 **Key Classes & Structs:**
-- `RenderPipeline` – Manages the execution of rendering stages and processing of renderable objects.
+- `RenderPipeline` – Manages and executes a series of rendering tasks for the PCB view using a Blend2D context.
 
 **Main Functions & Methods:**
-| Name                    | Signature                       | Description                                                     |
-|-------------------------|---------------------------------|-----------------------------------------------------------------|
-| `RenderPipeline::RenderPipeline()` | `RenderPipeline()`                | Constructor.                                                    |
-| `RenderPipeline::~RenderPipeline()`| `~RenderPipeline()`               | Destructor.                                                     |
-| `RenderPipeline::Initialize()`| `bool Initialize(RenderContext& context)` | Initializes the render pipeline with a given rendering context. |
-| `RenderPipeline::Shutdown()`  | `void Shutdown()`                 | Shuts down the pipeline and releases its resources.             |
-| `RenderPipeline::BeginPipeline()`| `void BeginPipeline(RenderContext& context)` | Prepares the pipeline for processing a set of renderables.        |
-| `RenderPipeline::EndPipeline()`| `void EndPipeline(RenderContext& context)`   | Finalizes pipeline execution after renderables are processed.   |
+| Name                           | Signature                                                                                              | Description                                                                                                    |
+|--------------------------------|--------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------|
+| `RenderPipeline::RenderPipeline()`| `RenderPipeline()`                                                                                       | Constructor.                                                                                                   |
+| `RenderPipeline::~RenderPipeline()`| `~RenderPipeline()`                                                                                      | Destructor, ensures `Shutdown()` is called if initialized.                                                       |
+| `RenderPipeline::Initialize()`   | `bool Initialize(RenderContext& context)`                                                              | Initializes the pipeline, primarily storing a reference/pointer to the `RenderContext`.                          |
+| `RenderPipeline::Shutdown()`     | `void Shutdown()`                                                                                      | Releases resources held by the pipeline, such as the reference to the `RenderContext`.                           |
+| `RenderPipeline::BeginScene()`   | `void BeginScene(BLContext& bl_ctx)`                                                                   | Called before `Execute()`. Can set up per-scene state on the `BLContext` (currently a placeholder).                |
+| `RenderPipeline::EndScene()`     | `void EndScene()`                                                                                      | Called after `Execute()`. Can restore `BLContext` state if modified by `BeginScene()` (currently a placeholder). |
+| `RenderPipeline::Execute()`      | `void Execute(BLContext& bl_ctx, const Board* board, const Camera& camera, const Viewport& viewport, const Grid& grid)` | Core method that drives the rendering of scene elements by calling specific rendering functions like `RenderGrid` and `RenderBoard`. |
 
 **Dependencies:**
-- `<vector>`
-- `<memory>`
-- Forward declares `RenderContext`.
+- `<memory>` (If managing stages or other resources via smart pointers, though not explicit in the primary interface with just a `RenderContext*`).
+- Forward declares `RenderContext`, `Board`, `Camera`, `Viewport`, `Grid`, `BLContext`.
 
 **Notes:**
-- The class explicitly deletes copy and move constructors/assignment operators.
-- Commented-out forward declarations (`RenderStage`, `IRenderable`) and member methods/variables suggest potential future extensions for managing distinct rendering stages and a list of renderable items directly; these are key to its role in the Blend2D pipeline.
-- The structure implies that the refocused `RenderManager` (as `PcbRenderer`) would call `BeginPipeline` and `EndPipeline`, and potentially `Process` for individual items, or `Execute` if the pipeline managed its own queue of Blend2D drawables.
-- `m_initialized` flag tracks the state of the pipeline.
+- The class is non-copyable and non-movable (assuming standard practice for such manager classes).
+- It relies on an external `RenderContext` (passed during initialization and its `BLContext` passed to `Execute`) for Blend2D resources.
+- `Execute()` is the main entry point for rendering a frame's content.
+- Contains private helper methods `RenderBoard` and `RenderGrid` to encapsulate the drawing logic for those specific elements.
+- **Refactoring Cue**: The `RenderBoard` method will need to be implemented to iterate through `Board` layers and elements, drawing them using the provided `BLContext` and applying appropriate transformations from the `Camera` and `Viewport`. The `RenderGrid` method's current implementation passes the `BLContext` to `Grid::Render`, which means `Grid::Render` itself must be updated to use `BLContext` for drawing instead of `SDL_Renderer`.
 
 ## `src/render/RenderPipeline.cpp`
 
-**Purpose:** Implements the `RenderPipeline` class, providing the concrete logic for initializing, shutting down, and managing the execution flow of rendering operations.
+**Purpose:** Implements the `RenderPipeline` class, providing the logic to initialize, shut down, and execute a sequence of rendering operations for the PCB view. It uses a `BLContext` (obtained from `PcbRenderer` which gets it from `RenderContext`) to draw elements like the grid and the PCB board itself.
+
 **Key Classes & Structs:**
-- (Implements `RenderPipeline` class from `RenderManager.hpp`)
+- (Implements `RenderPipeline` class from `RenderPipeline.hpp`)
 
 **Main Functions & Methods:**
-| Name                    | Signature                       | Description                                                              |
-|-------------------------|---------------------------------|--------------------------------------------------------------------------|
-| `RenderPipeline::RenderPipeline()` | `RenderPipeline()`                | Constructor, initializes `m_initialized` to false.                       |
-| `RenderPipeline::~RenderPipeline()`| `~RenderPipeline()`               | Destructor, ensures `Shutdown()` is called if still initialized.         |
-| `RenderPipeline::Initialize()`| `bool Initialize(RenderContext& context)` | Sets up the pipeline; currently a basic implementation setting `m_initialized`. |
-| `RenderPipeline::Shutdown()`  | `void Shutdown()`                 | Releases pipeline resources and resets `m_initialized`.                  |
-| `RenderPipeline::BeginPipeline()`| `void BeginPipeline(RenderContext& context)` | Prepares for a rendering pass. Includes commented-out Blend2D example logic. |
-| `RenderPipeline::EndPipeline()`| `void EndPipeline(RenderContext& context)`   | Finalizes a rendering pass. Includes commented-out Blend2D example logic.  |
+| Name                           | Signature                                                                                              | Description                                                                                                                                                           |
+|--------------------------------|--------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `RenderPipeline::RenderPipeline()`| `RenderPipeline()`                                                                                       | Constructor: Initializes `m_renderContext` to `nullptr` and `m_initialized` to `false`.                                                                                 |
+| `RenderPipeline::~RenderPipeline()`| `~RenderPipeline()`                                                                                      | Destructor: Calls `Shutdown()` if the pipeline was not explicitly shut down.                                                                                              |
+| `RenderPipeline::Initialize()`   | `bool Initialize(RenderContext& context)`                                                              | Stores a pointer to the provided `RenderContext` in `m_renderContext` and sets `m_initialized` to `true`.                                                               |
+| `RenderPipeline::Shutdown()`     | `void Shutdown()`                                                                                      | Resets `m_renderContext` to `nullptr` and `m_initialized` to `false`.                                                                                                   |
+| `RenderPipeline::BeginScene()`   | `void BeginScene(BLContext& bl_ctx)`                                                                   | Placeholder method. Intended for per-scene setup on the `BLContext` before rendering elements.                                                                        |
+| `RenderPipeline::EndScene()`     | `void EndScene()`                                                                                      | Placeholder method. Intended for per-scene cleanup or state restoration on the `BLContext` after rendering elements.                                                      |
+| `RenderPipeline::Execute()`      | `void Execute(BLContext& bl_ctx, const Board* board, const Camera& camera, const Viewport& viewport, const Grid& grid)` | Main rendering orchestration method. If initialized, calls `RenderGrid()` and then `RenderBoard()` (if `board` is not null).                                          |
+| `RenderPipeline::RenderBoard()`  | `void RenderBoard(BLContext& bl_ctx, const Board& board, const Camera& camera, const Viewport& viewport)` | Sets up the `BLContext`'s transformation matrix based on `viewport` and `camera` (translation, scale, rotation). (Currently, actual board element rendering is a TODO). | 
+| `RenderPipeline::RenderGrid()`   | `void RenderGrid(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, const Grid& grid)`    | Calls `grid.Render(bl_ctx, camera, viewport)`, delegating grid rendering to the `Grid` object itself using the provided `BLContext`. Handles exceptions during grid rendering. | 
 
 **Dependencies:**
 - `render/RenderPipeline.hpp`
-- `render/RenderContext.hpp` (for access to context details)
-- Commented includes for `<iostream>` and `<SDL3/SDL_log.h>` for logging.
+- `render/RenderContext.hpp` (For `RenderContext` type, though `m_renderContext` is used as a raw pointer)
+- `pcb/Board.hpp`
+- `view/Camera.hpp`
+- `view/Viewport.hpp`
+- `view/Grid.hpp`
+- `<blend2d.h>` (For `BLContext`, `BLMatrix2D`, `BL_M_PI`)
+- `<iostream>` (For `std::cout`, `std::cerr` logging)
 
 **Notes:**
-- The implementations for `Initialize`, `BeginPipeline`, and `EndPipeline` are currently basic stubs.
-- Commented-out code sections provide examples of potential functionality, such as:
-    - More detailed initialization checks.
-    - Management of `RenderStage` objects.
-    - Integration with Blend2D for 2D graphics, suggesting `RenderContext` might provide access to a `BLContextCore` and SDL surface/window information.
-    - Methods like `Process(RenderContext& context, IRenderable* renderable)` or `Execute(RenderContext& context)` for processing renderable objects.
-- The current implementation does not yet define or use `RenderStage` or `IRenderable` objects, which are hinted at in the header and comments, and will be central to its function.
-- **Refactoring Cue**: This class is intended to work closely with the refocused `RenderManager` (as `PcbRenderer`) and the Blend2D-focused `RenderContext`. The `RenderManager` would likely own the `RenderPipeline`. The example Blend2D code within `BeginPipeline` and `EndPipeline` hints that the `RenderContext` will need to expose the `BLContextCore` for the pipeline stages to use.
+- The `RenderPipeline` does not own the `RenderContext` but stores a raw pointer to it (`m_renderContext`). This `RenderContext` is provided by the `PcbRenderer`.
+- The `BLContext` used in `Execute`, `RenderBoard`, and `RenderGrid` is passed by reference, originating from `PcbRenderer` which gets it from its `RenderContext` member.
+- `RenderBoard()` correctly applies transformations to the `BLContext` to reflect camera pan, zoom, and rotation. The actual drawing of board elements within this transformed context is a placeholder (TODO).
+- `RenderGrid()` now delegates to `Grid::Render()`, passing the `BLContext`. This is a key change: `Grid::Render()` must be updated to draw using Blend2D primitives instead of SDL primitives.
+- Exception handling is present in `RenderGrid()` to catch issues during grid rendering.
 
 ## `src/ui/interaction/InteractionTool.hpp`
 
@@ -1060,67 +1193,6 @@ _This document provides an overview of each source and header file in the projec
 - `ProcessInput` is the core method that concrete tools must implement. It receives ImGui IO state and information about the viewport's focus, hover state, and dimensions.
 - `OnActivated` and `OnDeactivated` provide hooks for tool-specific setup or teardown logic.
 - A commented-out `RenderToolUI()` suggests a potential for tools to have their own ImGui configuration panels.
-
-## `src/ui/interaction/NavigationTool.hpp`
-
-**Purpose:** Defines the `NavigationTool` class, a concrete implementation of `InteractionTool`. It is specialized for handling user input (mouse and keyboard) to navigate a 2D view by controlling a `Camera` within a `Viewport`, according to preferences defined in `ControlSettings`.
-
-**Key Classes & Structs:**
-- `NavigationTool` – A class derived from `InteractionTool` that implements 2D camera navigation logic, including panning, zooming, and rotation.
-
-**Main Functions & Methods:**
-| Name                                 | Signature                                                                                                                             | Description                                                                                                                                                                       |
-|--------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `NavigationTool::NavigationTool()`   | `NavigationTool(std::shared_ptr<Camera> camera, std::shared_ptr<Viewport> viewport, std::shared_ptr<ControlSettings> controlSettings)` | Constructor. Initializes the tool with shared pointers to the `Camera` to control, the `Viewport` defining the interaction area, and `ControlSettings` for keybinds and behavior. |
-| `NavigationTool::~NavigationTool()`  | `~NavigationTool() override`                                                                                                          | Defaulted virtual destructor.                                                                                                                                                     |
-| `NavigationTool::ProcessInput()`     | `void ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isViewportHovered, ImVec2 viewportTopLeft, ImVec2 viewportSize) override` | Core method that processes `ImGuiIO` state each frame. It handles mouse wheel zooming, mouse drag panning, and keyboard inputs for panning, zooming, and rotation based on `ControlSettings`. |
-
-**Dependencies:**
-- `ui/interaction/InteractionTool.hpp` (Base class)
-- Forward declares `ControlSettings` (Full definition is in `core/ControlSettings.hpp`, included in `.cpp`)
-- `<memory>` (implicitly, for `std::shared_ptr` in constructor parameters)
-
-**Notes:**
-- This class encapsulates all logic specific to view navigation.
-- It relies on `ControlSettings` (passed via `std::shared_ptr`) to determine active keybindings for actions like Pan, Zoom, Rotate, and Reset View, as well as navigation behavior (e.g., free rotation vs. snap rotation, rotate around cursor).
-- Commented-out members (e.g., `m_panSpeed`, `m_zoomSensitivity`) and methods (e.g., `SetPanSpeed`) suggest that some navigation parameters were considered for direct configuration on the tool itself, but the current implementation primarily uses `ControlSettings` and dynamically calculated speeds.
-- No specific input state (like `m_isPanning`) is stored as a member outside the `ProcessInput` scope, meaning interactions are generally stateless between calls from the tool's perspective, relying on ImGui's input state (`io`, `IsMouseDragging`, etc.).
-
-
-## `src/ui/interaction/NavigationTool.cpp`
-
-**Purpose:** Implements the `NavigationTool` class, providing the detailed logic for processing mouse and keyboard inputs to control camera movement (pan, zoom, rotate) and view resets. It uses `Camera` and `Viewport` for transformations and `ControlSettings` to interpret user-defined keybindings and navigation preferences.
-
-**Key Classes & Structs:**
-- (Implements `NavigationTool` class from `NavigationTool.hpp`)
-
-**Main Functions & Methods:**
-| Name                                 | Signature                                                                                                                             | Description                                                                                                                                                                                                                                                           |
-|--------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `NavigationTool::NavigationTool(...)`             | `NavigationTool(...)`             | Constructor, passes camera and viewport to base `InteractionTool` and stores `controlSettings`.         |
-| `NavigationTool::ProcessInput(...)`                | `void ProcessInput(...)`          | Handles mouse wheel zooming, mouse drag panning, and keyboard-based panning, zooming, and rotation.       |
-| `IsKeybindActive()`       | `bool IsKeybindActive(const KeyCombination& kb, ImGuiIO& io, bool useIsKeyPressed)` | (File-scope static helper) Checks if a given `KeyCombination` is currently active based on ImGui IO state. |
-| `DegToRad()`              | `inline float DegToRad(float degrees)` | (File-scope static helper) Converts degrees to radians.                                                       |
-
-
-**Dependencies:**
-- `ui/interaction/NavigationTool.hpp`
-- `view/Camera.hpp`
-- `view/Viewport.hpp`
-- `core/ControlSettings.hpp`
-- `core/InputActions.hpp` (for `InputAction`, `KeyCombination`)
-- `<cmath>` (for `M_PI`, `std::cos`, `std::sin`, `std::round`)
-- `<algorithm>` (for `std::max`)
-
-**Notes:**
-- Input processing is conditional on the viewport being hovered (for mouse inputs) or focused (for keyboard inputs).
-- Zooming logic attempts to zoom towards/away from the mouse cursor's world position.
-- Panning is supported via middle mouse button drag or right mouse button drag.
-- Keyboard controls for pan, zoom, and rotation are implemented, respecting settings from `ControlSettings` (e.g., `m_freeRotation`, `m_snapRotationAngle`, `m_rotateAroundCursor`).
-- Rotation pivot can be the mouse cursor position (if hovered and enabled) or the center of the viewport.
-- A `ResetView` action is supported.
-- The `IsKeybindActive` helper function is crucial for interpreting `ControlSettings` keybindings.
-- Pan speed is dynamically adjusted based on zoom level to maintain usability.
 
 ## `src/ui/interaction/InteractionManager.hpp`
 
@@ -1177,6 +1249,68 @@ _This document provides an overview of each source and header file in the projec
 - Commented-out sections in the code (e.g., `// if (m_activeTool)` in `ProcessInput`, and the definitions for `AddTool`, `SetActiveTool`, `GetActiveTool`) clearly show placeholders for a more generic tool management system. This system would likely involve a vector of `std::shared_ptr<InteractionTool>` and an `InteractionTool* m_activeTool`.
 - The `InteractionManager` acts as a bridge between the higher-level UI/application input loop (which provides ImGui IO and viewport state) and the specific `InteractionTool` responsible for interpreting those inputs within the viewport context.
 - **Refactoring Cue**: The commented-out tool management system is the most obvious area for future development. Activating this would involve: changing `m_navigationTool` to be part of `m_tools` (a `std::vector<std::shared_ptr<InteractionTool>>`), managing `m_activeTool` (a raw `InteractionTool*` pointing to one of the tools in `m_tools`), and implementing the `AddTool`, `SetActiveTool` logic, including calling `OnActivated()` and `OnDeactivated()` on tools when they are switched.
+
+## `src/ui/interaction/NavigationTool.hpp`
+
+**Purpose:** Defines the `NavigationTool` class, a concrete implementation of `InteractionTool`. It is specialized for handling user input (mouse and keyboard) to navigate a 2D view by controlling a `Camera` within a `Viewport`, according to preferences defined in `ControlSettings`.
+
+**Key Classes & Structs:**
+- `NavigationTool` – A class derived from `InteractionTool` that implements 2D camera navigation logic, including panning, zooming, and rotation.
+
+**Main Functions & Methods:**
+| Name                                 | Signature                                                                                                                             | Description                                                                                                                                                                       |
+|--------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `NavigationTool::NavigationTool()`   | `NavigationTool(std::shared_ptr<Camera> camera, std::shared_ptr<Viewport> viewport, std::shared_ptr<ControlSettings> controlSettings)` | Constructor. Initializes the tool with shared pointers to the `Camera` to control, the `Viewport` defining the interaction area, and `ControlSettings` for keybinds and behavior. |
+| `NavigationTool::~NavigationTool()`  | `~NavigationTool() override`                                                                                                          | Defaulted virtual destructor.                                                                                                                                                     |
+| `NavigationTool::ProcessInput()`     | `void ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isViewportHovered, ImVec2 viewportTopLeft, ImVec2 viewportSize) override` | Core method that processes `ImGuiIO` state each frame. It handles mouse wheel zooming, mouse drag panning, and keyboard inputs for panning, zooming, and rotation based on `ControlSettings`. |
+
+**Dependencies:**
+- `ui/interaction/InteractionTool.hpp` (Base class)
+- Forward declares `ControlSettings` (Full definition is in `core/ControlSettings.hpp`, included in `.cpp`)
+- `<memory>` (implicitly, for `std::shared_ptr` in constructor parameters)
+
+**Notes:**
+- This class encapsulates all logic specific to view navigation.
+- It relies on `ControlSettings` (passed via `std::shared_ptr`) to determine active keybindings for actions like Pan, Zoom, Rotate, and Reset View, as well as navigation behavior (e.g., free rotation vs. snap rotation, rotate around cursor).
+- Commented-out members (e.g., `m_panSpeed`, `m_zoomSensitivity`) and methods (e.g., `SetPanSpeed`) suggest that some navigation parameters were considered for direct configuration on the tool itself, but the current implementation primarily uses `ControlSettings` and dynamically calculated speeds.
+- No specific input state (like `m_isPanning`) is stored as a member outside the `ProcessInput` scope, meaning interactions are generally stateless between calls from the tool's perspective, relying on ImGui's input state (`io`, `IsMouseDragging`, etc.).
+
+
+## `src/ui/interaction/NavigationTool.cpp`
+
+**Purpose:** Implements the `NavigationTool` class, providing concrete logic for 2D view navigation. It processes mouse and keyboard inputs to control camera panning, zooming, and rotation, taking into account user-defined keybinds and behavior preferences from `ControlSettings`.
+
+**Key Classes & Structs:**
+- (Implements `NavigationTool` class from `NavigationTool.hpp`)
+
+**Main Functions & Methods:**
+| Name                                    | Signature                                                                                                                             | Description                                                                                                                                                                                                                                                           |
+|-----------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `NavigationTool::NavigationTool(...)`             | `NavigationTool(...)`             | Constructor, passes camera and viewport to base `InteractionTool` and stores `controlSettings`.         |
+| `NavigationTool::ProcessInput(...)`                | `void ProcessInput(...)`          | Handles mouse wheel zooming, mouse drag panning, and keyboard-based panning, zooming, and rotation.       |
+| `IsKeybindActive()`       | `bool IsKeybindActive(const KeyCombination& kb, ImGuiIO& io, bool useIsKeyPressed)` | (File-scope static helper) Checks if a given `KeyCombination` is currently active based on ImGui IO state. |
+| `DegToRad()`              | `inline float DegToRad(float degrees)` | (File-scope static helper) Converts degrees to radians.                                                       |
+
+
+**Dependencies:**
+- `ui/interaction/NavigationTool.hpp`
+- `view/Camera.hpp`
+- `view/Viewport.hpp`
+- `core/ControlSettings.hpp`
+- `core/InputActions.hpp` (for `InputAction`, `KeyCombination`)
+- `<cmath>` (for `M_PI`, `std::cos`, `std::sin`, `std::round`)
+- `<algorithm>` (for `std::max`)
+
+**Notes:**
+- Input processing is conditional on the viewport being hovered (for mouse inputs) or focused (for keyboard inputs).
+- Zooming logic attempts to zoom towards/away from the mouse cursor's world position.
+- Panning is supported via middle mouse button drag or right mouse button drag.
+- Keyboard controls for pan, zoom, and rotation are implemented, respecting settings from `ControlSettings` (e.g., `m_freeRotation`, `m_snapRotationAngle`, `m_rotateAroundCursor`).
+- Rotation pivot can be the mouse cursor position (if hovered and enabled) or the center of the viewport.
+- A `ResetView` action is supported.
+- The `IsKeybindActive` helper function is crucial for interpreting `ControlSettings` keybindings.
+- Pan speed is dynamically adjusted based on zoom level to maintain usability.
+- Pan speed is dynamically adjusted based on the camera's zoom level to provide consistent perceived speed.
 
 ## `src/ui/windows/SettingsWindow.hpp`
 
@@ -1246,77 +1380,81 @@ _This document provides an overview of each source and header file in the projec
 
 ## `src/ui/windows/PCBViewerWindow.hpp`
 
-**Purpose:** Defines the `PCBViewerWindow` class, which is responsible for creating and managing an ImGui window dedicated to displaying the PCB (Printed Circuit Board) content. It handles rendering the PCB view onto an internal SDL_Texture, which is then displayed within the ImGui window. It also integrates an `InteractionManager` to process user inputs (like pan, zoom, rotate) specific to this view.
+**Purpose:** Defines the `PCBViewerWindow` class, responsible for creating an ImGui window to display PCB content. It manages an `SDL_Texture` which is updated from a `BLImage` provided by `PcbRenderer`. The class handles user interaction within the view via an `InteractionManager` and updates shared view components like `Viewport`.
 
 **Key Classes & Structs:**
-- `PCBViewerWindow` – Encapsulates the ImGui window for PCB visualization, manages an SDL_Texture as a render target, and coordinates user interaction through an `InteractionManager`.
+- `PCBViewerWindow` – Encapsulates the ImGui window for PCB visualization. It displays an `SDL_Texture` (populated from `PcbRenderer`'s output) and manages user interactions.
 
 **Main Functions & Methods:**
-| Name                                    | Signature                                                                                                                                               | Description                                                                                                                                                           | 
-|-----------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `PCBViewerWindow::PCBViewerWindow()`    | `PCBViewerWindow(std::shared_ptr<Camera> camera, std::shared_ptr<Viewport> viewport, std::shared_ptr<Grid> grid, std::shared_ptr<GridSettings> gridSettings, std::shared_ptr<ControlSettings> controlSettings)` | Constructor. Initializes with shared pointers to essential view components (`Camera`, `Viewport`, `Grid`, `GridSettings`) and `ControlSettings`. Creates an `InteractionManager`. |
-| `PCBViewerWindow::~PCBViewerWindow()`   | `~PCBViewerWindow()`                                                                                                                                    | Destructor. Ensures the `SDL_Texture` is released by calling `ReleaseTexture()`.                                                                                        |
-| `PCBViewerWindow::RenderUI()`           | `void RenderUI(SDL_Renderer* renderer)`                                                                                                                 | Core ImGui rendering method for this window. Manages the render texture's lifecycle (creation, resizing, display using `ImGui::Image`), and delegates input to the `InteractionManager`. |
-| `PCBViewerWindow::OnBoardLoaded()`      | `void OnBoardLoaded(const std::shared_ptr<Board>& board)`                                                                                                 | Callback method invoked when a new PCB `Board` is loaded. Intended for actions like resetting the camera view or logging board information.                               |
-| `PCBViewerWindow::IsWindowFocused()`    | `bool IsWindowFocused() const`                                                                                                                            | Returns `true` if the ImGui window is currently focused (including child windows).                                                                                      |
-| `PCBViewerWindow::IsWindowHovered()`    | `bool IsWindowHovered() const`                                                                                                                            | Returns `true` if the ImGui window is currently hovered by the mouse (including child windows).                                                                       |
-| `PCBViewerWindow::IsWindowVisible()`    | `bool IsWindowVisible() const`                                                                                                                            | Returns `true` if the window is currently set to be programmatically open (`m_isOpen`).                                                                                 |
-| `PCBViewerWindow::SetVisible()`         | `void SetVisible(bool visible)`                                                                                                                         | Sets the programmatic visibility state (`m_isOpen`) of the window.                                                                                                      |
+| Name                                             | Signature                                                                                                                                                                                        | Description                                                                                                                                                                                              |
+|--------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `PCBViewerWindow::PCBViewerWindow()`             | `PCBViewerWindow(std::shared_ptr<Camera> camera, ..., std::shared_ptr<BoardDataManager> boardDataManager)`                                                                                         | Constructor. Initializes with shared pointers to `Camera`, `Viewport`, `Grid`, `GridSettings`, `ControlSettings`, and `BoardDataManager`. Creates an `InteractionManager`.                              |
+| `PCBViewerWindow::~PCBViewerWindow()`            | `~PCBViewerWindow()`                                                                                                                                                                             | Destructor. Calls `ReleaseTexture()` to free the `SDL_Texture`.                                                                                                                                            |
+| `PCBViewerWindow::RenderIntegrated()`            | `void RenderIntegrated(SDL_Renderer* sdlRenderer, PcbRenderer* pcbRenderer, const std::function<void()>& pcbRenderCallback)`                                                                         | Core ImGui rendering method. Manages window display, updates `Viewport` size, calls `pcbRenderCallback` (for `PcbRenderer` to render), updates `SDL_Texture` from `PcbRenderer`, and handles input.     |
+| `PCBViewerWindow::OnBoardLoaded()`               | `void OnBoardLoaded(const std::shared_ptr<Board>& board)`                                                                                                                                          | Callback invoked when a board is loaded or unloaded. Logs board status.                                                                                                                                    |
+| `PCBViewerWindow::IsWindowFocused()`             | `bool IsWindowFocused() const`                                                                                                                                                                     | Returns `true` if the ImGui window is focused.                                                                                                                                                             |
+| `PCBViewerWindow::IsWindowHovered()`             | `bool IsWindowHovered() const`                                                                                                                                                                     | Returns `true` if the ImGui window is hovered.                                                                                                                                                             |
+| `PCBViewerWindow::IsWindowVisible()`             | `bool IsWindowVisible() const`                                                                                                                                                                     | Returns `true` if the window is programmatically set to be open (`m_isOpen`).                                                                                                                                |
+| `PCBViewerWindow::SetVisible()`                  | `void SetVisible(bool visible)`                                                                                                                                                                  | Sets the programmatic visibility (`m_isOpen`) of the window.                                                                                                                                               |
 
 **Dependencies:**
 - `<memory>` (For `std::shared_ptr`, `std::unique_ptr`)
 - `<string>` (For `m_windowName`)
-- `imgui.h` (For `ImVec2`, `ImGuiWindowFlags`, etc.)
-- `core/ControlSettings.hpp` (For `std::shared_ptr<ControlSettings>`)
-- Forward declares: `Camera`, `Viewport`, `Grid`, `GridSettings`, `InteractionManager`, `Board`, `SDL_Renderer`, `SDL_Texture`.
+- `<functional>` (For `std::function` used in `RenderIntegrated`)
+- `imgui.h` (For ImGui types like `ImVec2`)
+- `core/ControlSettings.hpp`
+- `core/BoardDataManager.hpp`
+- Forward declares: `Camera`, `Viewport`, `Grid`, `GridSettings`, `InteractionManager`, `ControlSettings`, `Board`, `PcbRenderer`, `SDL_Renderer`, `SDL_Texture`.
 
 **Notes:**
-- The class is non-copyable and non-movable due to deleted copy/move constructors and assignment operators, appropriate for a UI window class managing unique resources like an SDL_Texture.
-- It owns an `SDL_Texture*` (`m_renderTexture`) which serves as an off-screen buffer. The PCB content (grid, board elements) is first rendered to this texture, which is then drawn as an image in the ImGui window.
-- An `InteractionManager` (`m_interactionManager`) is owned via `std::unique_ptr` to handle user inputs specifically within this view, using the shared `Camera`, `Viewport`, and `ControlSettings`.
-- The `m_viewport` member is updated to reflect the actual content region dimensions within the ImGui window where the texture is displayed.
-- Texture resizing is handled with a cooldown (`m_resizeCooldownFrames`, `RESIZE_COOLDOWN_MAX`) to avoid rapid reallocations during window adjustments.
-- Private helper methods `InitializeTexture()`, `ReleaseTexture()`, and `UpdateAndRenderToTexture()` encapsulate SDL_Texture management and the rendering process onto this texture.
-
+- Non-copyable and non-movable.
+- Manages an `SDL_Texture*` (`m_renderTexture`) that displays the output of `PcbRenderer`.
+- Owns an `InteractionManager` (`m_interactionManager`) for user input.
+- Updates the shared `m_viewport` based on the ImGui content region size.
+- `RenderIntegrated()` uses a callback mechanism to ensure `PcbRenderer` renders its content at the correct point in the ImGui frame lifecycle.
+- Private methods `InitializeTexture()`, `ReleaseTexture()`, and `UpdateTextureFromPcbRenderer()` handle `SDL_Texture` management.
 
 ## `src/ui/windows/PCBViewerWindow.cpp`
 
-**Purpose:** Implements the `PCBViewerWindow` class, providing the logic for rendering PCB-related content (currently the grid) to an internal SDL_Texture, displaying this texture within an ImGui window, and managing user input processing via an `InteractionManager`. It also handles dynamic texture resizing based on the ImGui window's content area.
+**Purpose:** Implements the `PCBViewerWindow` class. It handles rendering an ImGui window that displays PCB content by updating an `SDL_Texture` from `PcbRenderer`'s `BLImage`. It also manages viewport updates, user interaction processing, and texture lifecycle.
 
 **Key Classes & Structs:**
 - (Implements `PCBViewerWindow` class from `PCBViewerWindow.hpp`)
 
 **Main Functions & Methods:**
-| Name                                          | Signature                                                                                                                                               | Description                                                                                                                                                                                                                            |
-|-----------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `PCBViewerWindow::PCBViewerWindow(...)`            | `PCBViewerWindow(...)`            | Constructor, initializes members and creates the `InteractionManager`.                                        |
-| `PCBViewerWindow::~PCBViewerWindow()`              | `~PCBViewerWindow()`              | Destructor, calls `ReleaseTexture()`.                                                                       |
-| `PCBViewerWindow::InitializeTexture()`        | `void InitializeTexture(SDL_Renderer* renderer, int width, int height)`                                                                               | Creates or re-creates the `m_renderTexture`. If an old texture exists, it's destroyed. Ensures texture dimensions are positive. Sets pixel format to RGBA8888 and access to target. Enables blend mode. Logs creation/destruction and errors. |
-| `PCBViewerWindow::ReleaseTexture()`           | `void ReleaseTexture()`                                                                                                                                    | Destroys `m_renderTexture` if it exists and resets texture dimensions.                                                                                                                                                                   |
-| `PCBViewerWindow::UpdateAndRenderToTexture()` | `void UpdateAndRenderToTexture(SDL_Renderer* renderer)`                                                                                                 | Sets `m_renderTexture` as the SDL render target. Clears the texture with a background color. Updates `m_viewport` dimensions to match the texture. Renders the `m_grid` onto the texture. Resets SDL render target.                     |
-| `PCBViewerWindow::RenderUI()`                 | `void RenderUI(SDL_Renderer* renderer)`                                                                                                                 | Main ImGui rendering loop for the window. Manages texture resizing, displays the texture using `ImGui::Image`, and passes input to `InteractionManager`. |
-| `PCBViewerWindow::OnBoardLoaded()`            | `void OnBoardLoaded(const std::shared_ptr<Board>& board)`                                                                                                 | Logs the file path of the newly loaded board or a message if the board is unloaded/failed to load. Placeholder for future actions like camera reset or zoom-to-fit.                                                                       |
+| Name                                             | Signature                                                                                                                               | Description                                                                                                                                                                                                                                                          |
+|--------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `PCBViewerWindow::PCBViewerWindow(...)`            | `PCBViewerWindow(...)`                                                                                                                  | Constructor: Initializes members, including creating `m_interactionManager`. Default texture dimensions are small placeholders.                                                                                                                                      |
+| `PCBViewerWindow::~PCBViewerWindow()`              | `~PCBViewerWindow()`                                                                                                                    | Destructor: Calls `ReleaseTexture()` to clean up the SDL texture.                                                                                                                                                                                                      |
+| `PCBViewerWindow::InitializeTexture()`           | `void InitializeTexture(SDL_Renderer* renderer, int width, int height)`                                                                 | (Primarily for initial setup, though `UpdateTextureFromPcbRenderer` now handles most dynamic cases). Creates/recreates `m_renderTexture` with specified dimensions. Tries `SDL_PIXELFORMAT_ARGB8888`, then `RGBA8888`, then `ABGR8888`. Sets `SDL_BLENDMODE_BLEND_PREMULTIPLIED`. |
+| `PCBViewerWindow::ReleaseTexture()`              | `void ReleaseTexture()`                                                                                                                 | Destroys `m_renderTexture` if it exists and resets related members.                                                                                                                                                                                                  |
+| `PCBViewerWindow::UpdateTextureFromPcbRenderer()`| `void UpdateTextureFromPcbRenderer(SDL_Renderer* sdlRenderer, PcbRenderer* pcbRenderer)`                                                | Key method. Gets the `BLImage` from `pcbRenderer`. If `m_renderTexture` needs creation or resizing (mismatch with `BLImage` dimensions), it's (re)created. Updates `m_renderTexture` with pixel data from `BLImage` using `SDL_UpdateTexture`. Uses `SDL_PIXELFORMAT_ARGB8888`. | 
+| `PCBViewerWindow::RenderIntegrated()`            | `void RenderIntegrated(SDL_Renderer* sdlRenderer, PcbRenderer* pcbRenderer, const std::function<void()>& pcbRenderCallback)`              | Main rendering loop. Begins ImGui window. Updates `m_viewport` with content region size. Calls `pcbRenderer->OnViewportResized()` if needed. Executes `pcbRenderCallback`. Calls `UpdateTextureFromPcbRenderer()`. Displays `m_renderTexture` via `ImGui::Image`. Processes input via `m_interactionManager`. | 
+| `PCBViewerWindow::OnBoardLoaded()`               | `void OnBoardLoaded(const std::shared_ptr<Board>& board)`                                                                               | Logs board load/unload status to `std::cout`.                                                                                                                                                                                                                          | 
 
 **Dependencies:**
 - `ui/windows/PCBViewerWindow.hpp`
-- `pcb/Board.hpp` (For `Board::GetFilePath()` in `OnBoardLoaded`)
+- `pcb/Board.hpp`
 - `view/Camera.hpp`
 - `view/Viewport.hpp`
 - `view/Grid.hpp`
 - `view/GridSettings.hpp`
 - `ui/interaction/InteractionManager.hpp`
 - `core/ControlSettings.hpp`
-- `<SDL3/SDL.h>` (For SDL rendering functions, texture management, logging)
+- `render/PcbRenderer.hpp` (For accessing `PcbRenderer::GetRenderedImage()` and `OnViewportResized()`)
+- `core/BoardDataManager.hpp`
+- `<SDL3/SDL.h>` (For SDL texture functions, pixel formats, logging)
+- `<blend2d.h>` (For `BLImage`, `BLImageData`)
 - `<algorithm>` (For `std::max`)
-- `<iostream>` (For `std::cout` logging in `OnBoardLoaded`)
+- `<iostream>` (For logging)
+- `<cmath>` (For `std::round`)
 
 **Notes:**
-- The ImGui window is configured with `ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse` and `ImGuiStyleVar_WindowPadding` set to zero to make the content area (the texture) fill the window.
-- It dynamically resizes `m_renderTexture` to match the ImGui window's content region size.
-- The `m_viewport`'s dimensions are updated to match the texture size before rendering to the texture.
-- `m_isFocused`, `m_isHovered`, and `m_isContentRegionHovered` flags are updated based on ImGui state and used to control input processing.
-- Input is delegated to `m_interactionManager->ProcessInput()`, providing it with necessary context like focus state, hover state, and the screen-space position and size of the content region.
-- The texture is released if the window is closed (`!m_isOpen`) to save resources.
+- The window uses `ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse` and zero padding to ensure the rendered texture fills the content area.
+- `m_viewport` is updated with rounded dimensions from ImGui's content region. `PcbRenderer` is then notified of this size change.
+- `UpdateTextureFromPcbRenderer` is crucial for displaying `PcbRenderer`'s output. It ensures the `SDL_Texture` matches the `BLImage`'s dimensions and format (`SDL_PIXELFORMAT_ARGB8888` for `BL_FORMAT_PRGB32`) and uses `SDL_BLENDMODE_BLEND_PREMULTIPLIED` for correct alpha blending.
+- Input processing is delegated to `InteractionManager` only if the window is focused or hovered, and the mouse is specifically over the content region (the image).
+- Texture release is handled if the window is closed.
 
 ## `src/ui/windows/PcbDetailsWindow.hpp`
 
@@ -1389,6 +1527,111 @@ _This document provides an overview of each source and header file in the projec
 - The file uses relative paths like `../../pcb/Board.hpp` for includes, which is common but can sometimes be made more robust with include path configuration in the build system.
 - Readability of displayed floating-point numbers is managed with format specifiers (e.g., `%.2f`).
 
+
+## `src/ui/MainMenuBar.hpp`
+
+**Purpose:** Defines the `MainMenuBar` class, responsible for rendering the main menu bar of the application using ImGui. It handles menu item creation and triggers actions by setting flags or calling methods on the `Application` object.
+
+**Key Classes & Structs:**
+- `MainMenuBar` – Manages the ImGui main menu bar, its items, and associated actions.
+
+**Main Functions & Methods:**
+| Name                             | Signature                               | Description                                                                                              |
+|----------------------------------|-----------------------------------------|----------------------------------------------------------------------------------------------------------|
+| `MainMenuBar::MainMenuBar()`     | `MainMenuBar()`                         | Constructor. Initializes internal flags for ImGui helper windows.                                          |
+| `MainMenuBar::~MainMenuBar()`    | `~MainMenuBar()`                        | Destructor.                                                                                              |
+| `MainMenuBar::RenderUI()`        | `void RenderUI(Application& app)`       | Renders the main menu bar and its submenus ("File", "View"). Handles ImGui helper window visibility.       |
+| `MainMenuBar::WantsToOpenFile()` | `bool WantsToOpenFile()`                | (Deprecated/Old) Returns and resets a flag indicating a request to open a file. Now uses `app.SetOpenFileRequested()`. | 
+| `MainMenuBar::WantsToExit()`     | `bool WantsToExit()`                    | (Deprecated/Old) Returns and resets a flag indicating a request to exit. Now uses `app.SetQuitFileRequested()`.       | 
+| `MainMenuBar::GetShowDemoWindowFlag()`| `bool* GetShowDemoWindowFlag()`    | (Deprecated/Old) Returns a pointer to the ImGui demo window visibility flag. Directly managed now.        | 
+| `MainMenuBar::SetSettingsWindowVisible()`| `void SetSettingsWindowVisible(bool isVisible)` | (Deprecated/Old) Sets a flag for settings window visibility. Now uses `app.SetShowSettingsRequested()`.| 
+| `MainMenuBar::WantsToToggleSettings()`| `bool WantsToToggleSettings()`     | (Deprecated/Old) Returns and resets a flag to toggle settings. Now uses `app.SetShowSettingsRequested()`. | 
+
+**Dependencies:**
+- `<functional>` (Though not directly used by current public methods in the provided snippet, might have been for callbacks)
+- Forward declares `Application`.
+
+**Notes:**
+- The class has several deprecated/old public methods (`WantsToOpenFile`, `WantsToExit`, etc.) that were likely used for signaling actions to the `Application` class. The current implementation in `MainMenuBar.cpp` directly calls setter methods on the `Application` object (e.g., `app.SetOpenFileRequested(true)`).
+- Manages the visibility state for ImGui's built-in Demo and Metrics windows (`m_showImGuiDemoWindow`, `m_showImGuiMetricsWindow`).
+- The interaction model has shifted from `MainMenuBar` exposing flags to be polled by `Application`, to `MainMenuBar` directly invoking state-changing methods on `Application`.
+
+## `src/ui/MainMenuBar.cpp`
+
+**Purpose:** Implements the `MainMenuBar` class. It uses ImGui to render the application's main menu bar, including "File" and "View" menus, and interacts with the `Application` object to trigger actions like opening files, exiting, or showing specific UI windows.
+
+**Key Classes & Structs:**
+- (Implements `MainMenuBar` class from `MainMenuBar.hpp`)
+
+**Main Functions & Methods:**
+| Name                          | Signature                         | Description                                                                                                                                  |
+|-------------------------------|-----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| `MainMenuBar::MainMenuBar()`  | `MainMenuBar()`                   | Constructor. Initializes `m_showImGuiDemoWindow` and `m_showImGuiMetricsWindow` to `false`.                                                |
+| `MainMenuBar::~MainMenuBar()` | `~MainMenuBar()`                  | Destructor. Currently empty.                                                                                                                   |
+| `MainMenuBar::RenderUI()`     | `void RenderUI(Application& app)` | If `ImGui::BeginMainMenuBar()` succeeds: <br/> - Renders "File" menu with "Open PCB File..." and "Exit" items, calling `app.SetOpenFileRequested()` and `app.SetQuitFileRequested()`. <br/> - Renders "View" menu with "Settings" and "PCB Details" items, calling `app.SetShowSettingsRequested()` and `app.SetShowPcbDetailsRequested()`. Also includes menu items to toggle ImGui Demo and Metrics windows. <br/> If helper window flags are true, shows `ImGui::ShowDemoWindow()` or `ImGui::ShowMetricsWindow()`. | 
+
+**Dependencies:**
+- `ui/MainMenuBar.hpp`
+- `core/Application.hpp` (For `Application& app` parameter and calling its public setter methods like `SetOpenFileRequested`, `SetShowSettingsRequested`, etc.)
+- `imgui.h` (For all ImGui menu and window rendering calls)
+
+**Notes:**
+- Menu items directly call public setter methods on the `Application` object (`app`) to signal user requests (e.g., `app.SetOpenFileRequested(true)`). This is a more direct way of communication compared to the flag-based system previously indicated in `MainMenuBar.hpp`.
+- The visibility of ImGui's demo and metrics windows is managed internally via boolean members (`m_showImGuiDemoWindow`, `m_showImGuiMetricsWindow`) toggled by menu items.
+- The "PCB Details" menu item sets a request flag in `Application`, and `Application` itself is expected to handle the logic of whether to actually show the window (e.g., based on a board being loaded).
+
+
+
+## `src/utils/ColorUtils.hpp`
+
+**Purpose:** Defines utility functions within the `ColorUtils` namespace for color manipulation, specifically focusing on `BLRgba32` colors from the Blend2D library. It provides functions for shifting hue and generating distinct colors for layers.
+
+**Key Classes & Structs:**
+- (No classes or structs defined in this header, only namespace-level functions)
+
+**Main Functions & Methods:**
+| Name                                  | Signature                                                                                   | Description                                                                                                                                                              |
+|---------------------------------------|---------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ColorUtils::ShiftHue()`              | `BLRgba32 ShiftHue(BLRgba32 baseColor, float hueShiftDegrees)`                               | Applies a hue shift to a given `BLRgba32` color. Hue is shifted by `hueShiftDegrees` (0-360). Alpha is preserved.                                                           |
+| `ColorUtils::GenerateLayerColor()`    | `BLRgba32 GenerateLayerColor(int layerIndex, int totalLayers, BLRgba32 baseColor, float hueStepDegrees = 30.0f)` | Generates a distinct color for a layer. Uses `ShiftHue` based on `layerIndex` and `hueStepDegrees`. If `hueStepDegrees` is 0, it distributes hues across 360 degrees based on `totalLayers`. |
+
+**Dependencies:**
+- `<blend2d.h>` (For `BLRgba32` type)
+- `<cmath>` (For `std::fmod`, used in `ShiftHue` in the .cpp file, and potentially by users of this header)
+
+**Notes:**
+- The functions operate on `BLRgba32` color objects.
+- `GenerateLayerColor` provides a default `hueStepDegrees` of 30.0f.
+- These utilities are useful for procedural color generation, especially for differentiating visual elements like PCB layers.
+
+## `src/utils/ColorUtils.cpp`
+
+**Purpose:** Implements the color manipulation utility functions declared in `ColorUtils.hpp`. This includes the logic for converting `BLRgba32` colors to an internal HSV (Hue, Saturation, Value) representation, performing hue shifts, and converting back to `BLRgba32`, as well as generating distinct layer colors.
+
+**Key Classes & Structs:**
+- `HsvColor` (struct, in anonymous namespace) – Internal helper structure to represent color in HSV format (h: 0-360, s: 0-1, v: 0-1) and preserve the original alpha channel.
+
+**Main Functions & Methods:**
+| Name                                  | Signature                                                                                   | Description                                                                                                                                                                                               |
+|---------------------------------------|---------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `BLRgba32ToHsvInternal()`             | `void BLRgba32ToHsvInternal(const BLRgba32& rgba, HsvColor& hsv)` (anonymous namespace)      | Converts a `BLRgba32` color to the internal `HsvColor` struct. Preserves the alpha channel.                                                                                                               |
+| `HsvToBLRgba32Internal()`             | `void HsvToBLRgba32Internal(const HsvColor& hsv_color, BLRgba32& rgba)` (anonymous namespace)| Converts an internal `HsvColor` struct back to a `BLRgba32` color, applying the preserved alpha.                                                                                                           |
+| `ColorUtils::ShiftHue()`              | `BLRgba32 ShiftHue(BLRgba32 baseColor, float hueShiftDegrees)`                               | Converts `baseColor` to HSV, adds `hueShiftDegrees` to the hue (wrapping around 360), and converts back to `BLRgba32`. Ensures hue remains strictly less than 360.                                        |
+| `ColorUtils::GenerateLayerColor()`    | `BLRgba32 GenerateLayerColor(int layerIndex, int totalLayers, BLRgba32 baseColor, float hueStepDegrees)` | If `hueStepDegrees` is 0 and `totalLayers` > 0, calculates an even hue step to distribute colors across 360 degrees. Otherwise, uses the provided `hueStepDegrees`. Calls `ShiftHue` with the calculated total shift. |
+
+**Dependencies:**
+- `utils/ColorUtils.hpp`
+- `<algorithm>` (For `std::min`, `std::max`)
+- `<cmath>` (For `std::fmod`, `std::fabs`, `std::round` - note: `ColorUtils.hpp` also includes `<cmath>`)
+
+**Notes:**
+- The core logic for hue shifting involves converting RGBA to HSV, manipulating the H (hue) component, and then converting back to RGBA.
+- Alpha from the original `BLRgba32` color is preserved through the HSV conversion and reapplied to the final `BLRgba32` result.
+- `BLRgba32ToHsvInternal` and `HsvToBLRgba32Internal` are helper functions encapsulated within an anonymous namespace, indicating they are not intended for external use.
+- The hue value `hsv.h` is carefully managed to be within the `[0, 360)` range.
+- `GenerateLayerColor` has logic to auto-calculate `actualHueStep` if `hueStepDegrees` is zero, aiming for an even distribution of colors.
+- The comment in `GenerateLayerColor` about ensuring hue steps don't repeat too quickly if many layers suggests a potential area for more sophisticated color distribution logic if needed.
+
 ## `src/utils/des.h`
 
 **Purpose:** Declares the interface for a Data Encryption Standard (DES) function, providing a 64-bit block cipher for encryption and decryption.
@@ -1456,6 +1699,55 @@ _This document provides an overview of each source and header file in the projec
 - Some comments indicate "Reverted to original logic" or "ULL for literal", suggesting possible modifications or debugging during its integration or development.
 - **Security Note**: DES is considered cryptographically weak for most modern applications due to its small 56-bit effective key size, making it vulnerable to brute-force attacks. For new development requiring strong encryption, AES or other modern ciphers should be preferred. This implementation might be used for compatibility with specific legacy file formats or systems that require DES.
 
+## `src/utils/StringUtils.hpp`
+
+**Purpose:** Defines utility functions within the `StringUtils` namespace for common string manipulations. This includes replacing substrings, escaping/unescaping newline characters, and trimming whitespace.
+
+**Key Classes & Structs:**
+- (No classes or structs defined in this header, only namespace-level functions)
+
+**Main Functions & Methods:**
+| Name                               | Signature                                                           | Description                                                     |
+|------------------------------------|---------------------------------------------------------------------|-----------------------------------------------------------------|
+| `StringUtils::ReplaceAll()`        | `std::string ReplaceAll(std::string str, const std::string& from, const std::string& to)` | Replaces all occurrences of substring `from` with `to` in `str`. |
+| `StringUtils::EscapeNewlines()`    | `std::string EscapeNewlines(const std::string& input)`              | Replaces newline characters (`\n`) with literal `\\n`.           |
+| `StringUtils::UnescapeNewlines()`  | `std::string UnescapeNewlines(const std::string& input)`            | Replaces literal `\\n` with newline characters (`\n`).         |
+| `StringUtils::Trim()`              | `std::string Trim(const std::string& str)`                          | Removes leading and trailing whitespace from `str`.               |
+
+**Dependencies:**
+- `<string>` (For `std::string`)
+
+**Notes:**
+- All functions operate on and return `std::string` objects by value, meaning they work on copies and return new strings.
+- These are common string utility functions useful in various parts of an application, especially for input processing, data serialization, or display formatting.
+
+## `src/utils/StringUtils.cpp`
+
+**Purpose:** Implements the string utility functions declared in `StringUtils.hpp`. It provides the logic for substring replacement, newline escaping/unescaping, and whitespace trimming.
+
+**Key Classes & Structs:**
+- (No classes or structs defined, only implementations of namespace-level functions)
+
+**Main Functions & Methods:**
+| Name                               | Signature                                                           | Description                                                                                                                                 |
+|------------------------------------|---------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| `StringUtils::ReplaceAll()`        | `std::string ReplaceAll(std::string str, const std::string& from, const std::string& to)` | Iteratively finds `from` in `str` and replaces it with `to`. Adjusts search position to handle cases where `to` is a substring of `from`. |
+| `StringUtils::EscapeNewlines()`    | `std::string EscapeNewlines(const std::string& input)`              | Calls `ReplaceAll` to replace `\n` with `\\n`.                                                                                                |
+| `StringUtils::UnescapeNewlines()`  | `std::string UnescapeNewlines(const std::string& input)`            | Calls `ReplaceAll` to replace `\\n` with `\n`.                                                                                                |
+| `ltrim()` (static helper)          | `static std::string ltrim(std::string s)`                           | Internal helper. Removes leading whitespace characters from string `s` using `std::find_if` and `std::isspace`.                             |
+| `rtrim()` (static helper)          | `static std::string rtrim(std::string s)`                           | Internal helper. Removes trailing whitespace characters from string `s` using `std::find_if` (with reverse iterators) and `std::isspace`.   |
+| `StringUtils::Trim()`              | `std::string Trim(const std::string& str)`                          | Calls `ltrim` and `rtrim` sequentially to remove both leading and trailing whitespace.                                                      |
+
+**Dependencies:**
+- `StringUtils.hpp` (For function declarations)
+- `<algorithm>` (For `std::remove_if` in `ltrim` and `std::find_if` in `ltrim`/`rtrim`)
+- `<cctype>` (For `std::isspace` used in `ltrim`/`rtrim`)
+
+**Notes:**
+- `ltrim` and `rtrim` are implemented as static helper functions within the `.cpp` file, indicating they are internal implementation details for `Trim` and not part of the public API of `StringUtils`.
+- The `ReplaceAll` function correctly handles the `start_pos` update to manage cases where the replacement string `to` might itself contain the `from` string, or when `to` is a substring of `from`.
+- The trimming functions `ltrim` and `rtrim` use lambda expressions with `std::isspace` to identify whitespace characters.
+
 ## `src/view/Camera.hpp`
 
 **Purpose:** Defines the `Camera` class and a supporting `Vec2` structure. The `Camera` class encapsulates the state (position, zoom, rotation) and behavior of a 2D virtual camera used for viewing a scene.
@@ -1505,7 +1797,7 @@ _This document provides an overview of each source and header file in the projec
 | `Camera::Camera()`      | `Camera()`                      | Constructor, initializes position, zoom, and rotation to default values.      |
 | `Camera::SetPosition()` | `void SetPosition(const Vec2& position)` | Sets `m_position`.                                                        |
 | `Camera::GetPosition()` | `const Vec2& GetPosition() const` | Returns `m_position`.                                                       |
-| `Camera::SetZoom()`     | `void SetZoom(float zoom)`      | Sets `m_zoom`, ensuring it's positive.                                      |
+| `Camera::SetZoom()`     | `void SetZoom(float zoom)`      | Sets `m_zoom`, ensuring it's positive, and clamps between MIN_ZOOM_LEVEL (.25) and MAX_ZOOM_LEVEL(50)                                      |
 | `Camera::GetZoom()`     | `float GetZoom() const`         | Returns `m_zoom`.                                                           |
 | `Camera::SetRotation()` | `void SetRotation(float angleDegrees)` | Sets `m_rotation`.                                                        |
 | `Camera::GetRotation()` | `float GetRotation() const`     | Returns `m_rotation`.                                                       |

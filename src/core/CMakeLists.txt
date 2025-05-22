@@ -9,7 +9,6 @@ set(SOURCE_FILES
     InputActions.cpp
     Renderer.cpp
     SDLRenderer.cpp
-    BLRenderer.cpp
     ImGuiManager.cpp
 
     # PCB components

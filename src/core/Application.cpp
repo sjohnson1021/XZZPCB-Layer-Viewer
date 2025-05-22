@@ -131,7 +131,6 @@ bool Application::InitializeUISubsystems() {
     m_viewport = std::make_shared<Viewport>();
     m_gridSettings = std::make_shared<GridSettings>();
     m_grid = std::make_shared<Grid>(m_gridSettings);
-    m_controlSettings = std::make_shared<ControlSettings>();
     m_boardDataManager = std::make_shared<BoardDataManager>();
 
     m_mainMenuBar = std::make_unique<MainMenuBar>();
