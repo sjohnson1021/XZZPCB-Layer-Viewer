@@ -58,9 +58,12 @@ void PcbDetailsWindow::displayLayers(const Board* boardData) {
 }
 
 void PcbDetailsWindow::displayNets(const Board* boardData) {
-    for (const auto& pair : boardData->nets) {
-        const Net& net = pair.second;
-        ImGui::Text("ID: %d, Name: %s", net.id, net.name.c_str());
+    if (ImGui::TreeNodeEx("Nets", ImGuiTreeNodeFlags_DefaultOpen)) {
+        for (const auto& pair : boardData->nets) {
+            const Net& net = pair.second;
+            ImGui::Text("ID: %d, Name: %s", net.id, net.name.c_str());
+        }
+        ImGui::TreePop();
     }
 }
 
@@ -77,9 +80,21 @@ void PcbDetailsWindow::displayPadShape(const PadShape& shape) {
     }, shape);
 }
 
-void PcbDetailsWindow::displayPins(const std::vector<Pin>& pins) {
+void PcbDetailsWindow::displayPins(const Board* boardData, const std::vector<Pin>& pins) {
     for (const auto& pin : pins) {
-        if (ImGui::TreeNodeEx(("Pin: " + pin.pin_name + " (Net: " + std::to_string(pin.net_id) + ")").c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+        std::string net_info_str = "Net ID: " + std::to_string(pin.net_id);
+        if (boardData) {
+            const Net* net = boardData->getNetById(pin.net_id);
+            if (net) {
+                net_info_str = "Net: " + (net->name.empty() ? "[Unnamed]" : net->name) + " (ID: " + std::to_string(pin.net_id) + ")";
+            } else if (pin.net_id != -1) {
+                net_info_str = "Net ID: " + std::to_string(pin.net_id) + " [Not Found]";
+            } else {
+                net_info_str = "No Net";
+            }
+        }
+
+        if (ImGui::TreeNodeEx(("Pin: " + pin.pin_name + " (" + net_info_str + ")").c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::Text("Coords: (%.2f, %.2f), Layer: %d, Side: %d", pin.x_coord, pin.y_coord, pin.layer, pin.side);
             displayPadShape(pin.pad_shape);
             if (!pin.diode_reading.empty()) {
@@ -102,40 +117,120 @@ void PcbDetailsWindow::displayGraphicalElements(const std::vector<LineSegment>& 
 }
 
 void PcbDetailsWindow::displayComponents(const Board* boardData) {
-    for (const auto& comp : boardData->components) {
-        std::string compNodeName = comp.reference_designator + " (" + comp.value + ") - " + comp.footprint_name;
-        if (ImGui::TreeNode(compNodeName.c_str())) {
-            ImGui::Text("Pos: (%.2f, %.2f), Layer: %d, Rot: %.1f deg", comp.center_x, comp.center_y, comp.layer, comp.rotation);
-            ImGui::Text("Type: %d, Side: %d", static_cast<int>(comp.type), static_cast<int>(comp.side));
-            
-            if (ImGui::TreeNodeEx("Pins", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
-                displayPins(comp.pins);
-                ImGui::TreePop();
-            }
-            if (ImGui::TreeNodeEx("Labels", ImGuiTreeNodeFlags_Framed)) {
-                for(const auto& lbl : comp.text_labels) {
-                     ImGui::Text("L%d (%.1f,%.1f) S%.1f: %s", lbl.layer, lbl.x, lbl.y, lbl.font_size, lbl.text_content.c_str());
+    if (ImGui::TreeNodeEx("Components", ImGuiTreeNodeFlags_DefaultOpen)) {
+        for (const auto& comp : boardData->components) {
+            std::string compNodeName = comp.reference_designator + " (" + comp.value + ") - " + comp.footprint_name;
+            if (ImGui::TreeNode(compNodeName.c_str())) {
+                ImGui::Text("Pos: (%.2f, %.2f), Layer: %d, Rot: %.1f deg", comp.center_x, comp.center_y, comp.layer, comp.rotation);
+                ImGui::Text("Type: %d, Side: %d", static_cast<int>(comp.type), static_cast<int>(comp.side));
+                
+                if (ImGui::TreeNodeEx("Pins", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
+                    displayPins(boardData, comp.pins);
+                    ImGui::TreePop();
+                }
+                if (ImGui::TreeNodeEx("Labels", ImGuiTreeNodeFlags_Framed)) {
+                    for(const auto& lbl : comp.text_labels) {
+                         ImGui::Text("L%d (%.1f,%.1f) S%.1f: %s", lbl.layer, lbl.x, lbl.y, lbl.font_size, lbl.text_content.c_str());
+                    }
+                    ImGui::TreePop();
+                }
+                if (ImGui::TreeNodeEx("Graphical Elements", ImGuiTreeNodeFlags_Framed)) {
+                    displayGraphicalElements(comp.graphical_elements);
+                    ImGui::TreePop();
                 }
                 ImGui::TreePop();
             }
-            if (ImGui::TreeNodeEx("Graphical Elements", ImGuiTreeNodeFlags_Framed)) {
-                displayGraphicalElements(comp.graphical_elements);
-                ImGui::TreePop();
-            }
-            ImGui::TreePop();
         }
+        ImGui::TreePop();
     }
 }
 
 void PcbDetailsWindow::displayStandaloneElements(const Board* boardData) {
-    ImGui::Text("Arcs: %zu", boardData->arcs.size());
-    // Could add details for Arcs if needed
-    ImGui::Text("Vias: %zu", boardData->vias.size());
-    // Could add details for Vias if needed
-    ImGui::Text("Traces: %zu", boardData->traces.size());
-    // Could add details for Traces if needed
-    ImGui::Text("Standalone Text Labels: %zu", boardData->standalone_text_labels.size());
-    for(const auto& lbl : boardData->standalone_text_labels) {
-        ImGui::Text("  L%d (%.1f,%.1f) S%.1f: %s", lbl.layer, lbl.x, lbl.y, lbl.font_size, lbl.text_content.c_str());
+    if (ImGui::TreeNodeEx("Arcs", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Text("Count: %zu", boardData->arcs.size());
+        for (size_t i = 0; i < boardData->arcs.size(); ++i) {
+            const auto& arc = boardData->arcs[i];
+            std::string net_info_str = "Net ID: " + std::to_string(arc.net_id);
+            if (boardData) {
+                const Net* net = boardData->getNetById(arc.net_id);
+                if (net) {
+                    net_info_str = "Net: " + (net->name.empty() ? "[Unnamed]" : net->name) + " (ID: " + std::to_string(arc.net_id) + ")";
+                } else if (arc.net_id != -1) {
+                    net_info_str = "Net ID: " + std::to_string(arc.net_id) + " [Not Found]";
+                } else {
+                    net_info_str = "No Net";
+                }
+            }
+            if (ImGui::TreeNodeEx(("Arc " + std::to_string(i) + " (" + net_info_str + ")").c_str())) {
+                ImGui::Text("Layer: %d", arc.layer);
+                ImGui::Text("Center: (%.2f, %.2f), Radius: %.2f", arc.cx, arc.cy, arc.radius);
+                ImGui::Text("Angles: Start %.1f°, End %.1f°", arc.start_angle, arc.end_angle);
+                ImGui::Text("Thickness: %.2f", arc.thickness);
+                ImGui::TreePop();
+            }
+        }
+        ImGui::TreePop();
+    }
+
+    if (ImGui::TreeNodeEx("Vias", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Text("Count: %zu", boardData->vias.size());
+        for (size_t i = 0; i < boardData->vias.size(); ++i) {
+            const auto& via = boardData->vias[i];
+            std::string net_info_str = "Net ID: " + std::to_string(via.net_id);
+            if (boardData) {
+                const Net* net = boardData->getNetById(via.net_id);
+                if (net) {
+                    net_info_str = "Net: " + (net->name.empty() ? "[Unnamed]" : net->name) + " (ID: " + std::to_string(via.net_id) + ")";
+                } else if (via.net_id != -1) {
+                    net_info_str = "Net ID: " + std::to_string(via.net_id) + " [Not Found]";
+                } else {
+                    net_info_str = "No Net";
+                }
+            }
+            if (ImGui::TreeNodeEx(("Via " + std::to_string(i) + " (" + net_info_str + ")").c_str())) {
+                ImGui::Text("Coords: (%.2f, %.2f)", via.x, via.y);
+                ImGui::Text("Layers: %d to %d", via.layer_from, via.layer_to);
+                ImGui::Text("Drill Diameter: %.2f", via.drill_diameter);
+                ImGui::Text("Pad Radius (From): %.2f, Pad Radius (To): %.2f", via.pad_radius_from, via.pad_radius_to);
+                if (!via.optional_text.empty()) {
+                    ImGui::Text("Text: %s", via.optional_text.c_str());
+                }
+                ImGui::TreePop();
+            }
+        }
+        ImGui::TreePop();
+    }
+
+    if (ImGui::TreeNodeEx("Traces", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Text("Count: %zu", boardData->traces.size());
+        for (size_t i = 0; i < boardData->traces.size(); ++i) {
+            const auto& trace = boardData->traces[i];
+            std::string net_info_str = "Net ID: " + std::to_string(trace.net_id);
+            if (boardData) {
+                const Net* net = boardData->getNetById(trace.net_id);
+                if (net) {
+                    net_info_str = "Net: " + (net->name.empty() ? "[Unnamed]" : net->name) + " (ID: " + std::to_string(trace.net_id) + ")";
+                } else if (trace.net_id != -1) {
+                    net_info_str = "Net ID: " + std::to_string(trace.net_id) + " [Not Found]";
+                } else {
+                    net_info_str = "No Net";
+                }
+            }
+            if (ImGui::TreeNodeEx(("Trace " + std::to_string(i) + " (" + net_info_str + ")").c_str())) {
+                ImGui::Text("Layer: %d", trace.layer);
+                ImGui::Text("Start: (%.2f, %.2f), End: (%.2f, %.2f)", trace.x1, trace.y1, trace.x2, trace.y2);
+                ImGui::Text("Width: %.2f", trace.width);
+                ImGui::TreePop();
+            }
+        }
+        ImGui::TreePop();
+    }
+
+    if (ImGui::TreeNodeEx("Standalone Text Labels", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Text("Count: %zu", boardData->standalone_text_labels.size());
+        for(const auto& lbl : boardData->standalone_text_labels) {
+            ImGui::Text("  L%d (%.1f,%.1f) S%.1f: %s", lbl.layer, lbl.x, lbl.y, lbl.font_size, lbl.text_content.c_str());
+        }
+        ImGui::TreePop();
     }
 } 

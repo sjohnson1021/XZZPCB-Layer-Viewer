@@ -3,6 +3,8 @@
 #include "core/ControlSettings.hpp" // Added include
 #include "core/InputActions.hpp" // For InputAction enum and strings
 #include "pcb/Board.hpp" // Include Board.hpp
+#include "core/BoardDataManager.hpp" // Added
+#include "utils/ColorUtils.hpp"    // Added
 #include "imgui_internal.h" // For ImGui::GetCurrentWindow(); (can be avoided if not strictly needed)
 #include <vector> // For storing actions to iterate
 #include <SDL3/SDL_log.h> // For SDL_Log
@@ -13,9 +15,11 @@
 
 SettingsWindow::SettingsWindow(std::shared_ptr<GridSettings> gridSettings,
                                std::shared_ptr<ControlSettings> controlSettings,
+                               std::shared_ptr<BoardDataManager> boardDataManager,
                                float* applicationClearColor) // Added applicationClearColor
     : m_gridSettings(gridSettings)
     , m_controlSettings(controlSettings)
+    , m_boardDataManager(boardDataManager)
     , m_appClearColor(applicationClearColor) // Store the pointer
     , m_isOpen(false) // Default to closed
     , m_windowName("Settings") { // Added constructor
@@ -311,7 +315,7 @@ void SettingsWindow::ShowControlSettings() {
 }
 
 void SettingsWindow::ShowLayerControls(const std::shared_ptr<Board>& currentBoard) { // Updated signature
-    ImGui::SeparatorText("PCB Layer Visibility");
+    // ImGui::SeparatorText("PCB Layer Visibility"); // Combined into Layer Styling
 
     if (!currentBoard) {
         ImGui::TextDisabled("No board loaded. Layer controls unavailable.");
@@ -347,33 +351,61 @@ void SettingsWindow::ShowLayerControls(const std::shared_ptr<Board>& currentBoar
 void SettingsWindow::ShowAppearanceSettings(const std::shared_ptr<Board>& currentBoard) { // Updated signature
     if (!m_appClearColor) {
         ImGui::Text("Application clear color not available.");
-        // return; // Don't return early, still show layer controls if board is present
     } else {
          ImGui::SeparatorText("Application Appearance");
          ImGui::ColorEdit3("Background Color", m_appClearColor, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_DisplayRGB);
          ImGui::Spacing();
     }
 
+    ImGui::SeparatorText("Layer Styling");
+
+    // Base Layer Color
+    BLRgba32 baseColor = m_boardDataManager->GetBaseLayerColor();
+    float colorArr[4] = { baseColor.r() / 255.0f, baseColor.g() / 255.0f, baseColor.b() / 255.0f, baseColor.a() / 255.0f };
+    if (ImGui::ColorEdit4("Base Layer Color", colorArr, ImGuiColorEditFlags_Float)) {
+        m_boardDataManager->SetBaseLayerColor(BLRgba32(static_cast<uint32_t>(colorArr[0] * 255), 
+                                       static_cast<uint32_t>(colorArr[1] * 255), 
+                                       static_cast<uint32_t>(colorArr[2] * 255), 
+                                       static_cast<uint32_t>(colorArr[3] * 255)));
+        m_boardDataManager->RegenerateLayerColors(currentBoard);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("The starting color for the first layer. Subsequent layers will have their hue shifted from this color.");
+    }
+
+    // Hue Step per Layer
+    float hueStep = m_boardDataManager->GetLayerHueStep();
+    if (ImGui::DragFloat("Hue Shift per Layer", &hueStep, 1.0f, 0.0f, 180.0f, "%.1f degrees")) {
+        m_boardDataManager->SetLayerHueStep(hueStep);
+        m_boardDataManager->RegenerateLayerColors(currentBoard);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("How much the hue is shifted for each subsequent layer, in degrees.");
+    }
+    ImGui::Spacing();
+
     ShowLayerControls(currentBoard); // Pass currentBoard
 }
 
-void SettingsWindow::RenderUI(const std::shared_ptr<Board>& currentBoard) { // Updated signature
+void SettingsWindow::RenderUI(const std::shared_ptr<Board>& currentBoard) { // Added currentBoard parameter back
     if (!m_isOpen) {
         return;
     }
     ImGui::SetNextWindowSize(ImVec2(450, 550), ImGuiCond_FirstUseEver);
     
-    // Restore to default dockable behavior, remove NoDocking flag
     bool window_open = ImGui::Begin(m_windowName.c_str(), &m_isOpen);
     
     if (!window_open) {
-        ImGui::End(); // Correctly call End even if Begin returned false
+        ImGui::End(); 
         return;
     }
 
+    // Get the current board from BoardDataManager to pass to relevant sections -- REMOVED, board is now passed in
+    // std::shared_ptr<Board> currentBoard = m_boardDataManager.getBoard(); 
+
     if (ImGui::BeginTabBar("SettingsTabs")) {
         if (ImGui::BeginTabItem("Display")) {
-            ShowAppearanceSettings(currentBoard);
+            ShowAppearanceSettings(currentBoard); // Pass currentBoard
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Grid")) {

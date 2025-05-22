@@ -4,6 +4,7 @@
 #include <string>
 #include "imgui.h" // For ImVec2, ImGuiWindowFlags etc.
 #include "core/ControlSettings.hpp"
+#include "core/BoardDataManager.hpp"
 #include <functional>
 // #include <blend2d.h> // Included in .cpp, forward declare if only types used here
 
@@ -27,7 +28,8 @@ public:
         std::shared_ptr<Viewport> viewport,
         std::shared_ptr<Grid> grid,
         std::shared_ptr<GridSettings> gridSettings,
-        std::shared_ptr<ControlSettings> controlSettings
+        std::shared_ptr<ControlSettings> controlSettings,
+        std::shared_ptr<BoardDataManager> boardDataManager
     );
     ~PCBViewerWindow();
 
@@ -60,6 +62,7 @@ private:
     std::shared_ptr<GridSettings> m_gridSettings;
     std::unique_ptr<InteractionManager> m_interactionManager;
     std::shared_ptr<ControlSettings> m_controlSettings;
+    std::shared_ptr<BoardDataManager> m_boardDataManager;
 
     SDL_Texture* m_renderTexture = nullptr;
     int m_textureWidth = 0;

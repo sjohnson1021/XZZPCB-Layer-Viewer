@@ -18,8 +18,8 @@ add_executable(${EXECUTABLE_NAME} ${MAIN_EXECUTABLE_SOURCES})
 target_link_libraries(${EXECUTABLE_NAME}
     PRIVATE
     # Use WHOLE_ARCHIVE for ui_lib and core_lib to help with circular dependencies on MSVC
-    "$<LINK_LIBRARY:WHOLE_ARCHIVE,ui_lib>"
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,core_lib>"
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,ui_lib>"
     view_lib       # Library from src/view/
     render_lib     # Library from src/render/
     imgui          # Defined in root CMakeLists.txt

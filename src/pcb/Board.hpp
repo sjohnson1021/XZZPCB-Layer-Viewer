@@ -4,6 +4,7 @@
 #include <vector>
 #include <unordered_map>
 #include <memory> // For potential use of smart pointers
+#include <blend2d.h> // Added for BLRgba32
 
 #include "elements/Arc.hpp"
 #include "elements/Component.hpp"
@@ -31,10 +32,13 @@ struct LayerInfo {
     std::string name;               // e.g., "TopLayer", "BottomLayer", "SilkscreenTop"
     LayerType type = LayerType::Other;
     bool is_visible = true;
-    // Color color; // Optional: for default display color
+    BLRgba32 color = BLRgba32(0xFFFFFFFF); // Default to white, ensure BLRgba32 is known (include Blend2D headers if not already via other includes)
     // double thickness; // Optional: physical thickness of the layer
 
-    LayerInfo(int i, const std::string& n, LayerType t) : id(i), name(n), type(t), is_visible(true) {}
+    LayerInfo(int i, const std::string& n, LayerType t, BLRgba32 c = BLRgba32(0xFFFFFFFF)) 
+        : id(i), name(n), type(t), is_visible(true), color(c) {}
+    // Default constructor for LayerInfo if needed by containers, ensure it initializes color.
+    LayerInfo() : id(-1), name("Unknown"), type(LayerType::Other), is_visible(true), color(0xFF000000) {} // Default to black for uninitialized
 };
 
 class Board {
@@ -82,10 +86,12 @@ public:
 
     // Methods to retrieve elements (examples)
     const std::vector<Component>& getComponents() const { return components; }
+    const std::vector<Trace>& GetTraces() const { return traces; }
     const Net* getNetById(int net_id) const {
         auto it = nets.find(net_id);
         return (it != nets.end()) ? &(it->second) : nullptr;
     }
+    const LayerInfo* GetLayerById(int layerId) const;
 
     // --- Layer Access Methods ---
     int GetLayerCount() const;

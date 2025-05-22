@@ -131,10 +131,12 @@ bool Application::InitializeUISubsystems() {
     m_viewport = std::make_shared<Viewport>();
     m_gridSettings = std::make_shared<GridSettings>();
     m_grid = std::make_shared<Grid>(m_gridSettings);
+    m_controlSettings = std::make_shared<ControlSettings>();
+    m_boardDataManager = std::make_shared<BoardDataManager>();
 
     m_mainMenuBar = std::make_unique<MainMenuBar>();
-    m_pcbViewerWindow = std::make_unique<PCBViewerWindow>(m_camera, m_viewport, m_grid, m_gridSettings, m_controlSettings);
-    m_settingsWindow = std::make_unique<SettingsWindow>(m_gridSettings, m_controlSettings, m_clearColor);
+    m_pcbViewerWindow = std::make_unique<PCBViewerWindow>(m_camera, m_viewport, m_grid, m_gridSettings, m_controlSettings, m_boardDataManager);
+    m_settingsWindow = std::make_unique<SettingsWindow>(m_gridSettings, m_controlSettings, m_boardDataManager, m_clearColor);
     m_pcbDetailsWindow = std::make_unique<PcbDetailsWindow>();
 
     m_fileDialogInstance = std::make_unique<ImGuiFileDialog>();
@@ -234,6 +236,7 @@ void Application::Shutdown()
     m_viewport.reset();
     m_camera.reset();
     m_controlSettings.reset();
+    m_boardDataManager.reset();
 
     m_isRunning = false;
 }
@@ -282,8 +285,7 @@ void Application::Update(float deltaTime)
     // (void)deltaTime;
 }
 
-void Application::RenderUI()
-{
+void Application::RenderUI() {
     // Handle main menu bar first, as it might affect the main viewport's WorkPos/WorkSize
     if (m_mainMenuBar) {
         m_mainMenuBar->RenderUI(*this); // This calls ImGui::BeginMainMenuBar/EndMainMenuBar
@@ -393,7 +395,7 @@ void Application::RenderUI()
                         // This case should ideally be handled by PcbRenderer::Render itself
                         // by drawing a placeholder if components are missing.
                         // Logging here is for Application-level awareness if needed.
-                        std::cout << "Application::RenderUI (lambda): Base component(s) for PcbRenderer::Render are NULL." << std::endl;
+                        // SDL_Log("Application::RenderUI (lambda): Base component(s) for PcbRenderer::Render are NULL.");
                         // PcbRenderer::Render is designed to handle null components and draw a placeholder.
                         m_pcbRenderer->Render(nullptr, nullptr, nullptr, nullptr);
                     }
@@ -403,9 +405,8 @@ void Application::RenderUI()
     }
     // --- End PCBViewerWindow Rendering ---
 
-
     if (m_settingsWindow) {
-        m_settingsWindow->RenderUI(m_currentBoard); // Assuming this is self-contained
+        m_settingsWindow->RenderUI(m_currentBoard);
     }
     
     if (m_pcbDetailsWindow) {
@@ -414,11 +415,11 @@ void Application::RenderUI()
         }
     }
 
-
     if (m_showPcbLoadErrorModal) {
         ImGui::OpenPopup("PCB Load Error");
-        m_showPcbLoadErrorModal = false; // Reset after opening
+        m_showPcbLoadErrorModal = false; // Reset flag
     }
+
     if (ImGui::BeginPopupModal("PCB Load Error", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("%s", m_pcbLoadErrorMessage.c_str());
         if (ImGui::Button("OK")) {

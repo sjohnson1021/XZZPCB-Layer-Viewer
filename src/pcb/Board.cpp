@@ -10,60 +10,50 @@ Board::Board() : m_isLoaded(false) {
 // Constructor that takes a file path
 Board::Board(const std::string& filePath)
     : file_path(filePath)
-    , m_isLoaded(false) // Start as not loaded
+    , m_isLoaded(false)
 {
-    // --- Dummy Implementation for now ---
-    // In a real scenario, this would involve parsing the file using PcbLoader or similar.
     if (filePath.empty()) {
         m_errorMessage = "File path is empty.";
-        m_isLoaded = false;
+        // m_isLoaded is already false
         return;
     }
 
-    if (filePath == "dummy_fail.pcb") { // Special case for testing error modal
+    if (filePath == "dummy_fail.pcb") { // Keep this for testing error modal
         m_errorMessage = "This is a dummy failure to test the error modal.";
-        m_isLoaded = false;
+        // m_isLoaded is already false
         return;
     }
 
-    // Simulate loading a board
-    board_name = filePath.substr(filePath.find_last_of("/\\_,") + 1);
-
-    // Add some dummy layers for UI testing
-    layers.emplace_back(0, "Top Copper", LayerInfo::LayerType::Signal);
-    layers.emplace_back(1, "Inner Layer 1", LayerInfo::LayerType::Signal);
-    layers.emplace_back(2, "Inner Layer 2", LayerInfo::LayerType::Signal);
-    layers.emplace_back(3, "Bottom Copper", LayerInfo::LayerType::Signal);
-    layers.emplace_back(4, "Top Silkscreen", LayerInfo::LayerType::Silkscreen);
-    layers.emplace_back(5, "Bottom Silkscreen", LayerInfo::LayerType::Silkscreen);
-    layers.emplace_back(6, "Top Solder Mask", LayerInfo::LayerType::SolderMask);
-    layers.emplace_back(7, "Bottom Solder Mask", LayerInfo::LayerType::SolderMask);
-    layers.emplace_back(8, "Board Outline", LayerInfo::LayerType::BoardOutline);
-
-    // Set some layers to initially not visible for testing
-    if (layers.size() > 1) layers[1].is_visible = false;
-    if (layers.size() > 4) layers[4].is_visible = false;
-
-    width = 100.0; // dummy data
-    height = 80.0; // dummy data
-
-    m_isLoaded = true;
-    m_errorMessage.clear();
-    std::cout << "Board created (dummy load): " << filePath << std::endl;
-
-    // Example of how PcbLoader might be used (commented out for dummy implementation)
-    /*
     PcbLoader loader;
-    bool success = loader.loadFromFile(filePath, *this); // PcbLoader would populate this Board object
-    if (success) {
+    std::unique_ptr<Board> loaded_board_data = loader.loadFromFile(filePath);
+
+    if (loaded_board_data) {
+        // Move data from loaded_board_data to this instance.
+        // Note: file_path is already set for *this and should remain as the path provided to constructor.
+        // loaded_board_data->file_path will also be set by the loader, usually to the same value.
+        board_name = std::move(loaded_board_data->board_name);
+        width = loaded_board_data->width;
+        height = loaded_board_data->height;
+        origin_offset = loaded_board_data->origin_offset; 
+
+        layers = std::move(loaded_board_data->layers);
+        arcs = std::move(loaded_board_data->arcs);
+        vias = std::move(loaded_board_data->vias);
+        traces = std::move(loaded_board_data->traces);
+        standalone_text_labels = std::move(loaded_board_data->standalone_text_labels);
+        components = std::move(loaded_board_data->components);
+        nets = std::move(loaded_board_data->nets);
+
         m_isLoaded = true;
         m_errorMessage.clear();
+        // std::cout << "Board loaded successfully via PcbLoader: " << filePath << std::endl; // For debugging
     } else {
         m_isLoaded = false;
-        m_errorMessage = loader.getLastError(); // Assuming PcbLoader has such a method
-        std::cerr << "Failed to load board from " << filePath << ": " << m_errorMessage << std::endl;
+        // PcbLoader::loadFromFile returns nullptr on error. 
+        // A more sophisticated error reporting could be added to PcbLoader.
+        m_errorMessage = "Failed to load PCB data from file: " + filePath;
+        std::cerr << "PcbLoader failed to load: " << filePath << std::endl; // For debugging
     }
-    */
 }
 
 // --- Layer Access Methods ---
@@ -104,4 +94,16 @@ std::string Board::GetErrorMessage() const {
 
 std::string Board::GetFilePath() const {
     return file_path;
-} 
+}
+
+const LayerInfo* Board::GetLayerById(int layerId) const {
+    for (const auto& layer : layers) {
+        if (layer.id == layerId) {
+            return &layer;
+        }
+    }
+    return nullptr; // Not found
+}
+
+// If PcbLoader is used internally by Board::ParseBoardFile (example skeleton)
+// ... existing code ... 

@@ -25,6 +25,7 @@ class Viewport;
 class Grid;
 class GridSettings;
 class Board; // For currentBoard
+class BoardDataManager; // Forward declare BoardDataManager
 
 // For ImGuiFileDialog
 #include "ImGuiFileDialog.h" // Better to forward declare if only pointer/reference is stored
@@ -96,6 +97,7 @@ private:
     std::shared_ptr<ControlSettings> m_controlSettings;
     std::shared_ptr<Grid> m_grid;
     std::shared_ptr<Board> m_currentBoard;
+    std::shared_ptr<BoardDataManager> m_boardDataManager; // Changed to shared_ptr
 
     // UI Window Instances
     std::unique_ptr<MainMenuBar> m_mainMenuBar;

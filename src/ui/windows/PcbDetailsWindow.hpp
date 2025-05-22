@@ -22,7 +22,7 @@ private:
     void displayLayers(const Board* boardData);
     void displayNets(const Board* boardData);
     void displayComponents(const Board* boardData);
-    void displayPins(const std::vector<Pin>& pins);
+    void displayPins(const Board* boardData, const std::vector<Pin>& pins);
     void displayPadShape(const PadShape& shape);
     void displayGraphicalElements(const std::vector<LineSegment>& elements);
     void displayStandaloneElements(const Board* boardData);

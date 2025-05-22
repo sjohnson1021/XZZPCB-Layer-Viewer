@@ -3,6 +3,9 @@
 #include <memory>
 #include <string>
 #include "imgui.h"
+#include "../../view/GridSettings.hpp"
+#include "../../core/ControlSettings.hpp"
+#include "../../core/BoardDataManager.hpp"
 
 // Forward declarations
 class GridSettings;
@@ -15,9 +18,10 @@ class Board; // Forward declare Board
 class SettingsWindow {
 public:
     // It will need access to the settings objects it can modify.
-    explicit SettingsWindow(
+    SettingsWindow(
         std::shared_ptr<GridSettings> gridSettings,
         std::shared_ptr<ControlSettings> controlSettings,
+        std::shared_ptr<BoardDataManager> boardDataManager,
         float* applicationClearColor // Added pointer to application's clear color
     );
     ~SettingsWindow();
@@ -32,6 +36,9 @@ public:
     bool IsWindowVisible() const { return m_isOpen; }
     void SetVisible(bool visible) { m_isOpen = visible; }
 
+    void ToggleVisibility() { m_isOpen = !m_isOpen; }
+    bool IsOpen() const { return m_isOpen; }
+
 private:
     std::string m_windowName = "Settings";
     bool m_isOpen = false; // Default to closed, opened via a menu typically
@@ -39,6 +46,7 @@ private:
     std::shared_ptr<GridSettings> m_gridSettings;
     std::shared_ptr<ControlSettings> m_controlSettings;
     float* m_appClearColor; // Pointer to Application's clear color
+    std::shared_ptr<BoardDataManager> m_boardDataManager;
     // std::shared_ptr<ThemeSettings> m_themeSettings;
     // std::shared_ptr<ApplicationSettings> m_appSettings;
 

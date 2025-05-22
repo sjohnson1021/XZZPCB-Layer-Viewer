@@ -8,6 +8,7 @@
 #include <iomanip>   // For std::setw, std::setfill, std::hex
 #include <sstream>   // For std::ostringstream
 #include <limits>    // For std::numeric_limits
+#include "../utils/ColorUtils.hpp" // Added for layer color generation
 
 // Static data for DES key generation, similar to old XZZPCBLoader.cpp
 static const unsigned char hexconv[256] = {
@@ -353,11 +354,15 @@ void PcbLoader::parseArc(const char* data, Board& board) {
     double cx = static_cast<double>(readLE<uint32_t>(data + 4));
     double cy = static_cast<double>(readLE<uint32_t>(data + 8));
     double radius = static_cast<double>(readLE<int32_t>(data + 12));
-    double start_angle = static_cast<double>(readLE<int32_t>(data + 16));
-    double end_angle = static_cast<double>(readLE<int32_t>(data + 20));
+    float start_angle = static_cast<double>(readLE<int32_t>(data + 16));
+    float end_angle = static_cast<double>(readLE<int32_t>(data + 20));
     double thickness = static_cast<double>(readLE<int32_t>(data + 24)); // Assuming 'scale' is thickness
     int net_id = static_cast<int>(readLE<int32_t>(data + 28));
     // int32_t unknown_arc_val = readLE<int32_t>(data + 32); // If needed
+
+    // Angles need to be reduced by a factor of 10000 to properly represent degrees.
+    start_angle /= 10000.0;
+    end_angle /= 10000.0;
 
     Arc arc(layer_id, cx, cy, radius, start_angle, end_angle);
     arc.thickness = thickness;

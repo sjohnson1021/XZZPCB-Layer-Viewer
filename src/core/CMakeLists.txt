@@ -15,10 +15,12 @@ set(SOURCE_FILES
     # PCB components
     ../pcb/PcbLoader.cpp
     ../pcb/Board.cpp
+    BoardDataManager.cpp
     # View components are now in view_lib
     # Utils components
     ../utils/des.cpp
     ../utils/StringUtils.cpp
+    ../utils/ColorUtils.cpp
 )
 
 # ImGui source files - no need to include them here as we already built them in the root CMakeLists.txt
@@ -45,6 +47,6 @@ target_link_libraries(${LIBRARY_NAME}
     blend2d
     render_lib
     view_lib
-    PRIVATE
+    PUBLIC
     ui_lib
 ) 

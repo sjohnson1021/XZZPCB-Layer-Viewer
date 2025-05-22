@@ -7,6 +7,7 @@
 #include "ui/interaction/InteractionManager.hpp"
 #include "core/ControlSettings.hpp"
 #include "render/PcbRenderer.hpp"
+#include "core/BoardDataManager.hpp"
 #include <SDL3/SDL.h>
 #include <blend2d.h>
 #include <algorithm> // For std::max
@@ -19,12 +20,14 @@ PCBViewerWindow::PCBViewerWindow(
     std::shared_ptr<Viewport> viewport,
     std::shared_ptr<Grid> grid,
     std::shared_ptr<GridSettings> gridSettings,
-    std::shared_ptr<ControlSettings> controlSettings)
+    std::shared_ptr<ControlSettings> controlSettings,
+    std::shared_ptr<BoardDataManager> boardDataManager)
     : m_camera(camera)
     , m_viewport(viewport)
     , m_grid(grid)
     , m_gridSettings(gridSettings)
     , m_controlSettings(controlSettings)
+    , m_boardDataManager(boardDataManager)
     , m_isOpen(true)
     , m_isFocused(false)
     , m_isHovered(false)
@@ -32,9 +35,9 @@ PCBViewerWindow::PCBViewerWindow(
     , m_renderTexture(nullptr)
     , m_textureWidth(100)
     , m_textureHeight(100)
-    , m_contentRegionTopLeftScreen({0,0})
-    , m_contentRegionSize({100,100})
-    , m_desiredTextureSize({0,0})
+    , m_contentRegionTopLeftScreen(ImVec2(0.0f, 0.0f))
+    , m_contentRegionSize(ImVec2(100.0f, 100.0f))
+    , m_desiredTextureSize(ImVec2(0.0f, 0.0f))
     , m_resizeCooldownFrames(-1) {
     m_interactionManager = std::make_unique<InteractionManager>(m_camera, m_viewport, m_controlSettings);
 }
