@@ -18,3 +18,4 @@ struct Vec2 {
     Vec2& operator/=(float scalar) { x /= scalar; y /= scalar; return *this; }
     Vec2 operator-() const { return Vec2(-x, -y); } // Unary minus
 };
+

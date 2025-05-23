@@ -27,7 +27,7 @@ static const unsigned char hexconv[256] = {
 };
 static const std::vector<uint16_t> des_key_byte_list = {0xE0, 0xCF, 0x2E, 0x9F, 0x3C, 0x33, 0x3C, 0x33};
 // This is the scale factor for the XZZ files.
-static const int xyscale = 1000;
+static const int xyscale = 100000;
 // Implementation of DefineStandardLayers
 void PcbLoader::DefineStandardLayers(Board& board) {
     // Clear any existing layers first, in case this is a reload or reused Board object
@@ -126,7 +126,6 @@ std::unique_ptr<Board> PcbLoader::loadFromFile(const std::string& filePath) {
     // The Board::Board(filePath) constructor is responsible for setting m_isLoaded.
     // By reaching this point in the loader, we assume the loading process itself was successful
     // in terms of reading and parsing data into the board structure.
-    board->m_isLoaded = true;
     return board;
 }
 
@@ -412,8 +411,9 @@ void PcbLoader::parseArc(const char* data, Board& board) {
     double cx = static_cast<double>(readLE<uint32_t>(data + 4)) / xyscale;
     double cy = static_cast<double>(readLE<uint32_t>(data + 8)) / xyscale;
     double radius = static_cast<double>(readLE<int32_t>(data + 12)) / xyscale;
-    double start_angle = static_cast<double>(readLE<int32_t>(data + 16)) / xyscale;
-    double end_angle = static_cast<double>(readLE<int32_t>(data + 20)) / xyscale;
+    // Correct angle scaling: XZZ format likely stores angles scaled by 10000 (degrees * 10000)
+    double start_angle = static_cast<double>(readLE<int32_t>(data + 16)) / 10000.0;
+    double end_angle = static_cast<double>(readLE<int32_t>(data + 20)) / 10000.0;
     double thickness = static_cast<double>(readLE<int32_t>(data + 24)) / xyscale; // Assuming 'scale' is thickness
     int net_id = static_cast<int>(readLE<int32_t>(data + 28));
     // int32_t unknown_arc_val = readLE<int32_t>(data + 32); // If needed

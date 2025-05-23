@@ -129,7 +129,7 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isVi
 
             Vec2 rotatedPanDirection;
             rotatedPanDirection.x = panInputAccumulator.x * cosAngle - panInputAccumulator.y * sinAngle;
-            rotatedPanDirection.y = panInputAccumulator.x * sinAngle + panInputAccumulator.y * cosAngle;
+            rotatedPanDirection.y = panInputAccumulator.x * sinAngle + panInputAccumulator.y * cosAngle; 
             
             m_camera->Pan(rotatedPanDirection);
         }

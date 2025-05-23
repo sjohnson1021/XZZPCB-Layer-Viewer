@@ -8,7 +8,7 @@ public:
         : layer(layer_id), x1(start_x), y1(start_y), x2(end_x), y2(end_y), width(width_val) {}
 
     // Member Data
-    int layer = 0;
+    int layer = 0;   //   
     double x1 = 0.0; // Start point X
     double y1 = 0.0; // Start point Y
     double x2 = 0.0; // End point X

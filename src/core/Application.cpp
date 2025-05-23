@@ -520,10 +520,25 @@ void Application::OpenPcbFile(const std::string& filePath) {
              std::cout << "Board origin offset: " << m_currentBoard->origin_offset.x << ", " << m_currentBoard->origin_offset.y << std::endl;
         }
 
+        // Apply layer properties (colors, etc.) using BoardDataManager
+        if (m_boardDataManager) {
+            m_boardDataManager->RegenerateLayerColors(m_currentBoard);
+            m_boardDataManager->setBoard(m_currentBoard);
+        } else {
+            std::cerr << "Application::OpenPcbFile: BoardDataManager is null, cannot apply layer properties or set board." << std::endl;
+            // Decide if a board should be considered valid if BoardDataManager is missing
+            // For now, proceed but log error. Or, could `return;` here.
+        }
+
     } else {
         std::cerr << "Failed to load PCB: " << filePath << std::endl;
         if (m_camera && m_viewport) {
             m_camera->Reset();
         }
+        m_currentBoard = nullptr; // Ensure current board is null if load failed
+        if (m_boardDataManager) {
+            m_boardDataManager->setBoard(nullptr);
+        }
+        // TODO: Inform UI or user about the failure
     }
 } 

@@ -83,7 +83,7 @@ private:
         BLContext& bl_ctx, 
         const Board& board, // board is now const Board& as it must exist
         const Camera& camera, 
-        const Viewport& viewport
+        const Viewport& viewport // Removed grid parameter
     );
     
     RenderContext* m_renderContext = nullptr; // Store a pointer to the context if needed by multiple methods

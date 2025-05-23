@@ -84,10 +84,12 @@ void RenderPipeline::Execute(
         return;
     }
 
-    RenderGrid(bl_ctx, camera, viewport, grid);
+    // Render the grid first, so it's behind board elements.
+    // The Grid::Render method will apply its own transformations using the camera and viewport.
+    RenderGrid(bl_ctx, camera, viewport, grid); 
 
     if (board) { // Only render board if it's not null
-        RenderBoard(bl_ctx, *board, camera, viewport);
+        RenderBoard(bl_ctx, *board, camera, viewport); // Removed grid parameter
     }
 }
 
@@ -95,7 +97,7 @@ void RenderPipeline::RenderBoard(
     BLContext& bl_ctx,
     const Board& board,
     const Camera& camera,
-    const Viewport& viewport)
+    const Viewport& viewport) // Removed grid parameter
 {
     // std::cout << "RenderBoard (Corrected Logic): Board has " << board.layers.size() << " layers defined." << std::endl; 
 
@@ -104,8 +106,10 @@ void RenderPipeline::RenderBoard(
     bl_ctx.translate(viewport.GetWidth() / 2.0, viewport.GetHeight() / 2.0);
     bl_ctx.scale(camera.GetZoom());
     bl_ctx.rotate(camera.GetRotation() * (BL_M_PI / 180.0));
-    bl_ctx.translate(-camera.GetPosition().x, -camera.GetPosition().y);
-    
+    // Apply camera translation: Use positive Y component of camera position
+    // to make board's Y movement consistent with grid's Y movement relative to camera world Y changes.
+    bl_ctx.translate(-camera.GetPosition().x, camera.GetPosition().y);
+
     // Render Traces
     for (const auto& trace : board.GetTraces()) {
         const LayerInfo* layer_info = board.GetLayerById(trace.GetLayer());
@@ -199,6 +203,9 @@ void RenderPipeline::RenderTrace(BLContext& bl_ctx, const Trace& trace) {
     }
 
     bl_ctx.setStrokeWidth(width);
+    bl_ctx.setStrokeStartCap(BL_STROKE_CAP_ROUND);
+    bl_ctx.setStrokeEndCap(BL_STROKE_CAP_ROUND);
+    bl_ctx.setStrokeJoin(BL_STROKE_JOIN_ROUND);
     bl_ctx.strokeLine(trace.GetStartX(), trace.GetStartY(), trace.GetEndX(), trace.GetEndY());
 }
 
@@ -231,9 +238,23 @@ void RenderPipeline::RenderArc(BLContext& bl_ctx, const Arc& arc) {
         thickness = 0.05; // Default thickness.
     }
     bl_ctx.setStrokeWidth(thickness);
+    bl_ctx.setStrokeStartCap(BL_STROKE_CAP_ROUND);
+    bl_ctx.setStrokeEndCap(BL_STROKE_CAP_ROUND);
+    bl_ctx.setStrokeJoin(BL_STROKE_JOIN_ROUND);
+
     double start_angle_rad = arc.GetStartAngle() * (BL_M_PI / 180.0);
     double end_angle_rad = arc.GetEndAngle() * (BL_M_PI / 180.0);
     double sweep_angle_rad = end_angle_rad - start_angle_rad;
+
+    // Ensure sweep_angle_rad is positive and represents the CCW sweep from start to end.
+    // If end_angle_rad is numerically smaller than start_angle_rad (e.g. arc from 350deg to 10deg),
+    // sweep_angle_rad would be negative. Adding 2*PI makes it positive for CCW direction.
+    if (sweep_angle_rad < 0) {
+        sweep_angle_rad += 2 * BL_M_PI;
+    }
+    // If the absolute value of sweep_angle_rad is very close to 2*PI or 0, it might indicate a full circle or no arc.
+    // This logic assumes a proper arc segment is intended.
+
     BLPath path;
     path.arcTo(arc.GetCX(), arc.GetCY(), arc.GetRadius(), arc.GetRadius(), start_angle_rad, sweep_angle_rad);
     bl_ctx.strokePath(path);
