@@ -12,8 +12,9 @@ set(SOURCE_FILES
     ImGuiManager.cpp
 
     # PCB components
-    ../pcb/PcbLoader.cpp
+    ../pcb/XZZPCBLoader.cpp
     ../pcb/Board.cpp
+    ../pcb/BoardLoaderFactory.cpp
     BoardDataManager.cpp
     # View components are now in view_lib
     # Utils components

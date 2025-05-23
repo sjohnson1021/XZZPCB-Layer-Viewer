@@ -5,24 +5,11 @@
 // #include <glm/glm.hpp>
 // #include <glm/gtc/matrix_transform.hpp>
 
-// For now, let's assume simple types or define them if needed.
-struct Vec2 {
-    float x = 0.0f;
-    float y = 0.0f;
+#include <blend2d.h>
+#include "utils/Vec2.hpp"
+// #include "Viewport.hpp" // Will be removed
 
-    Vec2() = default;
-    Vec2(float x, float y) : x(x), y(y) {}
-
-    Vec2 operator+(const Vec2& other) const { return Vec2(x + other.x, y + other.y); }
-    Vec2 operator-(const Vec2& other) const { return Vec2(x - other.x, y - other.y); }
-    Vec2 operator*(float scalar) const { return Vec2(x * scalar, y * scalar); }
-    Vec2 operator/(float scalar) const { return Vec2(x / scalar, y / scalar); }
-    Vec2& operator+=(const Vec2& other) { x += other.x; y += other.y; return *this; }
-    Vec2& operator-=(const Vec2& other) { x -= other.x; y -= other.y; return *this; }
-    Vec2& operator*=(float scalar) { x *= scalar; y *= scalar; return *this; }
-    Vec2& operator/=(float scalar) { x /= scalar; y /= scalar; return *this; }
-    Vec2 operator-() const { return Vec2(-x, -y); } // Unary minus
-};
+class Viewport; // Forward declaration
 
 // A simple 2D transformation matrix (like a 3x2 matrix for affine transforms)
 // For simplicity, we might just store position, scale, rotation separately for a 2D camera.
@@ -55,6 +42,9 @@ public:
     float GetWorldToViewRotation() const;
 
     void Reset(); // Reset to default position, zoom, rotation
+
+    // Focuses the camera on a given world-space rectangle, adjusting pan and zoom.
+    void FocusOnRect(const BLRect& worldRect, const Viewport& viewport, float padding = 0.1f);
 
 private:
     Vec2 m_position;    // Camera position in world space (center of the view)

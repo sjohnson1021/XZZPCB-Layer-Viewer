@@ -1,6 +1,9 @@
 #pragma once
 
-#include "view/Camera.hpp" // Needs Vec2, and might interact with Camera
+#include "utils/Vec2.hpp" // User-adjusted path
+// #include "view/Camera.hpp" // Will be removed
+
+class Camera; // Forward declaration
 
 class Viewport {
 public:

@@ -39,6 +39,13 @@ struct LayerInfo {
         : id(i), name(n), type(t), is_visible(true), color(c) {}
     // Default constructor for LayerInfo if needed by containers, ensure it initializes color.
     LayerInfo() : id(-1), name("Unknown"), type(LayerType::Other), is_visible(true), color(0xFF000000) {} // Default to black for uninitialized
+
+    bool IsVisible() const { return is_visible; }
+    void SetVisible(bool visible) { is_visible = visible; }
+    int GetId() const { return id; }
+    const std::string& GetName() const { return name; }
+    LayerType GetType() const { return type; }
+    BLRgba32 GetColor() const { return color; }
 };
 
 class Board {
@@ -85,8 +92,11 @@ public:
     void addLayer(const LayerInfo& layer) { layers.push_back(layer); }
 
     // Methods to retrieve elements (examples)
-    const std::vector<Component>& getComponents() const { return components; }
+    const std::vector<Component>& GetComponents() const { return components; }
     const std::vector<Trace>& GetTraces() const { return traces; }
+    const std::vector<Via>& GetVias() const { return vias; }
+    const std::vector<Arc>& GetArcs() const { return arcs; }
+    const std::vector<TextLabel>& GetTextLabels() const { return standalone_text_labels; }
     const Net* getNetById(int net_id) const {
         auto it = nets.find(net_id);
         return (it != nets.end()) ? &(it->second) : nullptr;
@@ -94,6 +104,7 @@ public:
     const LayerInfo* GetLayerById(int layerId) const;
 
     // --- Layer Access Methods ---
+    std::vector<LayerInfo> GetLayers() const;
     int GetLayerCount() const;
     std::string GetLayerName(int layerIndex) const; // Consider returning const&
     bool IsLayerVisible(int layerIndex) const;
@@ -103,6 +114,13 @@ public:
     bool IsLoaded() const;
     std::string GetErrorMessage() const; // Consider returning const&
     std::string GetFilePath() const;   // Getter for file_path
+
+    // Calculate the bounding box of all renderable elements on visible layers
+    BLRect GetBoundingBox(bool include_invisible_layers = false) const;
+
+    // Normalizes all element coordinates so the center of their collective bounding box is (0,0)
+    // Returns the offset that was applied (original center).
+    BoardPoint2D NormalizeCoordinatesAndGetCenterOffset(const BLRect& original_bounds);
 
     // Methods for board-level operations (e.g., calculate extents)
     // void calculateBoardDimensions();

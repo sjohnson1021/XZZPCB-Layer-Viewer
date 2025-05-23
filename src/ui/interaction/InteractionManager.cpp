@@ -3,15 +3,18 @@
 #include "view/Camera.hpp"
 #include "view/Viewport.hpp"
 #include "core/ControlSettings.hpp" // Added include
+#include "core/BoardDataManager.hpp" // Added include
 
 InteractionManager::InteractionManager(std::shared_ptr<Camera> camera, 
                                        std::shared_ptr<Viewport> viewport,
-                                       std::shared_ptr<ControlSettings> controlSettings) // Added parameter
+                                       std::shared_ptr<ControlSettings> controlSettings,
+                                       std::shared_ptr<BoardDataManager> boardDataManager) // Added parameter
     : m_camera(camera)
     , m_viewport(viewport)
-    , m_controlSettings(controlSettings) { // Added initialization
+    , m_controlSettings(controlSettings)
+    , m_boardDataManager(boardDataManager) { // Added initialization
     // Create and set the navigation tool as the default active tool.
-    m_navigationTool = std::make_unique<NavigationTool>(m_camera, m_viewport, m_controlSettings); // Pass controlSettings
+    m_navigationTool = std::make_unique<NavigationTool>(m_camera, m_viewport, m_controlSettings, m_boardDataManager); // Pass boardDataManager
     // m_activeTool = m_navigationTool.get(); // If we use a generic InteractionTool* for m_activeTool
 }
 

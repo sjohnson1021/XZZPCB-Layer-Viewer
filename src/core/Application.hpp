@@ -12,6 +12,8 @@ class Renderer;
 class ImGuiManager;
 class ControlSettings; // Now a member
 class PcbRenderer; // Forward declare PcbRenderer
+// class PcbLoader; // No longer needed here
+class BoardLoaderFactory; // Forward declare BoardLoaderFactory
 
 // Forward declarations for UI classes
 class MainMenuBar;
@@ -115,6 +117,9 @@ private:
     // UI State for Modals
     bool m_showPcbLoadErrorModal;
     std::string m_pcbLoadErrorMessage;
+
+    // PCB Loader Factory
+    std::unique_ptr<BoardLoaderFactory> m_boardLoaderFactory;
 
     // Menu action request flags
     bool m_openFileRequested = false;

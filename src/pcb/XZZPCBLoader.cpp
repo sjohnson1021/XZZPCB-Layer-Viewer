@@ -1,4 +1,4 @@
-#include "PcbLoader.hpp"
+#include "XZZPCBLoader.hpp"
 #include <fstream>
 #include <vector>
 #include <string>
@@ -9,8 +9,13 @@
 #include <sstream>   // For std::ostringstream
 #include <limits>    // For std::numeric_limits
 #include "../utils/ColorUtils.hpp" // Added for layer color generation
+#include <iostream> // Added for logging
+#include <variant> // Required for std::visit or index() on PadShape
 
-// Static data for DES key generation, similar to old XZZPCBLoader.cpp
+// Define this to enable verbose logging for PcbLoader
+// #define ENABLE_PCB_LOADER_LOGGING 
+
+// Static data for DES key generation, similar to old XZZXZZPCBLoader.cpp
 static const unsigned char hexconv[256] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0,  0,  0,  0,  0,  10, 11, 12, 13, 14, 15, 0, 0, 0,
@@ -21,6 +26,38 @@ static const unsigned char hexconv[256] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0
 };
 static const std::vector<uint16_t> des_key_byte_list = {0xE0, 0xCF, 0x2E, 0x9F, 0x3C, 0x33, 0x3C, 0x33};
+// This is the scale factor for the XZZ files.
+static const int xyscale = 1000;
+// Implementation of DefineStandardLayers
+void PcbLoader::DefineStandardLayers(Board& board) {
+    // Clear any existing layers first, in case this is a reload or reused Board object
+    board.layers.clear();
+
+    // Define Trace Layers (1-16)
+    for (int i = 1; i <= 16; ++i) {
+        std::string name = "Trace Layer " + std::to_string(i);
+        // Layer 16 is often special (e.g., last layer in a sequence)
+        // For now, all are Signal type. Specific XZZ usage might refine this.
+        board.addLayer(LayerInfo(i, name, LayerInfo::LayerType::Signal));
+    }
+
+    // Silkscreen (17)
+    board.addLayer(LayerInfo(17, "Silkscreen", LayerInfo::LayerType::Silkscreen));
+
+    // Unknown Layers (18-27) - treat as generic 'Other' or 'Comment' type for now
+    for (int i = 18; i <= 27; ++i) {
+        std::string name = "Unknown Layer " + std::to_string(i);
+        // These might be used for internal notes, mechanical details, or additional silkscreen
+        // Defaulting to 'Other' type. Users can inspect content.
+        board.addLayer(LayerInfo(i, name, LayerInfo::LayerType::Other)); 
+    }
+
+    // Board Edges (28)
+    board.addLayer(LayerInfo(28, "Board Edges", LayerInfo::LayerType::BoardOutline));
+    
+    // After adding all layers, if your Board class has a function to assign unique colors:
+    // board.RegenerateLayerColors(); // Or similar, if it exists in Board.hpp
+}
 
 std::unique_ptr<Board> PcbLoader::loadFromFile(const std::string& filePath) {
     std::vector<char> fileData;
@@ -42,6 +79,7 @@ std::unique_ptr<Board> PcbLoader::loadFromFile(const std::string& filePath) {
     auto board = std::make_unique<Board>();
     board->file_path = filePath;
     // board->board_name = extract from file path or header?
+    DefineStandardLayers(*board);
 
     uint32_t mainDataOffset = 0;
     uint32_t netDataOffset = 0;
@@ -69,6 +107,26 @@ std::unique_ptr<Board> PcbLoader::loadFromFile(const std::string& filePath) {
         }
     }
 
+    // Board is populated. Now calculate its bounds and normalize coordinates.
+    BLRect original_extents = board->GetBoundingBox(true); // Use layer 28 traces, include even if layer 28 is initially hidden
+
+    if (original_extents.w > 0 || original_extents.h > 0) { // Allow for 1D lines to still have a center
+        board->origin_offset = board->NormalizeCoordinatesAndGetCenterOffset(original_extents);
+        // Store the calculated dimensions on the board object itself
+        board->width = original_extents.w;
+        board->height = original_extents.h;
+    } else {
+        // If no valid outline on layer 28 (or board is empty/point-like),
+        // dimensions remain 0 or default. Normalization is skipped.
+        // board->width and board->height will retain their initial values (likely 0.0).
+        // Optionally, log a warning if an outline was expected for an XZZ file.
+        // std::cerr << "Warning: Could not determine board bounds from layer 28 outline." << std::endl;
+    }
+
+    // The Board::Board(filePath) constructor is responsible for setting m_isLoaded.
+    // By reaching this point in the loader, we assume the loading process itself was successful
+    // in terms of reading and parsing data into the board structure.
+    board->m_isLoaded = true;
     return board;
 }
 
@@ -210,14 +268,14 @@ bool PcbLoader::parseHeader(const std::vector<char>& fileData, Board& board,
     }
 
     try {
-        // According to XZZPCB Decrypted.hexpat and old XZZPCBLoader.cpp:
+        // According to XZZPCB Decrypted.hexpat and old XZZXZZPCBLoader.cpp:
         // - image_block_start is at 0x24, relative to 0x20
         // - net_block_start is at 0x28, relative to 0x20
         // - main_data_blocks_size is at 0x40 (absolute address in fileData)
 
         // uint32_t header_addresses_size = readLE<uint32_t>(&fileData[0x20]); // This was in old loader, seems unused for critical offsets by old loader.
         
-        // Aligning with XZZPCBLoader.cpp: offsets are added to 0x20 unconditionally
+        // Aligning with XZZXZZPCBLoader.cpp: offsets are added to 0x20 unconditionally
         // if the file format implies these fields are always relative offsets stored at 0x24/0x28.
         // If an offset of 0 at 0x24 truly means "no image block and 0 is not relative to 0x20", 
         // then the previous conditional logic was safer. Assuming old loader was correct:
@@ -351,18 +409,16 @@ void PcbLoader::parseArc(const char* data, Board& board) {
     // s32 unknown_arc; (offset 28, size 4, total size 32 before unknown_arc, 36 with it)
 
     int layer_id = static_cast<int>(readLE<uint32_t>(data));
-    double cx = static_cast<double>(readLE<uint32_t>(data + 4));
-    double cy = static_cast<double>(readLE<uint32_t>(data + 8));
-    double radius = static_cast<double>(readLE<int32_t>(data + 12));
-    float start_angle = static_cast<double>(readLE<int32_t>(data + 16));
-    float end_angle = static_cast<double>(readLE<int32_t>(data + 20));
-    double thickness = static_cast<double>(readLE<int32_t>(data + 24)); // Assuming 'scale' is thickness
+    double cx = static_cast<double>(readLE<uint32_t>(data + 4)) / xyscale;
+    double cy = static_cast<double>(readLE<uint32_t>(data + 8)) / xyscale;
+    double radius = static_cast<double>(readLE<int32_t>(data + 12)) / xyscale;
+    double start_angle = static_cast<double>(readLE<int32_t>(data + 16)) / xyscale;
+    double end_angle = static_cast<double>(readLE<int32_t>(data + 20)) / xyscale;
+    double thickness = static_cast<double>(readLE<int32_t>(data + 24)) / xyscale; // Assuming 'scale' is thickness
     int net_id = static_cast<int>(readLE<int32_t>(data + 28));
     // int32_t unknown_arc_val = readLE<int32_t>(data + 32); // If needed
 
-    // Angles need to be reduced by a factor of 10000 to properly represent degrees.
-    start_angle /= 10000.0;
-    end_angle /= 10000.0;
+
 
     Arc arc(layer_id, cx, cy, radius, start_angle, end_angle);
     arc.thickness = thickness;
@@ -382,10 +438,10 @@ void PcbLoader::parseVia(const char* data, uint32_t blockSize, Board& board) {
     // u32 via_text_length; (Typically 0 or 1, if 1, an extra u8 for text)
     // char via_text[via_text_length];
 
-    double x = static_cast<double>(readLE<int32_t>(data));
-    double y = static_cast<double>(readLE<int32_t>(data + 4));
-    double radius_a = static_cast<double>(readLE<int32_t>(data + 8));  // Pad radius on layer_a
-    double radius_b = static_cast<double>(readLE<int32_t>(data + 12)); // Pad radius on layer_b
+    double x = static_cast<double>(readLE<int32_t>(data)) / xyscale;
+    double y = static_cast<double>(readLE<int32_t>(data + 4)) / xyscale;
+    double radius_a = static_cast<double>(readLE<int32_t>(data + 8)) / xyscale;  // Pad radius on layer_a
+    double radius_b = static_cast<double>(readLE<int32_t>(data + 12)) / xyscale; // Pad radius on layer_b
     int layer_a = static_cast<int>(readLE<uint32_t>(data + 16));
     int layer_b = static_cast<int>(readLE<uint32_t>(data + 20));
     int net_id = static_cast<int>(readLE<uint32_t>(data + 24));
@@ -448,11 +504,11 @@ void PcbLoader::parseTrace(const char* data, Board& board) {
     // Total size 28 bytes.
 
     int layer_id = static_cast<int>(readLE<uint32_t>(data));
-    double x1 = static_cast<double>(readLE<int32_t>(data + 4));
-    double y1 = static_cast<double>(readLE<int32_t>(data + 8));
-    double x2 = static_cast<double>(readLE<int32_t>(data + 12));
-    double y2 = static_cast<double>(readLE<int32_t>(data + 16));
-    double width = static_cast<double>(readLE<int32_t>(data + 20)); // Assuming 'scale' is width
+    double x1 = static_cast<double>(readLE<int32_t>(data + 4)) / xyscale;
+    double y1 = static_cast<double>(readLE<int32_t>(data + 8)) / xyscale;
+    double x2 = static_cast<double>(readLE<int32_t>(data + 12)) / xyscale;
+    double y2 = static_cast<double>(readLE<int32_t>(data + 16)) / xyscale;
+    double width = static_cast<double>(readLE<int32_t>(data + 20)) / xyscale; // Assuming 'scale' is width
     int net_id = static_cast<int>(readLE<uint32_t>(data + 24));
 
     Trace trace(layer_id, x1, y1, x2, y2, width);
@@ -471,7 +527,7 @@ void PcbLoader::parseTextLabel(const char* data, Board& board, bool isStandalone
     // u16 one; (padding in hexpat part_sub_type_06)
     // u32 text_length;
     // char text[text_length];
-    // Offsets from XZZPCBLoader.cpp for standalone text (type 0x06):
+    // Offsets from XZZXZZPCBLoader.cpp for standalone text (type 0x06):
     // label.layer = readLE<uint32_t>(&fileData[currentOffset]); -> data + 0
     // label.x = readLE<int32_t>(&fileData[currentOffset + 4]); -> data + 4
     // label.y = readLE<int32_t>(&fileData[currentOffset + 8]); -> data + 8
@@ -482,8 +538,8 @@ void PcbLoader::parseTextLabel(const char* data, Board& board, bool isStandalone
     // Visibility and ps06flag are only in part_sub_type_06.
 
     int layer_id = static_cast<int>(readLE<uint32_t>(data)); // unknown_1 in hexpat, but layer in old loader
-    double x = static_cast<double>(readLE<uint32_t>(data + 4)); // pos_x
-    double y = static_cast<double>(readLE<uint32_t>(data + 8)); // pos_y
+    double x = static_cast<double>(readLE<uint32_t>(data + 4) / xyscale); // pos_x
+    double y = static_cast<double>(readLE<uint32_t>(data + 8) / xyscale); // pos_y
     double font_size = static_cast<double>(readLE<uint32_t>(data + 12)); // text_size
     double scale_factor = static_cast<double>(readLE<uint32_t>(data + 16)); // divider in hexpat, was text_scale in TextLabel.hpp
     // data + 20 is 'empty' (4 bytes), data + 24 is 'one' (2 bytes) then text_length (4 bytes from old loader) - this is slightly different from hexpat
@@ -517,80 +573,204 @@ void PcbLoader::parseTextLabel(const char* data, Board& board, bool isStandalone
 void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentBlockSize, Board& board) {
     // Component data (type 0x07) is typically DES-encrypted.
     // First, make a mutable copy of the component's block data to decrypt it.
+#ifdef ENABLE_PCB_LOADER_LOGGING
+    std::cout << "[PcbLoader LOG] ----- Begin Component Parse -----" << std::endl;
+    std::cout << "[PcbLoader LOG] Original componentBlockSize: " << componentBlockSize << std::endl;
+#endif
+
     std::vector<char> componentData(rawComponentData, rawComponentData + componentBlockSize);
     decryptComponentBlock(componentData); // Decrypts in-place
+#ifdef ENABLE_PCB_LOADER_LOGGING
+    std::cout << "[PcbLoader LOG] Decrypted componentData size: " << componentData.size() << std::endl;
+#endif
 
     uint32_t localOffset = 0;
 
     // Read outer component structure based on .hexpat type_07
     // uint32_t t07_block_size = componentBlockSize; (already known)
+    if (componentData.size() < localOffset + 4) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+        std::cerr << "[PcbLoader LOG] Error: Not enough data for part_overall_size. componentData size: " << componentData.size() << ", localOffset: " << localOffset << std::endl;
+#endif
+        return;
+    }
     uint32_t part_overall_size = readLE<uint32_t>(&componentData[localOffset]); // Size of the actual part data within this block
+#ifdef ENABLE_PCB_LOADER_LOGGING
+    std::cout << "[PcbLoader LOG] part_overall_size: " << part_overall_size << " at offset " << localOffset << std::endl;
+#endif
     localOffset += 4;
+
+    if (componentData.size() < localOffset + 4) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+        std::cerr << "[PcbLoader LOG] Error: Not enough data for padding after part_overall_size. componentData size: " << componentData.size() << ", localOffset: " << localOffset << std::endl;
+#endif
+        return;
+    }
     localOffset += 4; // Skip padding (4 bytes)
+#ifdef ENABLE_PCB_LOADER_LOGGING
+    std::cout << "[PcbLoader LOG] Skipped padding. localOffset: " << localOffset << std::endl;
+#endif
 
-    double part_x = static_cast<double>(readLE<uint32_t>(&componentData[localOffset]));
+    if (componentData.size() < localOffset + 4) { /*part_x*/ 
+#ifdef ENABLE_PCB_LOADER_LOGGING
+        std::cerr << "[PcbLoader LOG] Error: Not enough for part_x" <<std::endl; 
+#endif
+        return; 
+    }
+    double part_x = static_cast<double>(readLE<uint32_t>(&componentData[localOffset])) / xyscale;
     localOffset += 4;
-    double part_y = static_cast<double>(readLE<uint32_t>(&componentData[localOffset]));
+    if (componentData.size() < localOffset + 4) { /*part_y*/ 
+#ifdef ENABLE_PCB_LOADER_LOGGING
+        std::cerr << "[PcbLoader LOG] Error: Not enough for part_y" <<std::endl; 
+#endif
+        return; 
+    }
+    double part_y = static_cast<double>(readLE<uint32_t>(&componentData[localOffset])) / xyscale;
     localOffset += 4;
+    if (componentData.size() < localOffset + 4) { /*scale/padding*/ 
+#ifdef ENABLE_PCB_LOADER_LOGGING
+        std::cerr << "[PcbLoader LOG] Error: Not enough for scale/padding" <<std::endl; 
+#endif
+        return; 
+    }
     localOffset += 4; // Skip scale/padding (4 bytes)
-
-    // uint8_t flag1 = componentData[localOffset++]; // Referenced in .hexpat, seems unused in old loader logic
-    // uint8_t flag2 = componentData[localOffset++];
+    if (componentData.size() < localOffset + 2) { /*flags*/ 
+#ifdef ENABLE_PCB_LOADER_LOGGING
+        std::cerr << "[PcbLoader LOG] Error: Not enough for flags" <<std::endl; 
+#endif
+        return; 
+    }
     localOffset += 2; // Skip flags
+#ifdef ENABLE_PCB_LOADER_LOGGING
+    std::cout << "[PcbLoader LOG] Parsed part_x: " << part_x << ", part_y: " << part_y << ". localOffset: " << localOffset << std::endl;
+#endif
 
-    uint32_t pad_size_len = 0; 
-    if (localOffset + 4 <= componentData.size() && localOffset + 4 <= part_overall_size) {
+    uint32_t pad_size_len = 0;
+    if (localOffset + 4 <= componentData.size() && localOffset + 4 <= part_overall_size) { // Check against part_overall_size for logical end too
         pad_size_len = readLE<uint32_t>(&componentData[localOffset]);
+#ifdef ENABLE_PCB_LOADER_LOGGING
+        std::cout << "[PcbLoader LOG] pad_size_len: " << pad_size_len << " at offset " << localOffset << std::endl;
+#endif
     } else {
-        // Not enough data for pad_size_len, critical failure for this component.
-        // Log_Error("Component parsing: Not enough data for pad_size_len.");
-        return; // Stop parsing this component
+#ifdef ENABLE_PCB_LOADER_LOGGING
+        std::cerr << "[PcbLoader LOG] Component parsing: Not enough data or past part_overall_size for pad_size_len. localOffset=" << localOffset << ", part_overall_size=" << part_overall_size << ", componentData.size()=" << componentData.size() << std::endl;
+#endif
+        // Potentially return, but let's see if sub-blocks can still be parsed if part_overall_size is small but sub-blocks exist
     }
     localOffset += 4;
 
     std::string comp_footprint_name_str;
     if (pad_size_len > 0) {
-        if (localOffset + pad_size_len <= componentData.size() && localOffset + pad_size_len <= part_overall_size) {
+        if (localOffset + pad_size_len <= componentData.size() && localOffset + pad_size_len <= part_overall_size) { // Check against part_overall_size
             comp_footprint_name_str = readCB2312String(&componentData[localOffset], pad_size_len);
+#ifdef ENABLE_PCB_LOADER_LOGGING
+            std::cout << "[PcbLoader LOG] comp_footprint_name_str: \"" << comp_footprint_name_str << "\" at offset " << localOffset << std::endl;
+#endif
         } else {
-            // Length specified but not enough data, critical failure for this component.
-            // Log_Error("Component parsing: Not enough data for footprint name string.");
-            return; // Stop parsing this component
+#ifdef ENABLE_PCB_LOADER_LOGGING
+            std::cerr << "[PcbLoader LOG] Component parsing: Not enough data or past part_overall_size for footprint name string. localOffset=" << localOffset << ", pad_size_len=" << pad_size_len << ", part_overall_size=" << part_overall_size << ", componentData.size()=" << componentData.size() << std::endl;
+#endif
+            // Don't return, allow parsing of sub-blocks to continue if possible
         }
     }
     localOffset += pad_size_len;
+#ifdef ENABLE_PCB_LOADER_LOGGING
+    std::cout << "[PcbLoader LOG] After footprint name. localOffset: " << localOffset << std::endl;
+#endif
 
     Component comp(comp_footprint_name_str, "", part_x, part_y);
     comp.footprint_name = comp_footprint_name_str;
 
+#ifdef ENABLE_PCB_LOADER_LOGGING
+    std::cout << "[PcbLoader LOG] Starting sub-block parsing loop. Initial localOffset=" << localOffset << ", part_overall_size=" << part_overall_size << std::endl;
+#endif
+
     while (localOffset < part_overall_size && localOffset < componentData.size()) {
-        if (componentData.size() < localOffset + 1) break; 
+        if (componentData.size() < localOffset + 1) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+             std::cerr << "[PcbLoader LOG] Sub-block loop: Not enough data for subType. localOffset=" << localOffset << ", componentData.size()=" << componentData.size() << std::endl;
+#endif
+             break;
+        }
         uint8_t subType = static_cast<uint8_t>(componentData[localOffset++]);
+#ifdef ENABLE_PCB_LOADER_LOGGING
+        std::cout << "[PcbLoader LOG] Loop iter: localOffset after type read = " << localOffset << ", Current subType=0x" << std::hex << static_cast<int>(subType) << std::dec << std::endl;
+#endif
 
-        if (subType == 0x00) break; 
-        if (localOffset + 4 > componentData.size() || localOffset + 4 > part_overall_size) break; 
-        
-        uint32_t subBlockSize = readLE<uint32_t>(&componentData[localOffset]);
-        localOffset += 4;
-
-        if (localOffset + subBlockSize > componentData.size() || localOffset + subBlockSize > part_overall_size) {
-            break; 
+        if (subType == 0x00) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+            std::cout << "[PcbLoader LOG]   Encountered subType 0x00 (End of component marker). Breaking sub-block loop." << std::endl;
+#endif
+            break;
+        }
+        if (localOffset + 4 > componentData.size() || localOffset + 4 > part_overall_size) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+             std::cerr << "[PcbLoader LOG]   Not enough data for subBlockSize. localOffset=" << localOffset << ", part_overall_size=" << part_overall_size << ", componentData.size()=" << componentData.size() << std::endl;
+#endif
+             break;
         }
         
+        uint32_t subBlockSize = readLE<uint32_t>(&componentData[localOffset]);
+#ifdef ENABLE_PCB_LOADER_LOGGING
+        std::cout << "[PcbLoader LOG]     subBlockSize=" << subBlockSize << " (read at offset " << localOffset << ").";
+#endif
+        localOffset += 4;
+
+        if (localOffset + subBlockSize > componentData.size()) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+             std::cerr << "[PcbLoader LOG]     subBlock (type 0x" << std::hex << static_cast<int>(subType) << std::dec << ", size " << subBlockSize 
+                       << ") would exceed componentData bounds (localOffset=" << localOffset << ", componentData.size()=" << componentData.size() << "). Breaking." << std::endl;
+#endif
+             break;
+        }
+        // This check might be more relevant: ensure current offset for sub-block data isn't past the declared overall size
+        if (localOffset > part_overall_size ) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+             std::cerr << "[PcbLoader LOG]     localOffset (" << localOffset << ") for sub-block data start has passed part_overall_size (" << part_overall_size << "). Breaking." << std::endl;
+#endif
+             break;
+        }
+
+
         const char* subBlockDataStart = &componentData[localOffset];
+#ifdef ENABLE_PCB_LOADER_LOGGING
+        std::cout << "[PcbLoader LOG]     Processing subType 0x" << std::hex << static_cast<int>(subType) << std::dec << " of size " << subBlockSize << ". Data starts at componentData[" << localOffset << "]";
+#endif
 
         switch (subType) {
             case 0x05: { // Line Segment (part_sub_type_05)
-                if (subBlockSize < 24) { /* Min size for a segment with layer, 2x points, scale */ break; }
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                std::cout << "[PcbLoader LOG]       Parsing Line Segment (0x05), subBlockSize=" << subBlockSize << std::endl;
+#endif
+                if (subBlockSize < 24) { 
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                    std::cerr << "[PcbLoader LOG]         Line Segment block too small: " << subBlockSize << ", expected 24. Skipping." << std::endl;
+#endif
+                    break; 
+                }
+                // Check if reading fields will go out of subBlockSize bounds
+                if (24 > subBlockSize) { // Should be caught by above, but explicit check before reads
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                    std::cerr << "[PcbLoader LOG]         Logical error: subBlockSize " << subBlockSize << " < 24 for Line Segment, but initial check passed? Skipping." << std::endl;
+#endif
+                    break;
+                }
                 int seg_layer = static_cast<int>(readLE<uint32_t>(subBlockDataStart));
-                double x1 = static_cast<double>(readLE<uint32_t>(subBlockDataStart + 4));
-                double y1 = static_cast<double>(readLE<uint32_t>(subBlockDataStart + 8));
-                double x2 = static_cast<double>(readLE<uint32_t>(subBlockDataStart + 12));
-                double y2 = static_cast<double>(readLE<uint32_t>(subBlockDataStart + 16));
-                double thickness = static_cast<double>(readLE<uint32_t>(subBlockDataStart + 20)); // Scale
-                // 4 bytes padding after scale in .hexpat
+                double x1 = static_cast<double>(readLE<int32_t>(subBlockDataStart + 4)) / xyscale;
+                double y1 = static_cast<double>(readLE<int32_t>(subBlockDataStart + 8)) / xyscale;
+                double x2 = static_cast<double>(readLE<int32_t>(subBlockDataStart + 12)) / xyscale;
+                double y2 = static_cast<double>(readLE<int32_t>(subBlockDataStart + 16)) / xyscale;
+                double thickness = static_cast<double>(readLE<uint32_t>(subBlockDataStart + 20)) / xyscale; // Scale
+
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                std::cout << "[PcbLoader LOG]         Segment: (" << x1 << "," << y1 << ") to (" << x2 << "," << y2 
+                          << "), Thickness: " << thickness << ", Layer: " << seg_layer << std::endl;
+#endif
                 LineSegment seg{{x1, y1}, {x2, y2}, thickness, seg_layer};
                 comp.graphical_elements.push_back(seg);
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                std::cout << "[PcbLoader LOG]         Added graphical element. Count: " << comp.graphical_elements.size() << std::endl;
+#endif
                 break;
             }
             case 0x06: { // Text Label (part_sub_type_06)
@@ -628,80 +808,223 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
                 break;
             }
             case 0x09: { // Pin (part_sub_type_09)
-                // Minimum size: padding(4) + xy(8) + padding(8) + name_size_field(4) = 24, plus name, plus outlines, plus net_id + padding (12)
-                // A pin must at least have its name_size field, so check up to that point + name_size field (20 bytes for fields before name string)
-                if (subBlockSize < 20 + 4) { /* Not even enough for pin_name_size field */ break; }
-                uint32_t pin_ptr = 0;
-                pin_ptr += 4; // Skip initial padding (offset 0)
-                double pin_x = static_cast<double>(readLE<uint32_t>(subBlockDataStart + pin_ptr)); pin_ptr +=4; // offset 4
-                double pin_y = static_cast<double>(readLE<uint32_t>(subBlockDataStart + pin_ptr)); pin_ptr +=4; // offset 8
-                pin_ptr += 8; // Skip two 4-byte padding fields (offsets 12, 16)
-                
-                uint32_t pin_name_size = readLE<uint32_t>(subBlockDataStart + pin_ptr); // pin_ptr is now 20
-                pin_ptr += 4; // pin_ptr is now 24
-                
-                std::string pin_name;
-                if (pin_name_size > 0 && pin_ptr + pin_name_size <= subBlockSize) {
-                    pin_name = readCB2312String(subBlockDataStart + pin_ptr, pin_name_size);
-                } else if (pin_name_size > 0) { /* Declared pin_name_size but not enough space */ break; }
-                pin_ptr += pin_name_size;
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                std::cout << "[PcbLoader LOG]       Parsing Pin (0x09), subBlockSize=" << subBlockSize << std::endl;
+#endif
+                if (subBlockSize < 20 + 4) { 
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                    std::cerr << "[PcbLoader LOG]         Pin block too small for basic fields (need 24): " << subBlockSize << ". Skipping." << std::endl;
+#endif
+                    break; 
+                }
 
-                Pin pin(pin_x, pin_y, pin_name, CirclePad{0.1}); // Default shape
+                uint32_t pin_ptr = 0; // Relative to subBlockDataStart
+                // Initial padding
+                if (pin_ptr + 4 > subBlockSize) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                    std::cerr << "[PcbLoader LOG] Pin too short for initial padding " << std::endl; 
+#endif
+                    break;
+                }
+                pin_ptr += 4; 
+                // std::cout << "[PcbLoader LOG]         pin_ptr after initial pad: " << pin_ptr << std::endl; // Logged below
 
-                // Parse Pin Outlines
-                for (int i=0; i<4; ++i) {
-                    if (pin_ptr + 5 > subBlockSize) break; // Not enough for an outline end marker or next outline field
-                    if (readLE<uint32_t>(subBlockDataStart + pin_ptr) == 0 && 
-                        static_cast<uint8_t>(subBlockDataStart[pin_ptr + 4]) == 0) {
-                        pin_ptr += 5; // Consume end marker
-                        break;
+                // Pin X
+                if (pin_ptr + 4 > subBlockSize) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                    std::cerr << "[PcbLoader LOG] Pin too short for X coord " << std::endl; 
+#endif
+                    break;
+                }
+                double pin_x = static_cast<double>(readLE<int32_t>(subBlockDataStart + pin_ptr)) / xyscale; pin_ptr +=4;
+                // std::cout << "[PcbLoader LOG]         pin_x: " << pin_x << ", pin_ptr: " << pin_ptr << std::endl;
+                
+                // Pin Y
+                if (pin_ptr + 4 > subBlockSize) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                    std::cerr << "[PcbLoader LOG] Pin too short for Y coord " << std::endl; 
+#endif
+                    break;
+                }
+                double pin_y = static_cast<double>(readLE<int32_t>(subBlockDataStart + pin_ptr)) / xyscale; pin_ptr +=4;
+                // std::cout << "[PcbLoader LOG]         pin_y: " << pin_y << ", pin_ptr: " << pin_ptr << std::endl;
+
+                // Two 4-byte padding fields
+                if (pin_ptr + 8 > subBlockSize) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                    std::cerr << "[PcbLoader LOG] Pin too short for 8b padding " << std::endl; 
+#endif
+                    break;
+                }
+                pin_ptr += 8; 
+                // std::cout << "[PcbLoader LOG]         pin_ptr after 8b padding: " << pin_ptr << std::endl;
+                
+                // Pin name size
+                if (pin_ptr + 4 > subBlockSize) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                    std::cerr << "[PcbLoader LOG] Pin too short for name_size " << std::endl; 
+#endif
+                    break;
+                }
+                uint32_t pin_name_size = readLE<uint32_t>(subBlockDataStart + pin_ptr); 
+                pin_ptr += 4;
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                std::cout << "[PcbLoader LOG]         Pin Coords: (" << pin_x << "," << pin_y << "), NameSize: " << pin_name_size 
+                          << ". pin_ptr after name_size: " << pin_ptr << std::endl;
+#endif
+                
+                std::string pin_name_str; // Renamed from pin_name to avoid conflict with Pin member
+                if (pin_name_size > 0) {
+                    if (pin_ptr + pin_name_size <= subBlockSize) { // Check against subBlockSize
+                        pin_name_str = readCB2312String(subBlockDataStart + pin_ptr, pin_name_size);
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                        std::cout << "[PcbLoader LOG]         Pin Name: \"" << pin_name_str << "\"" << std::endl;
+#endif
+                    } else { 
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                        std::cerr << "[PcbLoader LOG]         Pin name data (size " << pin_name_size << ") extends beyond sub-block (size " << subBlockSize << ", pin_ptr " << pin_ptr << "). Skipping name." << std::endl;
+#endif
+                        // pin_name_str remains empty
                     }
-                    if (pin_ptr + 9 > subBlockSize) break; // Not enough for full outline (width, height, type)
-                    double o_width = static_cast<double>(readLE<uint32_t>(subBlockDataStart + pin_ptr)); pin_ptr += 4;
-                    double o_height = static_cast<double>(readLE<uint32_t>(subBlockDataStart + pin_ptr)); pin_ptr += 4;
-                    uint8_t o_type = static_cast<uint8_t>(subBlockDataStart[pin_ptr++]);
+                } else {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                     std::cout << "[PcbLoader LOG]         Pin has no name (name_size is 0)." << std::endl;
+#endif
+                }
+                pin_ptr += pin_name_size; 
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                std::cout << "[PcbLoader LOG]         pin_ptr after name read/skip: " << pin_ptr << std::endl;
+#endif
 
-                    if (i == 0) { // Only process the first outline for the shape
-                        if (o_type == 0x01) { // Circular
-                            pin.pad_shape = CirclePad{0.0, 0.0, std::min(o_width, o_height) / 2.0}; // Assuming radius from min dim
-                        } else if (o_type == 0x02) { // Rectangular
-                            // Heuristic: if very thin, could be a line-like capsule, but let's stick to rect/square
-                            pin.pad_shape = RectanglePad{0.0, 0.0, o_width, o_height};
-                        } else { // Oblong/Capsule or other? For now, default to circle based on average.
-                             // The old XZZPCBLoader logic used CapsulePad if width != height for type 0x01.
-                             // And SquarePad if width == height for type 0x02.
-                             // This suggests type 0x01 was more general round/oblong and 0x02 was rect/square.
-                             // Re-evaluating old logic:
-                             // if (isRounded == 1) { -> type 0x01
-                             //    if (width == height) pin.geometry = CirclePad{width/2.0};
-                             //    else pin.geometry = CapsulePad{height, width};
-                             // } else { -> type 0x02
-                             //    if (width == height) pin.geometry = SquarePad{width};
-                             //    else pin.geometry = RectanglePad{height, width};
-                             // }
-                            if (o_type == 0x01) { // Circular or Capsule
-                                if (o_width == o_height) pin.pad_shape = CirclePad{0.0,0.0,o_width/2.0};
-                                else pin.pad_shape = CapsulePad{0.0,0.0,o_width, o_height}; // width, height for capsule
-                            } else { // Rectangular or Square (assuming type 0x00 or 0x02)
-                                 pin.pad_shape = RectanglePad{0.0,0.0,o_width, o_height};
-                            }
+                // Create Pin with a default shape initially. It will be overwritten by parsed outline.
+                // The Pin constructor in Pin.hpp is: Pin(double x, double y, const std::string& name, PadShape shape)
+                Pin pin(pin_x, pin_y, pin_name_str, CirclePad{0.1}); // Default to a small circle.
+                
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                std::cout << "[PcbLoader LOG]         Starting Pin Outline parsing. pin_ptr=" << pin_ptr << std::endl;
+#endif
+                bool first_outline_processed = false;
+                for (int i=0; i<4; ++i) {
+                    if (pin_ptr + 5 > subBlockSize) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                        std::cout << "[PcbLoader LOG]           Not enough data for outline end marker check (need 5, have " << (subBlockSize - pin_ptr) << "). Assuming end of outlines." << std::endl;
+#endif
+                        break; 
+                    }
+
+                    bool isEndMarker = true;
+                    for(int k=0; k<5; ++k) {
+                        if (static_cast<uint8_t>(subBlockDataStart[pin_ptr + k]) != 0) {
+                            isEndMarker = false;
+                            break;
                         }
                     }
+
+                    if (isEndMarker) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                        std::cout << "[PcbLoader LOG]           Found 5-byte outline end marker at pin_ptr=" << pin_ptr << ". Advancing by 5." << std::endl;
+#endif
+                        pin_ptr += 5;
+                        break;       
+                    }
+
+                    if (pin_ptr + 9 > subBlockSize) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                         std::cerr << "[PcbLoader LOG]           Not enough data for a pin outline (need 9, have " << (subBlockSize - pin_ptr) << "). pin_ptr=" << pin_ptr << std::endl;
+#endif
+                         break; 
+                    }
+                    
+                    // Read raw outline data
+                    double outline_width_raw = static_cast<double>(readLE<uint32_t>(subBlockDataStart + pin_ptr)) / xyscale; pin_ptr += 4;
+                    double outline_height_raw = static_cast<double>(readLE<uint32_t>(subBlockDataStart + pin_ptr)) / xyscale; pin_ptr += 4;
+                    uint8_t outline_type_raw = static_cast<uint8_t>(subBlockDataStart[pin_ptr++]);
+                    
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                    std::cout << "[PcbLoader LOG]           Parsed Outline " << i << ": W=" << outline_width_raw << ", H=" << outline_height_raw 
+                              << ", Type=0x" << std::hex << static_cast<int>(outline_type_raw) << std::dec 
+                              << ". pin_ptr after outline: " << pin_ptr << std::endl;
+#endif
+
+                    if (!first_outline_processed) { // Only use the first outline to define the primary PadShape
+                        if (outline_type_raw == 0x01) { // Circular or Capsule
+                            if (outline_width_raw == outline_height_raw) { // Circle
+                                pin.pad_shape = CirclePad{0.0, 0.0, outline_width_raw / 2.0}; // Assuming radius from width/2
+                            } else { // Capsule
+                                // For CapsulePad, width is total width, height is diameter/rect height
+                                pin.pad_shape = CapsulePad{0.0, 0.0, outline_width_raw, outline_height_raw};
+                            }
+                        } else if (outline_type_raw == 0x02) { // Rectangular or Square
+                            pin.pad_shape = RectanglePad{0.0, 0.0, outline_width_raw, outline_height_raw};
+                        } else {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                            std::cout << "[PcbLoader LOG]           Unknown outline type for primary shape: 0x" << std::hex << static_cast<int>(outline_type_raw) << std::dec << ". Keeping default pin shape." << std::endl;
+#endif
+                            // pin.pad_shape remains the default CirclePad{0.1}
+                        }
+                        first_outline_processed = true;
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                        // Logging the determined shape type
+                        size_t shape_idx = pin.pad_shape.index();
+                        std::string shape_name = "Unknown";
+                        if (shape_idx == 0) shape_name = "CirclePad";
+                        else if (shape_idx == 1) shape_name = "RectanglePad";
+                        else if (shape_idx == 2) shape_name = "CapsulePad";
+                        std::cout << "[PcbLoader LOG]           Pin primary shape set to " << shape_name << " (W:" << outline_width_raw << " H:" << outline_height_raw << ") from first outline." << std::endl;
+#endif
+                    }
+                    // The Pin class in Pin.hpp does not have a std::vector<PinOutline> outlines;
+                    // nor does it have direct width/height members.
+                    // If all outlines need to be stored, Pin.hpp would need modification.
+                    // For now, we just use the first outline to define the pad_shape.
                 }
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                std::cout << "[PcbLoader LOG]         Finished Pin Outline parsing. pin_ptr=" << pin_ptr << std::endl;
+#endif
                 
                 // Net ID is 12 bytes from the end of the pin sub-block.
                 // (net_index 4 bytes + final padding 8 bytes = 12 bytes total for footer)
-                if (subBlockSize >= pin_ptr + 12 && subBlockSize >= 12) { // Ensure subBlock is large enough for footer AND current pin_ptr hasn't overrun
-                     pin.net_id = static_cast<int>(readLE<uint32_t>(subBlockDataStart + subBlockSize - 12));
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                std::cout << "[PcbLoader LOG]         Checking for Net ID. subBlockSize=" << subBlockSize << ", pin_ptr=" << pin_ptr << std::endl;
+#endif
+                uint32_t net_id_footer_size = 12;
+                if (subBlockSize >= net_id_footer_size && subBlockSize >= pin_ptr) { // Ensure subBlock is large enough for footer AND pin_ptr hasn't gone past subBlockSize
+                     // Check if current pin_ptr position allows for a 12-byte read if net_id was immediately next, OR if it's at a fixed end.
+                     // The original logic: subBlockSize >= pin_ptr + 12 (meaning 12 bytes *after* current ptr)
+                     // AND subBlockSize >= 12 (absolute check)
+                     // Then read from subBlockDataStart + subBlockSize - 12.
+                     // This implies net_id is always at a fixed position from the end.
+                     if (subBlockSize >= net_id_footer_size) { // Check if block is big enough to contain the footer at all
+                        pin.net_id = static_cast<int>(readLE<uint32_t>(subBlockDataStart + subBlockSize - net_id_footer_size));
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                        std::cout << "[PcbLoader LOG]         Pin Net ID: " << pin.net_id << " (read from offset subBlockSize - 12)" << std::endl;
+#endif
+                     } else {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                        std::cerr << "[PcbLoader LOG]         Pin subBlockSize (" << subBlockSize << ") too small to read net_id from subBlockSize - 12." << std::endl;
+#endif
+                        pin.net_id = -1;
+                     }
                 } else {
-                    pin.net_id = -1; // Default or indicate error/not present
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                    std::cerr << "[PcbLoader LOG]         Not enough data for Net ID relative to pin_ptr or subBlockSize too small. "
+                              << "subBlockSize=" << subBlockSize << ", pin_ptr=" << pin_ptr 
+                              << ". Remaining from pin_ptr: " << (subBlockSize > pin_ptr ? subBlockSize - pin_ptr : 0) << std::endl;
+#endif
+                    pin.net_id = -1; 
                 }
-                // TODO: Diode readings for pins, similar to old XZZPCBLoader.cpp
-                // This needs comp.reference_designator to be stable (usually from 1st label)
-                // and net names from the main nets map.
-                if (diodeReadingsType_ == 1 && !comp.reference_designator.empty()) {
-                    if (diodeReadings_.count(comp.reference_designator) && diodeReadings_.at(comp.reference_designator).count(pin.pin_name)) {
-                        pin.diode_reading = diodeReadings_.at(comp.reference_designator).at(pin.pin_name);
+                
+                // Diode readings association
+                if (diodeReadingsType_ == 1 && !comp.reference_designator.empty() && !pin.pin_name.empty()) {
+                    auto comp_it = diodeReadings_.find(comp.reference_designator);
+                    if (comp_it != diodeReadings_.end()) {
+                        auto pin_it = comp_it->second.find(pin.pin_name);
+                        if (pin_it != comp_it->second.end()) {
+                            pin.diode_reading = pin_it->second;
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                            std::cout << "[PcbLoader LOG]         Associated diode reading (Type 1): " << pin.diode_reading << std::endl;
+#endif
+                        }
                     }
                 } else if (diodeReadingsType_ == 2 && pin.net_id != -1) {
                     // This requires nets to be parsed first or a two-pass approach for diode readings.
@@ -714,13 +1037,61 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
                 }
 
                 comp.pins.push_back(pin);
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                std::cout << "[PcbLoader LOG]         Added pin. Total pins for \"" << comp.reference_designator << "\": " << comp.pins.size() << std::endl;
+#endif
                 break;
             }
             default: // Unknown sub-type
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                std::cout << "[PcbLoader LOG]       Unknown or unhandled component subType: 0x" << std::hex << static_cast<int>(subType) << std::dec << " of size " << subBlockSize << std::endl;
+#endif
                 break;
         }
         localOffset += subBlockSize; // Advance by the size of the sub-block we just processed
+#ifdef ENABLE_PCB_LOADER_LOGGING
+        std::cout << "[PcbLoader LOG]   End of sub-block processing for type 0x" << std::hex << static_cast<int>(subType) << std::dec << ". Advanced localOffset by subBlockSize (" << subBlockSize << "). New localOffset=" << localOffset << std::endl;
+#endif
     }
+#ifdef ENABLE_PCB_LOADER_LOGGING
+    std::cout << "[PcbLoader LOG] Finished sub-block parsing loop. final localOffset=" << localOffset << ", part_overall_size=" << part_overall_size << std::endl;
+#endif
+    if (localOffset > part_overall_size && part_overall_size > 0) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+        std::cerr << "[PcbLoader LOG] Warning: localOffset (" << localOffset << ") exceeded part_overall_size (" << part_overall_size << ")" << std::endl;
+#endif
+    }
+#ifdef ENABLE_PCB_LOADER_LOGGING
+     if (comp.pins.empty() && (!comp.graphical_elements.empty() || !comp.text_labels.empty())) {
+         std::cout << "[PcbLoader LOG] Component \"" << comp.reference_designator << "\" (Footprint: \"" << comp.footprint_name << "\") has " 
+                   << comp.graphical_elements.size() << " segments, " << comp.text_labels.size() << " labels, but NO pins." << std::endl;
+    }
+#endif
+
+
+    // If component reference designator is still not set (e.g. from type 0x06 text label), try to use footprint name or make a generic one.
+    if (comp.reference_designator.empty()) {
+        if (!comp.footprint_name.empty()) {
+            comp.reference_designator = comp.footprint_name + "?"; // e.g. "0805?"
+        } else {
+            static int unnamed_comp_counter = 0;
+            std::ostringstream ss;
+            ss << "COMP?" << unnamed_comp_counter++;
+            comp.reference_designator = ss.str();
+        }
+#ifdef ENABLE_PCB_LOADER_LOGGING
+        std::cout << "[PcbLoader LOG] Component had no refdes from labels, assigned: " << comp.reference_designator << std::endl;
+#endif
+    }
+    
+#ifdef ENABLE_PCB_LOADER_LOGGING
+    std::cout << "[PcbLoader LOG] ----- End Component Parse: " << comp.reference_designator 
+              << " (Footprint: " << comp.footprint_name << ")"
+              << ", Pins: " << comp.pins.size() 
+              << ", Segments: " << comp.graphical_elements.size() 
+              << ", Labels: " << comp.text_labels.size() << " -----" << std::endl;
+#endif
+
     board.addComponent(comp);
 }
 

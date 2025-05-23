@@ -6,14 +6,17 @@
 
 std::shared_ptr<Board> BoardDataManager::getBoard() const {
     std::lock_guard<std::mutex> lock(m_boardMutex);
-    // m_currentBoard is no longer a member. This method needs to be re-evaluated.
-    // For now, returning nullptr as its original purpose is removed.
-    return nullptr; 
+    return m_currentBoard;
+}
+
+void BoardDataManager::setBoard(std::shared_ptr<Board> board) {
+    std::lock_guard<std::mutex> lock(m_boardMutex);
+    m_currentBoard = board;
 }
 
 void BoardDataManager::clearBoard() {
     std::lock_guard<std::mutex> lock(m_boardMutex);
-    // m_currentBoard is no longer a member. This method needs to be re-evaluated.
+    m_currentBoard.reset(); // Or m_currentBoard = nullptr;
 }
 
 void BoardDataManager::SetBaseLayerColor(BLRgba32 color) {

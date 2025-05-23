@@ -39,7 +39,7 @@ PCBViewerWindow::PCBViewerWindow(
     , m_contentRegionSize(ImVec2(100.0f, 100.0f))
     , m_desiredTextureSize(ImVec2(0.0f, 0.0f))
     , m_resizeCooldownFrames(-1) {
-    m_interactionManager = std::make_unique<InteractionManager>(m_camera, m_viewport, m_controlSettings);
+    m_interactionManager = std::make_unique<InteractionManager>(m_camera, m_viewport, m_controlSettings, m_boardDataManager);
 }
 
 // Destructor

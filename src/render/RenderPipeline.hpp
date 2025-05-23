@@ -6,10 +6,16 @@
 
 // Forward declarations
 class RenderContext; // The Blend2D-focused RenderContext
-class Board;
+class Board; // Board is now central for layer info lookup
 class Camera;
 class Viewport;
 class Grid; // Forward declare Grid
+class Trace; // Forward declare Trace
+class Via;   // Forward declare Via
+class Arc;   // Forward declare Arc
+class Component; // Forward declare Component
+class TextLabel; // Forward declare TextLabel
+// class Layer; // No longer forward-declaring the old Layer class assumption
 
 class RenderPipeline {
 public:
@@ -48,6 +54,22 @@ public:
     // If we have distinct stages:
     // void AddStage(std::unique_ptr<RenderStage> stage);
 
+    // To keep PcbRenderer simple, RenderPipeline will be responsible for calling Grid::Render().
+    void RenderGrid(
+        BLContext& bl_ctx, 
+        const Camera& camera, 
+        const Viewport& viewport,
+        const Grid& grid // Pass Grid by const reference
+    );
+
+    // Helper methods for rendering specific PCB elements
+    void RenderTrace(BLContext& bl_ctx, const Trace& trace);
+    void RenderVia(BLContext& bl_ctx, const Via& via, const Board& board);
+    void RenderArc(BLContext& bl_ctx, const Arc& arc);
+    void RenderComponent(BLContext& bl_ctx, const Component& component, const Board& board);
+    void RenderTextLabel(BLContext& bl_ctx, const TextLabel& textLabel, const BLRgba32& color); // Color passed directly for now
+    // TODO: Consider passing layer_properties_map to RenderTextLabel if it needs more than just color
+
 private:
     // std::vector<std::unique_ptr<RenderStage>> m_stages;
     // Or a more direct approach if stages are fixed:
@@ -59,21 +81,11 @@ private:
     // Helper methods for drawing specific parts, called from Execute
     void RenderBoard(
         BLContext& bl_ctx, 
-        const Board& board, 
+        const Board& board, // board is now const Board& as it must exist
         const Camera& camera, 
         const Viewport& viewport
     );
     
-    // The roadmap states: "The PcbRenderer / RenderManager will call this method [Grid::Render()] during its Render pass..."
-    // However, the RenderPipeline is also tasked with drawing the grid.
-    // To keep PcbRenderer simple, RenderPipeline will be responsible for calling Grid::Render().
-    void RenderGrid(
-        BLContext& bl_ctx, 
-        const Camera& camera, 
-        const Viewport& viewport,
-        const Grid& grid // Pass Grid by const reference
-    );
-
     RenderContext* m_renderContext = nullptr; // Store a pointer to the context if needed by multiple methods
     bool m_initialized = false;
     // Add any other members needed for managing rendering state or resources for the pipeline

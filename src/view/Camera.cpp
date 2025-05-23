@@ -1,4 +1,5 @@
 #include "view/Camera.hpp"
+#include "view/Viewport.hpp" // Needed for Camera::FocusOnRect
 #include <cmath> // For std::pow, std::cos, std::sin, etc. if needed for transformations
 #include <algorithm> // For std::min/max
 
@@ -11,7 +12,7 @@ const Vec2 DEFAULT_POSITION = {0.0f, 0.0f};
 const float DEFAULT_ROTATION = 0.0f;
 
 // Define zoom limits
-const float MIN_ZOOM_LEVEL = 0.25f;
+const float MIN_ZOOM_LEVEL = 0.001f;
 const float MAX_ZOOM_LEVEL = 50.0f;
 
 // Define PI if not available from cmath or a math library
@@ -137,3 +138,36 @@ void Camera::Reset() {
     // m_viewMatrix = glm::rotate(m_viewMatrix, glm::radians(m_rotation), glm::vec3(0.0f, 0.0f, 1.0f));
     // Then usually invert it for the actual view matrix: m_viewMatrix = glm::inverse(m_viewMatrix);
 // } 
+
+void Camera::FocusOnRect(const BLRect& worldRect, const Viewport& viewport, float padding) {
+    if (worldRect.w <= 0 || worldRect.h <= 0 || viewport.GetWidth() <= 0 || viewport.GetHeight() <= 0) {
+        // Cannot focus on an empty rect or with an invalid viewport
+        // Optionally, could reset to default view here or log a warning.
+        // For now, do nothing to prevent division by zero or nonsensical state.
+        return;
+    }
+
+    // Calculate the center of the worldRect. This will be the new camera position.
+    // Since board coordinates are normalized, this should be close to (0,0) for the board itself.
+    float target_pan_x = static_cast<float>(worldRect.x + worldRect.w / 2.0);
+    float target_pan_y = static_cast<float>(worldRect.y + worldRect.h / 2.0);
+    SetPosition({target_pan_x, target_pan_y});
+
+    // Calculate the required zoom to fit the worldRect into the viewport dimensions with padding.
+    // The padding is a percentage of the rect's width/height added to each side.
+    float padded_rect_width = static_cast<float>(worldRect.w * (1.0f + padding));
+    float padded_rect_height = static_cast<float>(worldRect.h * (1.0f + padding));
+
+    // Ensure padded dimensions are not zero to avoid division by zero if original w/h was tiny.
+    if (padded_rect_width <= 0) padded_rect_width = 1.0f; // Min effective width for zoom calc
+    if (padded_rect_height <= 0) padded_rect_height = 1.0f; // Min effective height
+
+    float zoom_x = static_cast<float>(viewport.GetWidth()) / padded_rect_width;
+    float zoom_y = static_cast<float>(viewport.GetHeight()) / padded_rect_height;
+
+    // Use the smaller of the two zoom factors to ensure the entire rect fits.
+    SetZoom(std::max(.001f, std::min(zoom_x, zoom_y)));
+
+    // Rotation is not affected by focusing on a rect, typically.
+    // If you want to reset rotation too, you could call SetRotation(DEFAULT_ROTATION);
+} 

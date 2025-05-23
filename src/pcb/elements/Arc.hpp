@@ -23,4 +23,12 @@ public:
     int net_id = -1;        // Associated net ID
 
     // Add constructors, getters, setters, and helper methods as needed
+    double GetCX() const { return cx; }
+    double GetCY() const { return cy; }
+    double GetRadius() const { return radius; }
+    double GetStartAngle() const { return start_angle; }
+    double GetEndAngle() const { return end_angle; }
+    double GetThickness() const { return thickness; }
+    int GetNetId() const { return net_id; }
+    int GetLayer() const { return layer; }
 }; 

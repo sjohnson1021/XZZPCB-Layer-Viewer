@@ -7,16 +7,17 @@
 #include <cstring>
 #include "Board.hpp"       // Our main board data model
 #include "../utils/des.h"  // For the DES decryption function
+#include "IBoardLoader.hpp"
 
 // Forward declaration for internal helper, if needed later
 // struct PcbFileHeaderInfo;
 
-class PcbLoader {
+class PcbLoader : public IBoardLoader {
 public:
     PcbLoader() = default;
 
     // Main public method to load a PCB file
-    std::unique_ptr<Board> loadFromFile(const std::string& filePath);
+    std::unique_ptr<Board> loadFromFile(const std::string& filePath) override;
 
 private:
     // --- File Processing Stages ---
@@ -45,6 +46,9 @@ private:
     void parseTrace(const char* data, Board& board);
     void parseTextLabel(const char* data, Board& board, bool isStandalone);
     void parseComponent(const char* data, uint32_t componentBlockSize, Board& board);
+
+    // --- Layer Definition Helper ---
+    void DefineStandardLayers(Board& board);
 
     // --- Decryption Helpers (specific to component data in this format) ---
     void decryptComponentBlock(std::vector<char>& componentData); // Uses the DES function

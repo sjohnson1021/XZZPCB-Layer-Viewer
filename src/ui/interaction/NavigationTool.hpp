@@ -4,12 +4,15 @@
 
 // Forward declaration
 class ControlSettings;
+class BoardDataManager; // Forward Declaration
+class Board; // Forward needed if we pass Board directly, but DataManager is better
 
 class NavigationTool : public InteractionTool {
 public:
     NavigationTool(std::shared_ptr<Camera> camera, 
                    std::shared_ptr<Viewport> viewport,
-                   std::shared_ptr<ControlSettings> controlSettings);
+                   std::shared_ptr<ControlSettings> controlSettings,
+                   std::shared_ptr<BoardDataManager> boardDataManager);
     ~NavigationTool() override = default;
 
     void ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isViewportHovered, ImVec2 viewportTopLeft, ImVec2 viewportSize) override;
@@ -20,6 +23,7 @@ public:
 
 private:
     std::shared_ptr<ControlSettings> m_controlSettings;
+    std::shared_ptr<BoardDataManager> m_boardDataManager;
     // Input state specific to navigation, if needed outside of ProcessInput scope
     // e.g., bool m_isPanning;
 

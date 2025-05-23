@@ -3,6 +3,8 @@
 #include "view/Viewport.hpp"
 #include "core/ControlSettings.hpp"
 #include "core/InputActions.hpp" // Required for InputAction and KeyCombination
+#include "core/BoardDataManager.hpp" // Added include
+#include "pcb/Board.hpp"             // Added include for BLRect and Board methods
 #include <cmath> // For M_PI if not already included by camera/viewport
 #include <algorithm> // for std::max if not already there
 
@@ -41,9 +43,11 @@ bool IsKeybindActive(const KeyCombination& kb, ImGuiIO& io, bool useIsKeyPressed
 
 NavigationTool::NavigationTool(std::shared_ptr<Camera> camera, 
                                std::shared_ptr<Viewport> viewport,
-                               std::shared_ptr<ControlSettings> controlSettings)
+                               std::shared_ptr<ControlSettings> controlSettings,
+                               std::shared_ptr<BoardDataManager> boardDataManager)
     : InteractionTool("Navigation", camera, viewport)
-    , m_controlSettings(controlSettings) {}
+    , m_controlSettings(controlSettings)
+    , m_boardDataManager(boardDataManager) {}
 
 void NavigationTool::ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isViewportHovered, ImVec2 viewportTopLeft, ImVec2 viewportSize) {
     // Input should only be processed if the viewport (content region) is active
@@ -209,7 +213,26 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isVi
 
         // Reset View (R key)
         if (IsKeybindActive(m_controlSettings->GetKeybind(InputAction::ResetView), io, true)) { 
-            m_camera->Reset(); 
+            if (m_boardDataManager) {
+                std::shared_ptr<Board> currentBoard = m_boardDataManager->getBoard();
+                if (currentBoard && currentBoard->IsLoaded()) {
+                    BLRect boardBounds = currentBoard->GetBoundingBox(false); // Get bounds of visible layers
+                    if (boardBounds.w > 0 || boardBounds.h > 0) { // Check for valid bounds (width or height must be positive)
+                        m_camera->FocusOnRect(boardBounds, *m_viewport, 0.1f); // 10% padding
+                        // Optionally, reset rotation as well if desired for "Reset View"
+                        // m_camera->SetRotation(0.0f);
+                    } else {
+                        // Board is loaded but has no visible extents (e.g., all layers off, or empty board)
+                        m_camera->Reset(); // Fallback to default reset
+                    }
+                } else {
+                    // No board loaded or board not marked as loaded
+                    m_camera->Reset(); // Fallback to default reset
+                }
+            } else {
+                // BoardDataManager not available
+                m_camera->Reset(); // Fallback to default reset
+            }
         }
     }
 } 

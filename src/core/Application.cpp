@@ -15,13 +15,14 @@
 #include "view/Grid.hpp"
 #include "view/GridSettings.hpp"
 #include "pcb/Board.hpp"
-#include "pcb/PcbLoader.hpp"
+#include "pcb/XZZPCBLoader.hpp"
 #include "utils/StringUtils.hpp"
 #include "imgui.h"
 #include "ImGuiFileDialog.h"
 #include <SDL3/SDL_filesystem.h>
 #include <filesystem>
 #include <iostream>
+#include "pcb/BoardLoaderFactory.hpp"
 
 namespace {
     std::string GetAppConfigFilePath() {
@@ -132,6 +133,13 @@ bool Application::InitializeUISubsystems() {
     m_gridSettings = std::make_shared<GridSettings>();
     m_grid = std::make_shared<Grid>(m_gridSettings);
     m_boardDataManager = std::make_shared<BoardDataManager>();
+
+    // Initialize PCB Loader Factory
+    m_boardLoaderFactory = std::make_unique<BoardLoaderFactory>();
+    if (!m_boardLoaderFactory) {
+        std::cerr << "Failed to create BoardLoaderFactory!" << std::endl;
+        // return false; // Decide if this is a fatal error for application startup
+    }
 
     m_mainMenuBar = std::make_unique<MainMenuBar>();
     m_pcbViewerWindow = std::make_unique<PCBViewerWindow>(m_camera, m_viewport, m_grid, m_gridSettings, m_controlSettings, m_boardDataManager);
@@ -325,18 +333,29 @@ void Application::RenderUI() {
     ImGui::End(); // End of RootDockspaceWindow
 
     // Handle file dialog opening (m_openFileRequested is set by MainMenuBar)
-    if (m_openFileRequested && m_fileDialogInstance) {
-        // Apply file styling for different PCB file types
-        // Arguments for SetFileStyle: flags, criteria (extension), color, icon (optional), font (optional)
-        m_fileDialogInstance->SetFileStyle(IGFD_FileStyleByExtention, ".kicad_pcb", ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "", nullptr); // Greenish
-        m_fileDialogInstance->SetFileStyle(IGFD_FileStyleByExtention, ".pcb", ImVec4(0.2f, 0.5f, 0.8f, 1.0f), "", nullptr);      // Bluish
-        // For other files, they will use default styling. To style all others, one might need a more generic filter or a functor.
+    if (m_openFileRequested && m_fileDialogInstance && m_boardLoaderFactory) {
+        std::string supportedExtensions = m_boardLoaderFactory->getSupportedExtensionsFilterString();
+        std::vector<std::string> extensionsList = m_boardLoaderFactory->getSupportedExtensions();
+
+        // Dynamically apply file styling for registered extensions
+        // This is a basic example; you might want more sophisticated color/icon choices
+        ImVec4 defaultColor1 = ImVec4(0.2f, 0.8f, 0.2f, 1.0f); // Greenish
+        ImVec4 defaultColor2 = ImVec4(0.2f, 0.5f, 0.8f, 1.0f); // Bluish
+        for (size_t i = 0; i < extensionsList.size(); ++i) {
+            const auto& ext = extensionsList[i];
+            // Simple alternating color for example
+            ImVec4 color = (i % 2 == 0) ? defaultColor1 : defaultColor2;
+            if (ext == ".kicad_pcb") color = ImVec4(0.2f, 0.8f, 0.2f, 1.0f); // Keep specific for kicad if wanted
+            else if (ext == ".pcb") color = ImVec4(0.2f, 0.5f, 0.8f, 1.0f); // Keep specific for .pcb if wanted
+            
+            m_fileDialogInstance->SetFileStyle(IGFD_FileStyleByExtention, ext.c_str(), color, "", nullptr);
+        }
 
         IGFD::FileDialogConfig config;
         config.path = "."; // Default path
-        // config.countSelectionMax = 1; // Default is 1 for file selection
-        // config.flags = ImGuiFileDialogFlags_Modal; // Default includes Modal
-        m_fileDialogInstance->OpenDialog("ChooseFileDlgKey", "Choose PCB File", ".kicad_pcb,.pcb", config);
+        m_fileDialogInstance->OpenDialog("ChooseFileDlgKey", "Choose PCB File", 
+                                       supportedExtensions.empty() ? nullptr : supportedExtensions.c_str(), 
+                                       config);
         
         m_openFileRequested = false; // Reset flag after initiating dialog opening
     }
@@ -454,33 +473,57 @@ void Application::Render()
 }
 
 void Application::OpenPcbFile(const std::string& filePath) {
-    std::cout << "Attempting to open PCB file: " << filePath << std::endl;
+    if (!m_boardLoaderFactory) {
+        std::cerr << "Error: BoardLoaderFactory not initialized in Application::OpenPcbFile." << std::endl;
+        return;
+    }
 
-    auto newBoard = std::make_shared<Board>(filePath);
+    auto newBoard = m_boardLoaderFactory->loadBoard(filePath);
+    if (newBoard) {
+        m_currentBoard = std::move(newBoard);
+        if (m_boardDataManager) {
+            m_boardDataManager->setBoard(m_currentBoard);
+            m_boardDataManager->RegenerateLayerColors(m_currentBoard);
+        }
 
-    if (newBoard && newBoard->IsLoaded()) {
-        m_currentBoard = newBoard;
+        // Corrected window updates:
+        if (m_pcbViewerWindow) {
+            // Assuming PCBViewerWindow has a method to accept the new board
+            // This might be OnBoardLoaded(m_currentBoard) or SetBoard(m_currentBoard) or similar
+            // For now, let's assume it might need to know about the board directly.
+            // If PCBViewerWindow gets the board via BoardDataManager, this direct call might not be needed.
+            // m_pcbViewerWindow->SetBoard(m_currentBoard); // Or similar method
+        }
+        if (m_pcbDetailsWindow) {
+            m_pcbDetailsWindow->setBoard(m_currentBoard); // Update details window
+        }
+        
+        if (m_camera && m_viewport && m_currentBoard) {
+            BLRect board_bounds = m_currentBoard->GetBoundingBox(true); 
+            std::cout << "Board Bounding Box for FocusOnRect: X=" << board_bounds.x
+                      << " Y=" << board_bounds.y
+                      << " W=" << board_bounds.w
+                      << " H=" << board_bounds.h << std::endl;
+
+            m_camera->FocusOnRect(board_bounds, *m_viewport, 0.1f);
+
+            std::cout << "Camera after FocusOnRect: Zoom=" << m_camera->GetZoom()
+                      << " Position=(" << m_camera->GetPosition().x << "," << m_camera->GetPosition().y << ")"
+                      << " Rotation=" << m_camera->GetRotation() << std::endl;
+            if (m_viewport) {
+                 std::cout << "Viewport: Width=" << m_viewport->GetWidth() << " Height=" << m_viewport->GetHeight() << std::endl;
+            }
+        }
         std::cout << "Successfully loaded PCB: " << filePath << std::endl;
-        if (m_pcbViewerWindow) {
-            m_pcbViewerWindow->OnBoardLoaded(m_currentBoard);
+        if (m_currentBoard) {
+             std::cout << "Board dimensions: " << m_currentBoard->width << " x " << m_currentBoard->height << std::endl;
+             std::cout << "Board origin offset: " << m_currentBoard->origin_offset.x << ", " << m_currentBoard->origin_offset.y << std::endl;
         }
-        if (m_pcbDetailsWindow) {
-            m_pcbDetailsWindow->setBoard(m_currentBoard);
-        }
-        m_showPcbLoadErrorModal = false;
+
     } else {
-        std::cerr << "Failed to load PCB: " << filePath << ". Error: " << (newBoard ? newBoard->GetErrorMessage() : "Unknown error") << std::endl;
-        m_currentBoard = nullptr;
-        m_pcbLoadErrorMessage = "Failed to load board: " + filePath + "\n";
-        if (newBoard) {
-            m_pcbLoadErrorMessage += newBoard->GetErrorMessage();
-        }
-        m_showPcbLoadErrorModal = true;
-        if (m_pcbViewerWindow) {
-             m_pcbViewerWindow->OnBoardLoaded(nullptr);
-        }
-        if (m_pcbDetailsWindow) {
-            m_pcbDetailsWindow->setBoard(nullptr);
+        std::cerr << "Failed to load PCB: " << filePath << std::endl;
+        if (m_camera && m_viewport) {
+            m_camera->Reset();
         }
     }
 } 

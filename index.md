@@ -12,7 +12,7 @@ graph TD
         direction LR
         B_SDL3_Events -- SDL_Event --> BA_EventManager["Events (Processes SDL_Event, Quit Signals)"];
         BA_EventManager -- Processed Input --> BB_AppControl["Application (Main Loop, State, Updates)"];
-        D_DataFile[PCB Data File] -- Loads Data via PcbLoader --> BB_AppControl;
+        D_DataFile[PCB Data File] -- Loads Data via XZZPCBLoader --> BB_AppControl;
         BB_AppControl -- UI & Scene Update Commands --> BC_ImGuiManager["ImGuiManager (UI Rendering Logic)"];
         BB_AppControl -- View State & PCB Data --> BD_PcbRenderer["PCB Rendering Logic (e.g., Blend2D Manager)"];
         BB_AppControl -- Window/Renderer Control --> BE_Renderer["Renderer (SDLRenderer - Window/SDL_Renderer*)"];
@@ -56,39 +56,58 @@ graph TD
 
 _This document provides an overview of each source and header file in the project, its responsibilities, and key members (classes, functions, globals). Use this as a quick reference to locate functionality and avoid duplication._ 
 
-## `src/core/Application.hpp`
+## `src/core/Application.cpp`
 
-**Purpose:** Defines the main application class responsible for initializing, running, and shutting down the XZZPCB Layer Viewer. It manages core subsystems, UI windows, application state, and the main event loop.
-**Key Classes & Structs:**
-- `Application` – Manages the overall application lifecycle, state, and coordination of subsystems and UI elements.
+**Purpose:** Implements the `Application` class methods, handling the detailed logic for initialization, the main application loop, UI rendering orchestration, event processing, configuration management, and shutdown procedures. It also manages the loading of PCB files through a board data model.
+**Key Classes & Structs:** (N/A - Implements `Application` class from header)
 
 **Main Functions & Methods:**
-| Name                         | Signature                      | Description                                                                 |
-|------------------------------|--------------------------------|-----------------------------------------------------------------------------|
-| `Application()`                |                                | Constructor.                                                                |
-| `~Application()`               |                                | Destructor, ensures `Shutdown()` is called.                                    |
-| `Initialize()`               | `bool Initialize()`            | Initializes all core and UI subsystems and loads configuration.             |
-| `Run()`                      | `int Run()`                    | Executes the main application loop (event processing, updating, rendering). |
-| `Shutdown()`                 | `void Shutdown()`              | Cleans up resources, saves configuration, and shuts down subsystems.          |
-| `IsRunning()`                | `bool IsRunning() const`       | Returns whether the application is currently running.                       |
-| `Quit()`                     | `void Quit()`                  | Signals the application to terminate its main loop.                         |
-| `GetConfig()`                | `Config* GetConfig() const`    | Provides access to the application's configuration manager.                 |
-| `GetEvents()`                | `Events* GetEvents() const`    | Provides access to the event handling system.                               |
-| `GetRenderer()`              | `Renderer* GetRenderer() const`  | Provides access to the rendering subsystem.                                 |
-| `GetImGuiManager()`          | `ImGuiManager* GetImGuiManager() const` | Provides access to the ImGui integration manager.                     |
-| `SetOpenFileRequested()`     | `void SetOpenFileRequested(bool requested)` | Sets a flag to request opening the file dialog.                      |
-| `SetQuitFileRequested()`     | `void SetQuitFileRequested(bool requested)` | Sets a flag to request application quit.                             |
-| `SetShowSettingsRequested()` | `void SetShowSettingsRequested(bool requested)` | Sets a flag to request showing the settings window.                 |
-| `SetShowPcbDetailsRequested()`| `void SetShowPcbDetailsRequested(bool requested)` | Sets a flag to request showing the PCB details window.            |
+| Name                             | Signature                                   | Description                                                                                                |
+|----------------------------------|---------------------------------------------|------------------------------------------------------------------------------------------------------------|
+| `GetAppConfigFilePath()`         | `static std::string GetAppConfigFilePath()` | (Anonymous namespace) Determines the path for the application's configuration file (`XZZPCBViewer_settings.ini`). Handles platform-specific preference paths and directory creation. |
+| `Application::Application()`       |                                             | Constructor: Initializes member variables to default values.                                               |
+| `Application::~Application()`      |                                             | Destructor: Calls `Shutdown()` to ensure proper cleanup.                                                   |
+| `Application::LoadConfig()`        | `void LoadConfig()`                         | Loads application settings from the configuration file, including window dimensions and keybinds.        |
+| `Application::InitializeCoreSubsystems()` | `bool InitializeCoreSubsystems()`      | Initializes essential non-UI systems like `Events`, `Renderer`, `ImGuiManager`, and `PcbRenderer`.           |
+| `Application::InitializeUISubsystems()` | `bool InitializeUISubsystems()`        | Initializes UI-related components including `Camera`, `Viewport`, `Grid`, `BoardDataManager`, `ControlSettings`, and UI windows. |
+| `Application::Initialize()`        | `bool Initialize()`                         | Orchestrates the overall initialization process: loads config, initializes core and UI subsystems.         |
+| `Application::Run()`               | `int Run()`                                 | Contains the main application loop: processes events, updates state (currently minimal), and renders.      |
+| `Application::Shutdown()`          | `void Shutdown()`                           | Saves ImGui state and application config, releases resources held by subsystems and UI elements.            |
+| `Application::IsRunning()`         | `bool IsRunning() const`                    | Returns the running state of the application.                                                              |
+| `Application::Quit()`              | `void Quit()`                               | Sets the application's running state to false, triggering shutdown.                                        |
+| `Application::GetConfig()`         | `Config* GetConfig() const`                 | Returns a pointer to the `Config` object.                                                                    |
+| `Application::GetEvents()`         | `Events* GetEvents() const`                 | Returns a pointer to the `Events` object.                                                                    |
+| `Application::GetRenderer()`       | `Renderer* GetRenderer() const`             | Returns a pointer to the `Renderer` object.                                                                |
+| `Application::GetImGuiManager()`   | `ImGuiManager* GetImGuiManager() const`     | Returns a pointer to the `ImGuiManager` object.                                                            |
+| `Application::ProcessEvents()`     | `void ProcessEvents()`                      | Polls and processes input events, checks for quit conditions.                                              |
+| `Application::Update()`            | `void Update(float deltaTime)`              | Placeholder for application-wide update logic (currently minimal).                                           |
+| `Application::RenderUI()`          | `void RenderUI()`                           | Sets up the main ImGui dockspace and calls rendering methods for `MainMenuBar` and other UI windows. Manages file dialogs and popups. Handles the PCB rendering callback for `PCBViewerWindow`. |
+| `Application::Render()`            | `void Render()`                             | Orchestrates the frame rendering: starts ImGui frame, calls `RenderUI`, finalizes ImGui draw lists, clears renderer, presents ImGui data, and presents the final frame. |
+| `Application::OpenPcbFile()`       | `void OpenPcbFile(const std::string& filePath)` | Creates a `Board` object from the given `filePath` (which internally uses a loader factory). Updates the current board state, and notifies relevant UI components. Handles loading errors. |
 
 **Dependencies:**
-- `<string>`, `<memory>`
-- `ImGuiFileDialog.h` (for `ImGuiFileDialog`)
-- Forward declarations for: `Config`, `Events`, `Renderer`, `ImGuiManager`, `ControlSettings`, `PcbRenderer`, `MainMenuBar`, `PCBViewerWindow`, `SettingsWindow`, `PcbDetailsWindow`, `Camera`, `Viewport`, `Grid`, `GridSettings`, `Board`, `BoardDataManager`.
+- `Application.hpp` (its own header)
+- `Config.hpp`, `Events.hpp`, `Renderer.hpp`, `SDLRenderer.hpp`, `ImGuiManager.hpp`
+- `render/PcbRenderer.hpp`
+- `ui/MainMenuBar.hpp`, `ui/windows/PCBViewerWindow.hpp`, `ui/windows/SettingsWindow.hpp`, `ui/windows/PcbDetailsWindow.hpp`
+- `core/ControlSettings.hpp`, `core/BoardDataManager.hpp`
+- `view/Camera.hpp`, `view/Viewport.hpp`, `view/Grid.hpp`, `view/GridSettings.hpp`
+- `pcb/Board.hpp`
+- `pcb/BoardLoaderFactory.hpp` (Used in `RenderUI` for file dialog filters, and implicitly by `Board` constructor in `OpenPcbFile`)
+- `pcb/XZZPCBLoader.hpp` (Included, though specific loader is abstracted by `BoardLoaderFactory` and `Board`'s constructor)
+- `utils/StringUtils.hpp`
+- `imgui.h`, `ImGuiFileDialog.h`
+- `<SDL3/SDL_filesystem.h>`
+- `<filesystem>`, `<iostream>`, `<chrono>`
 
 **Notes:**
-- Manages various UI state flags (`m_openFileRequested`, etc.) which are set by other components (e.g., `MainMenuBar`) and acted upon within the `Application`'s `RenderUI` loop.
-- Holds `std::unique_ptr` for owned subsystems and UI windows, and `std::shared_ptr` for shared data objects like `Camera`, `Board`, etc.
+- `GetAppConfigFilePath()` in the anonymous namespace handles platform-specific configuration file paths.
+- The `RenderUI()` method is central to how ImGui windows are managed and displayed, including the root dockspace and the PCB rendering callback.
+- `OpenPcbFile` now constructs `Board` which uses an internal factory mechanism for loading, making `Application.cpp` less coupled to a specific loader type.
+- Error handling for PCB loading is implemented with a modal dialog.
+- ImGui INI data is explicitly saved and loaded from the application's config file.
+- The `Application` class holds `unique_ptr` to major subsystems and UI elements, and `shared_ptr` for shared data like `Camera`, `ControlSettings`, `BoardDataManager`, and `Board`.
+- The `BoardDataManager` is passed to the `SettingsWindow`.
 
 ## `src/core/Application.cpp`
 
@@ -126,7 +145,7 @@ _This document provides an overview of each source and header file in the projec
 - `ui/MainMenuBar.hpp`, `ui/windows/PCBViewerWindow.hpp`, `ui/windows/SettingsWindow.hpp`, `ui/windows/PcbDetailsWindow.hpp`
 - `core/ControlSettings.hpp`
 - `view/Camera.hpp`, `view/Viewport.hpp`, `view/Grid.hpp`, `view/GridSettings.hpp`
-- `pcb/Board.hpp`, `pcb/PcbLoader.hpp` (though `PcbLoader` is not directly used by `Application`, `Board` uses it)
+- `pcb/Board.hpp`, `pcb/XZZPCBLoader.hpp` (though `XZZPCBLoader` is not directly used by `Application`, `Board` uses it)
 - `utils/StringUtils.hpp`
 - `imgui.h`, `ImGuiFileDialog.h`
 - `<SDL3/SDL_filesystem.h>`
@@ -143,15 +162,15 @@ _This document provides an overview of each source and header file in the projec
   
 ## `src/core/BoardDataManager.hpp`
 
-**Purpose:** Defines the `BoardDataManager` class, responsible for managing settings related to PCB board data, particularly layer color generation. It no longer manages the board instance itself but provides parameters for its visual representation.
+**Purpose:** Defines the `BoardDataManager` class, responsible for managing settings related to PCB board data, particularly layer color generation. It also includes an interface for accessing and clearing board data, though the primary board management responsibility lies with the `Application` class.
 **Key Classes & Structs:**  
-- `BoardDataManager` – Manages parameters for board layer coloring and provides a method to apply these colors.
+- `BoardDataManager` – Manages parameters for board layer coloring and provides methods to apply these colors. It also declares methods related to board access.
 
 **Main Functions & Methods:**  
 | Name                             | Signature                                          | Description                                                                               |
 |----------------------------------|----------------------------------------------------|-------------------------------------------------------------------------------------------|
-| `BoardDataManager::getBoard()`   | `std::shared_ptr<Board> getBoard() const`          | (Currently non-functional) Intended to retrieve the current board; now returns `nullptr`. |
-| `BoardDataManager::clearBoard()` | `void clearBoard()`                                | (Currently non-functional) Intended to clear the current board.                         |
+| `BoardDataManager::getBoard()`   | `std::shared_ptr<Board> getBoard() const`          | Retrieves the currently loaded board. (Implementation details in .cpp determine its current functionality). |
+| `BoardDataManager::clearBoard()` | `void clearBoard()`                                | Clears the currently loaded board. (Implementation details in .cpp determine its current functionality). |
 | `BoardDataManager::SetBaseLayerColor()` | `void SetBaseLayerColor(BLRgba32 color)`       | Sets the base color used for layer color generation.                                      |
 | `BoardDataManager::GetBaseLayerColor()` | `BLRgba32 GetBaseLayerColor() const`           | Retrieves the current base color for layer color generation.                              |
 | `BoardDataManager::SetLayerHueStep()` | `void SetLayerHueStep(float hueStep)`              | Sets the hue step (in degrees) used for procedural layer color generation.                |
@@ -161,18 +180,18 @@ _This document provides an overview of each source and header file in the projec
 **Dependencies:**  
 - `<string>`  
 - `<memory>` (for `std::shared_ptr`)
-- `<mutex>` (for thread-safe access to settings)
+- `<mutex>` (for `m_boardMutex`)
 - `<blend2d.h>` (for `BLRgba32`)
-- `../pcb/Board.hpp` (for `Board` class, used in `RegenerateLayerColors`)
-- `../pcb/PcbLoader.hpp` (Included, but `m_pcbLoader` is an unused member in the current version)
+- `../pcb/Board.hpp` (for `Board` class)
+- `../pcb/XZZPCBLoader.hpp` (for `XZZPCBLoader` member `m_pcbLoader`)
 
 
 **Notes:**  
-- This class was previously a singleton managing the active `Board` instance but has been refactored.
-- The `getBoard()` and `clearBoard()` methods are now stubs as `BoardDataManager` no longer owns/manages the board instance directly. This responsibility is now with the `Application` class.
-- The `m_pcbLoader` member is currently unused.
-- Primary responsibilities now revolve around managing parameters (`m_baseLayerColor`, `m_layerHueStep`) for procedurally generating colors for PCB layers and applying them via `RegenerateLayerColors`.
-- Thread safety for accessing color settings is ensured via `std::mutex`.
+- The class includes methods for `getBoard()` and `clearBoard()`. Their effective functionality depends on the corresponding `.cpp` implementation, as board ownership is primarily with the `Application` class.
+- The `m_pcbLoader` member of type `XZZPCBLoader` is declared. Its usage is determined by the `.cpp` file.
+- Primary current responsibilities appear to revolve around managing parameters (`m_baseLayerColor`, `m_layerHueStep`) for procedurally generating colors for PCB layers and applying them via `RegenerateLayerColors`.
+- A `std::mutex` (`m_boardMutex`) is present, suggesting thread-safe access to board-related data if managed by this class. Color settings themselves do not show explicit mutex protection in the header.
+- Default values for `m_baseLayerColor` and `m_layerHueStep` are defined in the header.
 
 ## `src/core/BoardDataManager.cpp`
 
@@ -852,12 +871,12 @@ _This document provides an overview of each source and header file in the projec
 - Public member variables for element vectors and metadata allow direct access, which can be convenient but reduces encapsulation. Getter methods are provided for some collections (e.g., `getComponents()`).
 - The nested `BoardPoint2D` struct is defined for `origin_offset`. Consider if a common 2D point structure (perhaps from `utils` or a dedicated geometry module) could be used project-wide to avoid minor duplications like this and `Point2D` in `Component.hpp`.
 - Loading status is tracked by `m_isLoaded` (private) and an `m_errorMessage` (private), accessible via `IsLoaded()` and `GetErrorMessage()`.
-- A private method `ParseBoardFile(const std::string& filePath)` is commented out, suggesting it was considered for internalizing the loading logic, which is now handled externally by `PcbLoader` creating/populating a `Board` object (as seen in `Application.cpp`). The current `Board(const std::string& filePath)` constructor in `Board.cpp` has a dummy implementation.
+- A private method `ParseBoardFile(const std::string& filePath)` is commented out, suggesting it was considered for internalizing the loading logic, which is now handled externally by `XZZPCBLoader` creating/populating a `Board` object (as seen in `Application.cpp`). The current `Board(const std::string& filePath)` constructor in `Board.cpp` has a dummy implementation.
 
 
 ## `src/pcb/Board.cpp`
 
-**Purpose:** Implements the `Board` class, primarily its constructors and methods for accessing layer information and loading status. The current file path constructor has a dummy implementation that simulates loading board data, intended for testing and UI development purposes before full `PcbLoader` integration.
+**Purpose:** Implements the `Board` class, including its constructors and methods for accessing layer information and loading status. The file path constructor now utilizes a `BoardLoaderFactory` to load board data from a specified file.
 
 **Key Classes & Structs:**  
 - (Implements `Board` class from `Board.hpp`)
@@ -866,37 +885,124 @@ _This document provides an overview of each source and header file in the projec
 | Name                             | Signature                                                       | Description                                                                                                                                                                                                  |
 |----------------------------------|-----------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `Board::Board()`                 | `Board()`                                                       | Default constructor. Initializes `m_isLoaded` to `false`.                                                                                                                                                      |
-| `Board::Board()`                 | `Board(const std::string& filePath)`                            | Constructor taking a file path. Currently, this is a **dummy implementation**: sets `file_path`, populates with hardcoded layer data and dimensions, and sets `m_isLoaded` to `true`. Includes a special case for `"dummy_fail.pcb"` to simulate a loading error. |
-| `Board::GetLayerCount()`         | `int GetLayerCount() const`                                     | Returns the number of layers currently stored in the `layers` vector.                                                                                                                                          |
-| `Board::GetLayerName()`          | `std::string GetLayerName(int layerIndex) const`                | Retrieves the name of the layer at the given `layerIndex`. Returns "Invalid Layer Index" if the index is out of bounds.                                                                                      |
-| `Board::IsLayerVisible()`        | `bool IsLayerVisible(int layerIndex) const`                     | Checks if the layer at `layerIndex` is marked as visible. Returns `false` if the index is out of bounds.                                                                                                      |
-| `Board::SetLayerVisible()`       | `void SetLayerVisible(int layerIndex, bool visible)`            | Sets the `is_visible` flag for the layer at `layerIndex`. Does nothing if the index is out of bounds.                                                                                                         |
-| `Board::IsLoaded()`              | `bool IsLoaded() const`                                         | Returns the state of the `m_isLoaded` flag.                                                                                                                                                                    |
-| `Board::GetErrorMessage()`       | `std::string GetErrorMessage() const`                           | Returns the stored error message string, which is populated if loading fails (or in the dummy fail case).                                                                                                    |
-| `Board::GetFilePath()`           | `std::string GetFilePath() const`                               | Returns the `file_path` member, which stores the path of the loaded file.                                                                                                                                    |
+| `Board::Board()`                 | `Board(const std::string& filePath)`                            | Constructor taking a file path. Uses `BoardLoaderFactory` to attempt loading the board data. If successful, it moves the data from the factory-loaded board instance into itself. Sets `m_isLoaded` and `m_errorMessage` accordingly. Includes a special case for `"dummy_fail.pcb"` for testing error modals. |
+| `Board::GetLayerCount()`         | `int GetLayerCount() const`                                     | Returns the total number of layers defined for the board.                                                                                                                                                      |
+| `Board::GetLayerName()`          | `std::string GetLayerName(int layerIndex) const`                | Returns the name of the layer at the specified index. Returns "Invalid Layer Index" if index is invalid.                                                                                                   |
+| `Board::GetLayerById()`          | `const LayerInfo* Board::GetLayerById(int layerId) const`       | Retrieves a pointer to the `LayerInfo` struct for the given `layerId`. Returns `nullptr` if not found.                                                                                                   |
+| `Board::IsLayerVisible()`        | `bool IsLayerVisible(int layerIndex) const`                     | Checks if the layer at the specified index is currently visible. Returns `false` for invalid index.                                                                                                        |
+| `Board::SetLayerVisible()`       | `void SetLayerVisible(int layerIndex, bool visible)`            | Sets the visibility state of the layer at the specified index.                                                                                                                                                 |
+| `Board::IsLoaded()`              | `bool IsLoaded() const`                                         | Returns `true` if the board data has been successfully loaded, `false` otherwise.                                                                                                                                |
+| `Board::GetErrorMessage()`       | `std::string GetErrorMessage() const`                           | Returns a message detailing an error if loading failed.                                                                                                                                                    |
+| `Board::GetFilePath()`           | `std::string GetFilePath() const`                               | Returns the original file path from which the board was loaded or attempted to be loaded.                                                                                                                      |
 
 **Dependencies:**  
 - `pcb/Board.hpp`
-- `pcb/PcbLoader.hpp` (Included, with comments indicating its intended use for actual file loading, though the current implementation is a dummy)
-- `<iostream>` (For `std::cerr` in commented-out loader code and `std::cout` in the dummy constructor)
+- `pcb/BoardLoaderFactory.hpp` (Used by the file path constructor to load board data)
+- `<iostream>` (For potential logging, though not explicitly used for `std::cerr` in the provided snippet's main loading path)
+- `<memory>` (Implied by `std::unique_ptr` usage with `BoardLoaderFactory`)
 
 **Notes:**  
-- The constructor `Board::Board(const std::string& filePath)` currently contains a **dummy implementation** for development and testing purposes. It does not actually parse a PCB file but simulates a successful load by populating the `Board` with sample layers and dimensions, or simulates a failure for a specific filename (`"dummy_fail.pcb"`).
-- The commented-out section within the file path constructor shows how `PcbLoader` would typically be used to populate the `Board` instance in a real scenario. This indicates that the actual loading logic is intended to be external to the `Board` class itself, with `PcbLoader` modifying a `Board` object passed to it (or `Board` using `PcbLoader` internally if `ParseBoardFile` was implemented).
-- Layer access methods (`GetLayerCount`, `GetLayerName`, `IsLayerVisible`, `SetLayerVisible`) provide safe access to the `layers` vector with basic bounds checking.
+- The `Board(const std::string& filePath)` constructor now implements actual board loading logic using `BoardLoaderFactory`.
+- The mechanism of loading involves the factory returning a `std::unique_ptr<Board>`, and then the current `Board` instance uses `*this = std::move(*loaded_board_data);`. This relies on a correctly implemented move assignment operator in the `Board` class.
+- A special case for the filename `"dummy_fail.pcb"` is preserved for testing error modals.
+- Layer access methods (`GetLayerCount`, `GetLayerName`, `GetLayerById`, `IsLayerVisible`, `SetLayerVisible`) provide access to layer data with bounds/ID checking.
 - Status methods (`IsLoaded`, `GetErrorMessage`, `GetFilePath`) provide information about the board's loading state and origin.
-- Error handling for invalid layer indices in getter methods currently involves returning a default/error value (e.g., "Invalid Layer Index", `false`). Throwing an exception could be an alternative strategy depending on desired error handling policy.
+- Error handling for invalid layer indices in getter methods currently involves returning a default/error value or `nullptr`.
 
-## `src/pcb/PcbLoader.hpp`
+## `src/pcb/BoardLoaderFactory.hpp`
 
-**Purpose:** Defines the `PcbLoader` class, responsible for reading and parsing a specific binary PCB file format ("XZZPCB"). It handles file I/O, decryption (XOR and DES), and parsing of various data blocks to populate a `Board` object with its constituent elements and metadata.
+**Purpose:** Defines the `BoardLoaderFactory` class, which is responsible for managing and providing access to different board file loaders (implementing `IBoardLoader`). It allows for registering loaders based on file extensions and then using the appropriate loader to load a `Board` object.
+
+**Key Classes & Structs:**  
+- `BoardLoaderFactory::LoaderRegistryEntry` (private struct) – Stores a file extension hint and a factory function (`creator`) for an `IBoardLoader`.
+- `BoardLoaderFactory` – Manages a collection of board loaders and selects the appropriate one to load a board file.
+
+**Main Functions & Methods:**  
+| Name                                         | Signature                                                                                           | Description                                                                                                                                    |
+|----------------------------------------------|-----------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------|
+| `BoardLoaderFactory::BoardLoaderFactory()`   | `BoardLoaderFactory()`                                                                              | Constructor. Typically registers known concrete loader implementations.                                                                        |
+| `BoardLoaderFactory::registerLoader()`       | `void registerLoader(const std::string& fileExtensionHint, std::function<std::unique_ptr<IBoardLoader>()> loaderCreator)` | Registers a new board loader. `fileExtensionHint` (e.g., ".pcb") helps identify the loader, and `loaderCreator` is a function that creates an instance of the loader. |
+| `BoardLoaderFactory::loadBoard()`            | `std::unique_ptr<Board> loadBoard(const std::string& filePath)`                                     | Attempts to load a `Board` from the given `filePath` by finding a registered loader that matches the file's extension. Returns a `std::unique_ptr<Board>` or `nullptr` on failure. |
+| `BoardLoaderFactory::getSupportedExtensionsFilterString()`| `std::string getSupportedExtensionsFilterString() const`                                      | Returns a comma-separated string of supported file extensions (e.g., ".pcb,.kicad_pcb") suitable for use in file dialog filters.                  |
+| `BoardLoaderFactory::getSupportedExtensions()` | `std::vector<std::string> getSupportedExtensions() const`                                           | Returns a vector of strings, each representing a supported file extension. Useful for more granular control, like styling in file dialogs.        |
+
+**Dependencies:**  
+- `<string>`  
+- `<memory>` (for `std::unique_ptr`)
+- `<vector>`
+- `<functional>` (for `std::function`)
+- `IBoardLoader.hpp` (interface for board loaders)
+- `Board.hpp` (for the `Board` object type)
+
+**Notes:**  
+- This class implements the Factory Method pattern to decouple board loading logic from the client code (e.g., `Application` or `Board` constructor).
+- Loaders are registered with a file extension hint, which is used to select the correct loader.
+- The `LoaderRegistryEntry` struct suggests potential future extension for content-based loader detection (commented out `canHandleFile` function).
+- It provides utility methods to get supported file extensions in formats suitable for UI elements like file dialogs.
+
+## `src/pcb/BoardLoaderFactory.cpp`
+
+**Purpose:** Implements the `BoardLoaderFactory` class, providing the logic for registering different board loaders and using them to load board files based on their extensions.
+
+**Key Classes & Structs:**  
+- (Implements `BoardLoaderFactory` class from `BoardLoaderFactory.hpp`)
+
+**Main Functions & Methods:**  
+| Name                                         | Signature                                                                                           | Description                                                                                                                                                                 |
+|----------------------------------------------|-----------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `BoardLoaderFactory::BoardLoaderFactory()`   | `BoardLoaderFactory()`                                                                              | Constructor. Registers the `XZZPCBLoader` for ".pcb" files. Includes commented-out example for registering a hypothetical `KiCadLoader`.                                            |
+| `BoardLoaderFactory::registerLoader()`       | `void registerLoader(const std::string& fileExtensionHint, std::function<std::unique_ptr<IBoardLoader>()> loaderCreator)` | Converts `fileExtensionHint` to lowercase and stores it along with the `loaderCreator` function in the `m_loaders` vector.                                           |
+| `BoardLoaderFactory::getFileExtension()`     | `std::string getFileExtension(const std::string& filePath)` (private)                               | Extracts the file extension from `filePath`, converts it to lowercase, and returns it. Returns an empty string if no extension is found.                                  |
+| `BoardLoaderFactory::loadBoard()`            | `std::unique_ptr<Board> loadBoard(const std::string& filePath)`                                     | Retrieves the file extension using `getFileExtension`. Iterates through registered loaders, and if a match for the extension is found, creates the loader and calls its `loadFromFile` method. Includes try-catch blocks for error handling during loading. Logs errors to `std::cerr`. Returns `nullptr` if no suitable loader is found or if loading fails. |
+| `BoardLoaderFactory::getSupportedExtensionsFilterString()`| `std::string getSupportedExtensionsFilterString() const`                                      | Constructs and returns a comma-separated string of all registered `fileExtensionHint`s.                                                                                       |
+| `BoardLoaderFactory::getSupportedExtensions()` | `std::vector<std::string> getSupportedExtensions() const`                                           | Iterates through registered loaders and returns a vector containing all `fileExtensionHint`s.                                                                                 |
+
+**Dependencies:**  
+- `BoardLoaderFactory.hpp`
+- `XZZPCBLoader.hpp` (Concrete loader implementation, registered in the constructor)
+- `<iostream>` (For `std::cerr` error messages)
+- `<algorithm>` (For `std::transform` to convert extensions to lowercase)
+- `<memory>` (Implicitly, for `std::make_unique` in creator functions)
+
+**Notes:**  
+- File extensions are handled in a case-insensitive manner by converting them to lowercase.
+- The `loadBoard` method provides basic error logging to `std::cerr` if a loader cannot be found or if an error occurs during the loading process by a specific loader.
+- The factory currently relies solely on file extensions for loader selection.
+
+## `src/pcb/IBoardLoader.hpp`
+
+**Purpose:** Defines the `IBoardLoader` interface, an abstract base class that specifies the contract for all concrete board file loader implementations. This allows for a common way to load different PCB file formats.
+
+**Key Classes & Structs:**  
+- `IBoardLoader` – An abstract base class (interface) for board loading functionality.
+
+**Main Functions & Methods:**  
+| Name                         | Signature                                                             | Description                                                                                                |
+|------------------------------|-----------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
+| `IBoardLoader::~IBoardLoader()`| `virtual ~IBoardLoader() = default;`                                  | Virtual default destructor to ensure proper cleanup of derived class resources.                            |
+| `IBoardLoader::loadFromFile()` | `virtual std::unique_ptr<Board> loadFromFile(const std::string& filePath) = 0;` | Pure virtual method that concrete loaders must implement to load board data from the given `filePath`. Returns a `std::unique_ptr<Board>` containing the loaded data, or `nullptr` on failure. |
+
+**Dependencies:**  
+- `<string>` (for `std::string`)
+- `<memory>` (for `std::unique_ptr`)
+- `Board.hpp` (for the `Board` class type that loaders will create and return)
+- Forward declares `Board` (though `Board.hpp` is directly included).
+
+**Notes:**  
+- This is a pure abstract class (interface) as it contains a pure virtual function.
+- Concrete loader classes (e.g., `XZZPCBLoader` for XZZPCB format, a future `KiCadLoader`, etc.) must inherit from `IBoardLoader` and implement the `loadFromFile` method.
+- This interface is crucial for the `BoardLoaderFactory` to work with different loader types polymorphically.
+
+## `src/pcb/XZZPCBLoader.hpp`
+
+**Purpose:** Defines the `PcbLoader` class, which implements the `IBoardLoader` interface. It is responsible for reading and parsing a specific binary PCB file format ("XZZPCB"). It handles file I/O, decryption (XOR and DES), and parsing of various data blocks to populate a `Board` object with its constituent elements and metadata.
 **Key Classes & Structs:**
-- `PcbLoader` – Encapsulates the logic for loading and interpreting XZZPCB files.
+- `PcbLoader` – Encapsulates the logic for loading and interpreting XZZPCB files, conforming to the `IBoardLoader` interface.
 
 **Main Functions & Methods:**
-| Name                       | Signature                                               | Description                                                                                                |
-|----------------------------|---------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
-| `PcbLoader::loadFromFile()`| `std::unique_ptr<Board> loadFromFile(const std::string& filePath)` | Main public method. Orchestrates file reading, verification, decryption, and parsing to return a populated `Board` object. |
+| Name                       | Signature                                                                 | Description                                                                                                                    |
+|----------------------------|---------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
+| `PcbLoader::loadFromFile()`| `std::unique_ptr<Board> loadFromFile(const std::string& filePath) override` | Main public method. Orchestrates file reading, verification, decryption, and parsing to return a populated `Board` object. Implements `IBoardLoader::loadFromFile`. |
 
 **Dependencies:**
 - `<string>`
@@ -906,6 +1012,7 @@ _This document provides an overview of each source and header file in the projec
 - `<cstring>`
 - `Board.hpp` (for the `Board` data model and its elements)
 - `../utils/des.h` (for DES decryption functionality)
+- `IBoardLoader.hpp` (for the base interface)
 
 **Notes:**
 - The loader is designed to handle a complex, proprietary binary format.
@@ -913,12 +1020,13 @@ _This document provides an overview of each source and header file in the projec
 - Includes private helper methods for each stage of loading: file reading, format verification, decryption, header parsing, main data block parsing, net block parsing, post-v6 block parsing, and individual element parsing.
 - Contains specific logic for DES key generation and component block decryption.
 - Employs a template `readLE<T>` for reading little-endian data types.
+- The class inherits from `IBoardLoader` to provide a standardized way of loading board files.
 
-## `src/pcb/PcbLoader.cpp`
+## `src/pcb/XZZPCBLoader.cpp`
 
 **Purpose:** Implements the `PcbLoader` class, providing the detailed logic for reading, decrypting, and parsing XZZPCB binary files. It translates the raw file data into a structured `Board` representation, including all its geometric elements, nets, and metadata.
 **Key Classes & Structs:**  
-- (Implements `PcbLoader` class from `PcbLoader.hpp`)
+- (Implements `PcbLoader` class from `XZZPCBLoader.hpp`)
 
 **Main Functions & Methods:**  
 | Name                                  | Signature                                                                                                | Description                                                                                                                                    |
@@ -929,14 +1037,14 @@ _This document provides an overview of each source and header file in the projec
 | `PcbLoader::decryptFileDataIfNeeded()`| `bool decryptFileDataIfNeeded(std::vector<char>& fileData)`                                              | Performs XOR decryption on the file data if an XOR key is detected at offset 0x10. Skips the post-v6 block if present.                           |
 | `PcbLoader::decryptComponentBlock()`  | `void decryptComponentBlock(std::vector<char>& blockData)`                                               | Decrypts a block of component data using DES. Derives the DES key from static data (`des_key_byte_list`) and applies specific transformations. | 
 | `PcbLoader::readCB2312String()`       | `std::string readCB2312String(const char* data, size_t length)`                                          | Reads a string from raw data, with basic handling for CB2312 (currently treats non-ASCII as '?').                                            |
-| `PcbLoader::parseHeader()`            | `bool parseHeader(..., uint32_t& outMainDataOffset, ...)`                                                | Parses the file header to extract offsets for main data, net data, image data, and the size of main data blocks. Populates `board.board_name`.  |
-| `PcbLoader::parseMainDataBlocks()`    | `bool parseMainDataBlocks(..., uint32_t mainDataOffset, uint32_t mainDataBlocksSize)`                    | Iterates through the main data section, parsing individual blocks (arcs, vias, traces, text, components) based on their type codes.            |
+| `PcbLoader::parseHeader()`            | `bool parseHeader(const std::vector<char>& fileData, Board& board, uint32_t& outMainDataOffset, ...)`     | Parses the file header to extract offsets for main data, net data, image data, and the size of main data blocks. Populates `board.board_name`.  |
+| `PcbLoader::parseMainDataBlocks()`    | `bool parseMainDataBlocks(const std::vector<char>& fileData, Board& board, uint32_t mainDataOffset, uint32_t mainDataBlocksSize)` | Iterates through the main data section, parsing individual blocks (arcs, vias, traces, text, components) based on their type codes.            |
 | `PcbLoader::parseArc()`               | `void parseArc(const char* data, Board& board)`                                                          | Parses arc element data and adds it to the `Board`.                                                                                            |
 | `PcbLoader::parseVia()`               | `void parseVia(const char* data, uint32_t blockSize, Board& board)`                                      | Parses via element data, including optional text, and adds it to the `Board`.                                                                  |
 | `PcbLoader::parseTrace()`             | `void parseTrace(const char* data, Board& board)`                                                        | Parses trace element data and adds it to the `Board`.                                                                                          |
 | `PcbLoader::parseTextLabel()`         | `void parseTextLabel(const char* data, Board& board, bool isStandalone)`                                 | Parses standalone text label data and adds it to the `Board`.                                                                                  |
 | `PcbLoader::parseComponent()`         | `void parseComponent(const char* rawComponentData, uint32_t componentBlockSize, Board& board)`           | Decrypts component data, then parses its structure including sub-elements like pins, graphical segments, and text labels, adding to `Board`. | 
-| `PcbLoader::parsePostV6Block()`       | `bool parsePostV6Block(..., std::vector<char>::const_iterator v6_iter)`                                  | Parses the data block found after a "v6v6555v6v6" marker, typically containing diode readings. Stores readings in `m_diodeReadings_`.         |
+| `PcbLoader::parsePostV6Block()`       | `bool parsePostV6Block(const std::vector<char>& fileData, Board& board, std::vector<char>::const_iterator v6_iter)` | Parses the data block found after a "v6v6555v6v6" marker, typically containing diode readings. Stores readings in `diodeReadings_`.         |
 | `PcbLoader::parseNetBlock()`          | `bool parseNetBlock(const std::vector<char>& fileData, Board& board, uint32_t netDataOffset)`            | Parses the net data block, reading net IDs and names, and adds them to the `Board`.                                                            |
 | `PcbLoader::readLE<T>()`              | `template<typename T> T readLE(const char* data)`                                                        | Generic helper to read little-endian data of type `T` from a character buffer.                                                                  |
 
@@ -945,7 +1053,7 @@ _This document provides an overview of each source and header file in the projec
 - `des_key_byte_list`: Static data used for DES key generation.
 
 **Dependencies:**  
-- `PcbLoader.hpp`
+- `XZZPCBLoader.hpp`
 - `<fstream>`
 - `<vector>`
 - `<string>`
@@ -954,7 +1062,10 @@ _This document provides an overview of each source and header file in the projec
 - `<cstring>` (for `std::memcpy`)
 - `<iomanip>` (for `std::setw`, `std::setfill`, `std::hex` in DES key gen)
 - `<sstream>` (for `std::ostringstream` in DES key gen)
-- `../utils/des.h` (for the `des()` function)
+- `<limits>` (for `std::numeric_limits`)
+- `../utils/ColorUtils.hpp` (potentially for layer color generation, though not directly used in parsing logic shown)
+- `<iostream>` (for logging, especially if `ENABLE_PCB_LOADER_LOGGING` is defined)
+- `<variant>` (required for `std::visit` or `std::variant::index()` on `PadShape` if used, e.g., in logging within `parseComponent` for `Pin.pad_shape`)
 
 **Notes:**  
 - The loader meticulously parses a complex binary format, handling various data types, offsets, and conditional decryption.
@@ -962,11 +1073,9 @@ _This document provides an overview of each source and header file in the projec
 - The main file data can undergo XOR decryption.
 - Parsing of individual elements (`Arc`, `Via`, `Trace`, `TextLabel`, `Component` with its sub-elements like `Pin`, `LineSegment`) is based on specific byte offsets and data types derived from format analysis.
 - String reading uses `readCB2312String`, which currently offers basic non-ASCII handling; full GB2312 to UTF-8 conversion would be more robust for international characters.
-- Diode readings from the "post-v6" block are parsed and stored in `m_diodeReadings_` for later association with pins, potentially during component parsing or by a post-processing step.
-- The file includes detailed error checks for block sizes and offsets to prevent reading past buffer boundaries.
+- Diode readings from the "post-v6" block are parsed and stored in `diodeReadings_` for later association with pins.
+- The file includes detailed error checks for block sizes and offsets to prevent reading past buffer boundaries. Conditional verbose logging can be enabled by defining `ENABLE_PCB_LOADER_LOGGING`.
 - The DES key generation process (`decryptComponentBlock`) involves specific XOR operations and hex conversions.
-
-
 
 ## `src/render/PcbRenderer.hpp`
 
@@ -1821,75 +1930,87 @@ _This document provides an overview of each source and header file in the projec
 
 ## `src/view/Grid.hpp`
 
-**Purpose:** Defines the `Grid` class, responsible for rendering a 2D grid (lines or dots) within a viewport, based on `GridSettings` and the current `Camera` view.
+**Purpose:** Defines the `Grid` class, responsible for calculating and rendering a 2D grid (lines or dots) within a viewport using Blend2D. The grid's appearance and behavior are determined by `GridSettings` and the current `Camera` view. It also provides functionality for displaying measurement readouts.
 **Key Classes & Structs:**
-- `Grid` – Manages the rendering of a customizable 2D grid.
+- `Grid::GridMeasurementInfo` (struct) – Holds information about the grid's current effective spacings, subdivisions, visibility of major/minor lines, and unit string, suitable for display.
+- `Grid` – Manages the rendering of a customizable 2D grid using a `BLContext`.
 
 **Main Functions & Methods:**
-| Name                    | Signature                       | Description                                                                               |
-|-------------------------|---------------------------------|-------------------------------------------------------------------------------------------|
-| `Grid::Grid()`          | `explicit Grid(std::shared_ptr<GridSettings> settings)` | Constructor, takes shared ownership of `GridSettings`.                                    |
-| `Grid::~Grid()`         | `~Grid()`                       | Destructor.                                                                               |
-| `Grid::Render()`        | `void Render(SDL_Renderer* renderer, const Camera& camera, const Viewport& viewport) const` | Renders the grid using the provided SDL renderer, camera, and viewport information.       |
+| Name                               | Signature                                                                                                                            | Description                                                                                                                               |
+|------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| `Grid::Grid()`                     | `explicit Grid(std::shared_ptr<GridSettings> settings)`                                                                              | Constructor, takes shared ownership of `GridSettings`.                                                                                      |
+| `Grid::~Grid()`                    | `~Grid()`                                                                                                                            | Destructor.                                                                                                                               |
+| `Grid::Render()`                   | `void Render(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport) const`                                                | Renders the grid using the provided `BLContext`, camera, and viewport information.                                                            |
+| `Grid::GetMeasurementInfo()`       | `GridMeasurementInfo GetMeasurementInfo(const Camera& camera, const Viewport& viewport) const`                                       | Calculates and returns current grid measurement details (spacings, visibility, units) based on camera and viewport state.                   |
+| `Grid::GetEffectiveSpacings()`     | `void GetEffectiveSpacings(const Camera& camera, float& outMajorSpacing_world, float& outMinorSpacing_world, int& outEffectiveSubdivisions) const` | Calculates effective major and minor grid spacings in world units, and effective subdivision count, considering dynamic spacing settings and camera zoom. |
 
 **Dependencies:**
 - `<memory>` (for `std::shared_ptr`)
-- `Camera.hpp` (for `Vec2`, used by `GridSettings.hpp` and internally)
+- `<vector>`
+- `<blend2d.h>` (for `BLContext`)
+- `Camera.hpp` (for `Camera` and `Vec2`)
 - `GridSettings.hpp`
-- Forward declares `Camera`, `Viewport`, `SDL_Renderer`. (Also `RenderContext` as an alternative).
+- Forward declares `Viewport`.
 
 **Notes:**
 - The class explicitly deletes copy and move constructors/assignment operators.
-- It relies on `GridSettings` (via a shared pointer) for all configurable aspects like visibility, style, colors, and spacing.
-- The `Render` method is the primary interface for drawing the grid.
+- Relies on `GridSettings` (via `std::shared_ptr`) for all configurable aspects.
+- The `Render` method is the primary interface for drawing the grid onto a `BLContext`.
 - Private helper methods are declared for:
-    - `GetEffectiveSpacings`: Calculating dynamic grid spacing based on camera zoom.
     - `GetVisibleWorldBounds`: Determining the world-space area visible in the viewport.
-    - `DrawLinesStyle`, `DrawDotsStyle`: Implementing the two main grid styles.
-    - `DrawGridLines`, `DrawGridDots`: Low-level drawing of lines or dots for a given spacing.
-    - `DrawAxis`: Drawing X and Y axis lines.
-    - `ConvertAndSetSDLColor`: A static helper to set SDL draw color from `GridColor`.
-- An alternative `Render` signature using a generic `RenderContext` is commented out, suggesting future flexibility.
-- **Refactoring Cue for Rendering Method**: Currently, `Grid::Render()` draws directly using `SDL_Renderer` (as implemented in `Grid.cpp`). To align with the proposed architecture and ensure the grid is visually integrated with the PCB data (e.g., correct layering, anti-aliasing), the grid rendering logic should be adapted to draw onto the **Blend2D `BLImage`** as part of the main PCB rendering pass, managed by the `PcbRenderer` / `RenderManager` and its `RenderPipeline`. The commented-out alternative `Render` signature using a generic `RenderContext` hints at this, where `RenderContext` would be the Blend2D context.
+    - `DrawLinesStyle`, `DrawDotsStyle`: Implementing the two main grid styles using `BLContext`.
+    - `DrawGridLines`, `DrawGridDots`: Low-level drawing of lines or dots using `BLContext`.
+    - `DrawAxis`: Drawing X and Y axis lines using `BLContext`.
+    - `EnforceRenderingLimits`: Calculating estimated line/dot counts and determining if rendering should proceed based on limits.
+    - `RenderMeasurementReadout`: Renders a text display of current grid spacing in a corner of the viewport using `BLContext`.
+    - `GetNiceUnitFactors`: Provides factors for "nice number" spacing adjustments based on unit system.
+- The rendering has been refactored from SDL_Renderer to Blend2D (`BLContext`) for integration into the main off-screen rendering pipeline.
 
 ## `src/view/Grid.cpp`
 
-**Purpose:** Implements the `Grid` class, providing the logic for calculating grid line/dot positions and rendering them using SDL based on camera view, viewport dimensions, and grid settings.
+**Purpose:** Implements the `Grid` class, providing the logic for calculating grid line/dot positions and rendering them using Blend2D (`BLContext`) based on camera view, viewport dimensions, and grid settings. It also handles dynamic spacing adjustments, rendering limits, and measurement readouts.
 **Key Classes & Structs:**
 - (Implements `Grid` class from `Grid.hpp`)
 
 **Main Functions & Methods:**
-| Name                    | Signature                       | Description                                                                                                |
-|-------------------------|---------------------------------|------------------------------------------------------------------------------------------------------------|
-| `Grid::Grid()`          | `Grid(std::shared_ptr<GridSettings> settings)` | Constructor, initializes `m_settings`.                                                                     |
-| `Grid::~Grid()`         | `~Grid()`                       | Destructor.                                                                                                |
-| `Grid::ConvertAndSetSDLColor()` | `static void ConvertAndSetSDLColor(SDL_Renderer* renderer, const GridColor& gridColor, float alphaMultiplier)` | Sets the SDL renderer's draw color based on the input `GridColor` and alpha multiplier.                |
-| `Grid::GetEffectiveSpacings()` | `void GetEffectiveSpacings(const Camera& camera, float& outMajorSpacing, float& outMinorSpacing) const` | Calculates major and minor grid spacing. If dynamic spacing is enabled, adjusts major spacing based on camera zoom to maintain visual density. |
-| `Grid::GetVisibleWorldBounds()` | `void GetVisibleWorldBounds(const Camera& camera, const Viewport& viewport, Vec2& outMinWorld, Vec2& outMaxWorld) const` | Determines the minimum and maximum world coordinates visible within the viewport.                         |
-| `Grid::DrawGridLines()`   | `void DrawGridLines(...) const`   | Renders grid lines (vertical and horizontal) for a given spacing and color within the world bounds. Skips axis lines if they are handled separately. |
-| `Grid::DrawGridDots()`    | `void DrawGridDots(...) const`    | Renders grid dots for a given spacing and color within the world bounds. Skips axis dots if handled separately. |
-| `Grid::DrawLinesStyle()`  | `void DrawLinesStyle(...) const`  | Orchestrates drawing minor and major grid lines.                                                           |
-| `Grid::DrawDotsStyle()`   | `void DrawDotsStyle(...) const`   | Orchestrates drawing minor and major grid dots.                                                            |
-| `Grid::DrawAxis()`        | `void DrawAxis(...) const`        | Renders the X and Y axis lines if enabled in settings and visible.                                         |
-| `Grid::Render()`        | `void Render(SDL_Renderer* renderer, const Camera& camera, const Viewport& viewport) const` | Main rendering method. Checks visibility, sets SDL blend mode, gets spacings and bounds, then calls appropriate style and axis drawing methods. |
+| Name                               | Signature                                                                                                                            | Description                                                                                                                                                                  |
+|------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `Grid::Grid()`                     | `Grid(std::shared_ptr<GridSettings> settings)`                                                                                       | Constructor, initializes `m_settings`.                                                                                                                                         |
+| `Grid::~Grid()`                    | `~Grid()`                                                                                                                            | Destructor.                                                                                                                                                                  |
+| `Grid::GetNiceUnitFactors()`       | `void GetNiceUnitFactors(std::vector<float>& outFactors) const`                                                                      | Populates `outFactors` with "nice" multipliers (e.g., 1, 2, 5 for metric; fractional for imperial) used for dynamic grid spacing adjustments.                                |
+| `Grid::GetEffectiveSpacings()`     | `void GetEffectiveSpacings(const Camera& camera, float& outMajorSpacing_world, float& outMinorSpacing_world, int& outEffectiveSubdivisions) const` | Calculates effective major and minor grid spacings in world units and the effective number of subdivisions. Implements dynamic adjustment of major spacing and subdivisions based on camera zoom, `m_minPixelStep`, `m_maxPixelStep`, and unit system to maintain visual density and readability. |
+| `Grid::GetVisibleWorldBounds()`    | `void GetVisibleWorldBounds(const Camera& camera, const Viewport& viewport, Vec2& outMinWorld, Vec2& outMaxWorld) const`               | Determines the minimum and maximum world coordinates visible within the viewport by transforming viewport screen corners to world space.                                         |
+| `Grid::EnforceRenderingLimits()`   | `void EnforceRenderingLimits(const Camera& camera, const Viewport& viewport, float spacing, const Vec2& worldMin, const Vec2& worldMax, int& outEstimatedLineCount, bool& outShouldRender) const` | Estimates the number of lines or dots to be rendered for a given spacing. Sets `outShouldRender` to false if the estimate exceeds predefined limits (`MAX_RENDERABLE_LINES` or `MAX_RENDERABLE_DOTS` from `GridSettings`). |
+| `Grid::GetMeasurementInfo()`       | `GridMeasurementInfo GetMeasurementInfo(const Camera& camera, const Viewport& viewport) const`                                       | Returns a `GridMeasurementInfo` struct populated with current effective spacings, subdivision count, visibility status of lines, and unit string.                             |
+| `Grid::RenderMeasurementReadout()` | `void RenderMeasurementReadout(BLContext& bl_ctx, const Viewport& viewport, const GridMeasurementInfo& info) const`                   | Renders a text readout of the current grid measurement info (major/minor spacing, units) in the viewport using `BLContext`. Handles font loading for the text.             |
+| `Grid::DrawGridLines()`            | `void DrawGridLines(BLContext& bl_ctx, ..., bool isMajor, float majorSpacingForAxisCheck) const`                                     | Renders grid lines (vertical and horizontal) for a given spacing and color within the world bounds using `bl_ctx.strokePath()`. Skips axis lines if handled separately. Checks rendering limits. |
+| `Grid::DrawGridDots()`             | `void DrawGridDots(BLContext& bl_ctx, ..., bool isMajor, float majorSpacingForAxisCheck) const`                                      | Renders grid dots for a given spacing and color within the world bounds using `bl_ctx.fillPath()` with `BLCircle`. Skips axis dots if handled separately. Checks rendering limits.      |
+| `Grid::DrawLinesStyle()`           | `void DrawLinesStyle(BLContext& bl_ctx, ..., bool actuallyDrawMajorLines, bool actuallyDrawMinorLines) const`                        | Orchestrates drawing minor and major grid lines based on culling decisions.                                                                                                    |
+| `Grid::DrawDotsStyle()`            | `void DrawDotsStyle(BLContext& bl_ctx, ..., bool actuallyDrawMajorDots, bool actuallyDrawMinorDots) const`                         | Orchestrates drawing minor and major grid dots based on culling decisions.                                                                                                     |
+| `Grid::DrawAxis()`                 | `void DrawAxis(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, const Vec2& worldMin, const Vec2& worldMax) const` | Renders the X and Y axis lines with their specific colors and thickness using `bl_ctx.strokeLine()` if enabled in settings.                                                 |
+| `Grid::Render()`                   | `void Render(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport) const`                                                | Main rendering method. Checks visibility, calculates effective spacings, culls elements based on `minPixelStep` and rendering limits, then calls appropriate style (`DrawLinesStyle` or `DrawDotsStyle`) and axis drawing methods using `BLContext`. Renders measurement readout. |
 
 **Dependencies:**
 - `view/Grid.hpp`
 - `view/GridSettings.hpp`
 - `view/Camera.hpp`
 - `view/Viewport.hpp`
-- `<SDL3/SDL.h>`
-- `<cmath>` (for `std::floor`, `std::ceil`, `std::abs`, `std::fmod`, `std::min`, `std::max`)
-- `<algorithm>` (for `std::min`/`std::max` with initializer list, though `cmath` often provides these too)
-- `<vector>` (though not directly used in the final method implementations, could be for intermediate calculations not shown)
-
+- `<blend2d.h>` (For `BLContext`, `BLRgba32`, `BLPath`, `BLRect`, `BLFont`, etc.)
+- `<cmath>` (for various math functions)
+- `<algorithm>` (for `std::min`, `std::max`)
+- `<vector>`
+- `<iostream>` (for error logging)
+- `<limits>` (for `std::numeric_limits`)
+- `<string>`, `<sstream>`, `<iomanip>` (for measurement readout formatting)
 
 **Notes:**
-- Dynamic grid spacing (`m_isDynamic` in `GridSettings`) adjusts the `majorSpacing` by a factor (defaulting to subdivisions or 10) to keep the visual density of lines within a `minPixelStep` and `maxPixelStep` range on screen.
-- `GetVisibleWorldBounds` converts the four corners of the viewport from screen space to world space to determine the drawing area.
-- Grid lines and dots are drawn by iterating from a calculated start position (aligned to spacing) up to the maximum visible bound.
-- Axis lines (X=0, Y=0) are drawn with their specific colors if `m_showAxisLines` is true.
-- The `Render` method ensures `SDL_BLENDMODE_BLEND` is set for drawing, allowing for alpha in grid colors, and restores the original blend mode afterward.
+- The core rendering logic has been transitioned from SDL primitives to Blend2D drawing operations on a `BLContext`.
+- Dynamic grid spacing logic in `GetEffectiveSpacings` is sophisticated, aiming for "nice number" spacings appropriate to the unit system and zoom level, while respecting `minPixelStep` and `maxPixelStep` configured in `GridSettings`.
+- Culling of grid elements (major/minor lines/dots) is performed based on whether their screen pixel step falls below `m_minPixelStep`.
+- Rendering limits (`MAX_RENDERABLE_LINES`, `MAX_RENDERABLE_DOTS`) are enforced to prevent performance issues with extremely dense grids.
+- The `RenderMeasurementReadout` method attempts to load a font (`Nippo-Light.otf`) and display grid spacing information. Includes fallback if font loading fails.
+- Error handling using `try-catch` blocks is present in rendering methods.
+- Clipping to viewport bounds is applied using `bl_ctx.clipToRect()`.
 
 ## `src/view/GridSettings.hpp`
 

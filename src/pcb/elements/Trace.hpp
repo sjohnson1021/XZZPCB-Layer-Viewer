@@ -18,4 +18,13 @@ public:
 
     // Add constructors, getters, setters, and helper methods as needed
     // e.g., double getLength() const;
+    int GetLayer() const { return layer; }
+    double GetStartX() const { return x1; }
+    double GetStartY() const { return y1; }
+    double GetEndX() const { return x2; }
+    double GetEndY() const { return y2; }
+    double GetWidth() const { return width; }
+    int GetNetId() const { return net_id; }
+
+    // Add other methods as needed
 }; 

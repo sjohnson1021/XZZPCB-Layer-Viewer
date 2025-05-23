@@ -28,4 +28,21 @@ public:
     // bool is_filled = false; // Example: if via is filled (e.g. with conductive paste)
 
     // Add constructors, getters, setters, and helper methods as needed
+    double GetX() const { return x; }
+    double GetY() const { return y; }
+    int GetLayerFrom() const { return layer_from; }
+    int GetLayerTo() const { return layer_to; }
+    double GetPadRadiusFrom() const { return pad_radius_from; }
+    double GetPadRadiusTo() const { return pad_radius_to; }
+    double GetDrillDiameter() const { return drill_diameter; }
+    int GetNetId() const { return net_id; }
+    const std::string& GetOptionalText() const { return optional_text; }
+
+    // Add other methods as needed
+    bool IsOnLayer(int layer_id) const {
+        return layer_from <= layer_id && layer_id <= layer_to;
+    }
+    
+
+    
 }; 

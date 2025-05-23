@@ -4,7 +4,7 @@ add_subdirectory(ui)     # Builds ui_lib
 add_subdirectory(core)   # Builds core_lib
 
 set(EXECUTABLE_NAME XZZPCB-Layer-Viewer)
-
+option(XZZPCBVIEWER_ENABLE_PCB_LOADER_LOGGING "Enable verbose logging for the PcbLoader" OFF)
 set(MAIN_EXECUTABLE_SOURCES
     main.cpp
     # Include ImGuiFileDialog directly for now
@@ -36,3 +36,7 @@ target_include_directories(${EXECUTABLE_NAME}
     # Include directories for imgui, SDL3, blend2d should be handled by linking 
     # with their targets which propagate include directories.
 ) 
+
+if(XZZPCBVIEWER_ENABLE_PCB_LOADER_LOGGING)
+    target_compile_definitions(${EXECUTABLE_NAME} PRIVATE ENABLE_PCB_LOADER_LOGGING)
+endif()

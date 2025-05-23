@@ -1,4 +1,5 @@
 #include "view/Viewport.hpp"
+#include "view/Camera.hpp"
 #include <cmath> // For std::cos, std::sin
 
 // Define PI if not available (e.g. from Camera.cpp or a common math header)

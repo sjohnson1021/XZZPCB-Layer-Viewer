@@ -11,12 +11,14 @@ class Viewport;
 // class InteractionTool; // Base class, NavigationTool.hpp will include it.
 class NavigationTool; // Concrete tool
 class ControlSettings; // Added forward declaration
+class BoardDataManager; // Added forward declaration
 
 class InteractionManager {
 public:
     InteractionManager(std::shared_ptr<Camera> camera, 
                        std::shared_ptr<Viewport> viewport,
-                       std::shared_ptr<ControlSettings> controlSettings); // Added parameter
+                       std::shared_ptr<ControlSettings> controlSettings,
+                       std::shared_ptr<BoardDataManager> boardDataManager); // Added parameter
     ~InteractionManager();
 
     InteractionManager(const InteractionManager&) = delete;
@@ -42,6 +44,7 @@ private:
     std::shared_ptr<Camera> m_camera;
     std::shared_ptr<Viewport> m_viewport; // Viewport of the render area
     std::shared_ptr<ControlSettings> m_controlSettings; // Added member
+    std::shared_ptr<BoardDataManager> m_boardDataManager; // Added member
 
     // std::vector<std::shared_ptr<InteractionTool>> m_tools;
     // InteractionTool* m_activeTool = nullptr;
