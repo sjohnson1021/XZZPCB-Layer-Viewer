@@ -13,6 +13,7 @@ public:
     // Member Data
     double x = 0.0;
     double y = 0.0;
+    int layer = 30; // Default layer for vias - for rendering purposes
     int layer_from = 0; // Starting layer index
     int layer_to = 0;   // Ending layer index
     

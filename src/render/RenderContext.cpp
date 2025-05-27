@@ -71,6 +71,7 @@ void RenderContext::BeginFrame() {
             static_cast<uint8_t>(m_clearColor[2] * 255.0f),
             static_cast<uint8_t>(m_clearColor[3] * 255.0f)
         ));
+        m_blContext.setCompOp(BL_COMP_OP_SRC_OVER); // Restore default
     }
 }
 

@@ -13,6 +13,7 @@ set(SOURCE_FILES
 
     # PCB components
     ../pcb/XZZPCBLoader.cpp
+    ../pcb/processing/OrientationProcessor.cpp
     ../pcb/Board.cpp
     ../pcb/BoardLoaderFactory.cpp
     BoardDataManager.cpp

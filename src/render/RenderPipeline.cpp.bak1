@@ -11,9 +11,8 @@
 #include "pcb/elements/TextLabel.hpp" // Added for TextLabel
 #include "pcb/elements/Pin.hpp"       // For Pin and PadShape when rendering pins
 #include <blend2d.h>
-#include <iostream>  // For logging
-#include <iomanip>   // For std::hex/std::dec output manipulator
-#include <algorithm> // For std::min/max for AABB checks
+#include <iostream> // For logging
+#include <iomanip>  // For std::hex/std::dec output manipulator
 
 // For logging or error reporting:
 // #include <iostream>
@@ -54,7 +53,6 @@ void RenderPipeline::Shutdown()
     //     if (stage) stage->Shutdown();
     // }
     // m_stages.clear();
-    m_fontFaceCache.clear();
 
     std::cout << "RenderPipeline shutdown." << std::endl;
     m_initialized = false;
@@ -88,10 +86,7 @@ void RenderPipeline::Execute(
     const Board *board,
     const Camera &camera,
     const Viewport &viewport,
-    const Grid &grid,
-    bool shouldRenderGrid, // Parameter name matching declaration
-    bool shouldRenderBoard // Parameter name matching declaration
-)
+    const Grid &grid)
 {
     if (!m_initialized)
     {
@@ -99,70 +94,14 @@ void RenderPipeline::Execute(
         return;
     }
 
-    // Conditionally render the grid
-    if (shouldRenderGrid)
-    {
-        RenderGrid(bl_ctx, camera, viewport, grid);
+    // Render the grid first, so it's behind board elements.
+    // The Grid::Render method will apply its own transformations using the camera and viewport.
+    RenderGrid(bl_ctx, camera, viewport, grid);
+
+    if (board)
+    {                                                  // Only render board if it's not null
+        RenderBoard(bl_ctx, *board, camera, viewport); // Removed grid parameter
     }
-
-    // Conditionally render the board
-    if (shouldRenderBoard && board)
-    {
-        RenderBoard(bl_ctx, *board, camera, viewport);
-    }
-}
-// Helper function to check if two AABB rectangles intersect
-bool AreRectsIntersecting(const BLRect &r1, const BLRect &r2)
-{
-    return !(r1.x + r1.w < r2.x || // r1 is to the left of r2
-             r1.x > r2.x + r2.w || // r1 is to the right of r2
-             r1.y + r1.h < r2.y || // r1 is above r2
-             r1.y > r2.y + r2.h);  // r1 is below r2
-}
-
-// Helper function to transform an AABB by a matrix
-BLRect TransformAABB(const BLRect &localAABB, const BLMatrix2D &transform)
-{
-    BLPoint p1 = {localAABB.x, localAABB.y};
-    BLPoint p2 = {localAABB.x + localAABB.w, localAABB.y};
-    BLPoint p3 = {localAABB.x, localAABB.y + localAABB.h};
-    BLPoint p4 = {localAABB.x + localAABB.w, localAABB.y + localAABB.h};
-
-    BLPoint tp1 = transform.mapPoint(p1);
-    BLPoint tp2 = transform.mapPoint(p2);
-    BLPoint tp3 = transform.mapPoint(p3);
-    BLPoint tp4 = transform.mapPoint(p4);
-
-    double min_x = std::min({tp1.x, tp2.x, tp3.x, tp4.x});
-    double min_y = std::min({tp1.y, tp2.y, tp3.y, tp4.y});
-    double max_x = std::max({tp1.x, tp2.x, tp3.x, tp4.x});
-    double max_y = std::max({tp1.y, tp2.y, tp3.y, tp4.y});
-
-    return BLRect(min_x, min_y, max_x - min_x, max_y - min_y);
-}
-
-BLRect RenderPipeline::GetVisibleWorldBounds(const Camera &camera, const Viewport &viewport) const
-{
-    // This logic is similar to Grid::GetVisibleWorldBounds
-    Vec2 screenCorners[4] = {
-        {static_cast<float>(viewport.GetX()), static_cast<float>(viewport.GetY())},
-        {static_cast<float>(viewport.GetX() + viewport.GetWidth()), static_cast<float>(viewport.GetY())},
-        {static_cast<float>(viewport.GetX()), static_cast<float>(viewport.GetY() + viewport.GetHeight())},
-        {static_cast<float>(viewport.GetX() + viewport.GetWidth()), static_cast<float>(viewport.GetY() + viewport.GetHeight())}};
-
-    Vec2 worldMin = viewport.ScreenToWorld(screenCorners[0], camera);
-    Vec2 worldMax = worldMin;
-
-    for (int i = 1; i < 4; ++i)
-    {
-        Vec2 worldCorner = viewport.ScreenToWorld(screenCorners[i], camera);
-        worldMin.x = std::min(worldMin.x, worldCorner.x);
-        worldMin.y = std::min(worldMin.y, worldCorner.y);
-        worldMax.x = std::max(worldMax.x, worldCorner.x);
-        worldMax.y = std::max(worldMax.y, worldCorner.y);
-    }
-    // Invert the y coordinates to match camera translation behavior
-    return BLRect(worldMin.x, -worldMax.y, worldMax.x - worldMin.x, worldMax.y - worldMin.y);
 }
 
 void RenderPipeline::RenderBoard(
@@ -173,28 +112,14 @@ void RenderPipeline::RenderBoard(
 {
     // std::cout << "RenderBoard (Corrected Logic): Board has " << board.layers.size() << " layers defined." << std::endl;
 
-    // Get the visible world rectangle for culling
-
     bl_ctx.save();
 
     bl_ctx.translate(viewport.GetWidth() / 2.0, viewport.GetHeight() / 2.0);
     bl_ctx.scale(camera.GetZoom());
-    // Use cached rotation values from camera
-    float rotationRadians = camera.GetRotation() * (static_cast<float>(BL_M_PI) / 180.0f);
-    // This line is not strictly needed if camera.GetRotation gives the angle for GetCachedSin/Cos
-    // but RenderPipeline directly applies rotation here. It can also use the cached sin/cos.
-    // For direct rotation, Blend2D expects radians. If GetRotation is degrees:
-    // float rad = camera.GetRotation() * (BL_M_PI / 180.0f);
-    // bl_ctx.rotate(rad);
-    // OR, if we want to be consistent and use the cached values (which might be slightly out of sync if SetRotation was called but not yet reflected in a full matrix)
-    // For Blend2D's rotate, it takes the angle. The cached sin/cos are for constructing matrices usually.
-    // Keeping it simple for now with direct angle conversion.
-    bl_ctx.rotate(camera.GetRotation() * (BL_M_PI / 180.0f));
-
+    bl_ctx.rotate(camera.GetRotation() * (BL_M_PI / 180.0));
     // Apply camera translation: Use positive Y component of camera position
     // to make board's Y movement consistent with grid's Y movement relative to camera world Y changes.
     bl_ctx.translate(-camera.GetPosition().x, camera.GetPosition().y);
-    BLRect worldViewRect = GetVisibleWorldBounds(camera, viewport);
 
     // Render Traces
     for (const auto &trace : board.GetTraces())
@@ -203,7 +128,7 @@ void RenderPipeline::RenderBoard(
         if (layer_info && layer_info->IsVisible())
         {
             bl_ctx.setStrokeStyle(layer_info->GetColor());
-            RenderTrace(bl_ctx, trace, worldViewRect);
+            RenderTrace(bl_ctx, trace);
         }
     }
 
@@ -214,23 +139,20 @@ void RenderPipeline::RenderBoard(
         if (layer_info && layer_info->IsVisible())
         {
             bl_ctx.setStrokeStyle(layer_info->GetColor());
-            RenderArc(bl_ctx, arc, worldViewRect);
+            RenderArc(bl_ctx, arc);
         }
     }
 
     // Render Vias
     for (const auto &via : board.GetVias())
     {
-        // Via visibility is often tied to layers, but pads might span multiple visible layers.
-        // Culling individual pads within RenderVia.
-        RenderVia(bl_ctx, via, board, worldViewRect);
+        RenderVia(bl_ctx, via, board);
     }
 
     // Render Components
     for (const auto &component : board.GetComponents())
     {
-        // RenderComponent will handle its own culling and layer visibility internally
-        RenderComponent(bl_ctx, component, board, worldViewRect);
+        RenderComponent(bl_ctx, component, board);
     }
 
     // Render Standalone Text Labels
@@ -238,29 +160,6 @@ void RenderPipeline::RenderBoard(
     {
         if (!text_label.is_visible)
             continue;
-
-        // AABB for text label (approximate)
-        // This is a rough approximation. For accurate AABB, we'd need font metrics.
-        // Assuming font_size is in world units for now.
-        // The text is drawn with its origin at (textLabel.x, textLabel.y)
-        // Rotation makes AABB more complex. For simplicity, we'll use an unrotated AABB
-        // around the origin point, scaled by font size.
-        // A more accurate AABB would consider the text block's actual rendered extent.
-        double approx_text_width = text_label.text_content.length() * text_label.font_size * 0.6; // Rough guess
-        double approx_text_height = text_label.font_size;
-        BLRect text_aabb(
-            text_label.x - approx_text_width / 2.0, // Assuming centered for culling, adjust if origin is top-left
-            text_label.y - approx_text_height / 2.0,
-            approx_text_width,
-            approx_text_height);
-        // If rotation is significant, this AABB needs to be expanded or transformed.
-        // For simplicity, we'll use this, but it might incorrectly cull rotated text.
-
-        if (!AreRectsIntersecting(text_aabb, worldViewRect))
-        {
-            continue;
-        }
-
         const LayerInfo *layer_info = board.GetLayerById(text_label.layer);
         if (layer_info && layer_info->IsVisible())
         {
@@ -301,23 +200,8 @@ void RenderPipeline::RenderGrid(
 // Private helper methods for rendering specific PCB elements
 // These would typically be declared in RenderPipeline.hpp if it were being modified here.
 
-void RenderPipeline::RenderTrace(BLContext &bl_ctx, const Trace &trace, const BLRect &worldViewRect)
+void RenderPipeline::RenderTrace(BLContext &bl_ctx, const Trace &trace)
 {
-    // AABB for the trace line segment
-    double min_x = std::min(trace.GetStartX(), trace.GetEndX());
-    double max_x = std::max(trace.GetStartX(), trace.GetEndX());
-    double min_y = std::min(trace.GetStartY(), trace.GetEndY());
-    double max_y = std::max(trace.GetStartY(), trace.GetEndY());
-    double width_for_aabb = trace.GetWidth() > 0 ? trace.GetWidth() : 0.05;
-
-    BLRect trace_aabb(min_x - width_for_aabb / 2.0, min_y - width_for_aabb / 2.0,
-                      max_x - min_x + width_for_aabb, max_y - min_y + width_for_aabb);
-
-    if (!AreRectsIntersecting(trace_aabb, worldViewRect))
-    {
-        return; // Cull this trace
-    }
-
     // Color is set by RenderBoard.
     double width = trace.GetWidth();
     if (width <= 0)
@@ -353,33 +237,14 @@ void RenderPipeline::RenderTrace(BLContext &bl_ctx, const Trace &trace, const BL
     bl_ctx.strokeLine(trace.GetStartX(), trace.GetStartY(), trace.GetEndX(), trace.GetEndY());
 }
 
-void RenderPipeline::RenderVia(BLContext &bl_ctx, const Via &via, const Board &board, const BLRect &worldViewRect)
+void RenderPipeline::RenderVia(BLContext &bl_ctx, const Via &via, const Board &board)
 {
-    // AABB for the entire via (bounding box of all its pads)
-    double max_radius = std::max(via.GetPadRadiusFrom(), via.GetPadRadiusTo());
-    if (max_radius <= 0)
-        max_radius = 0.01; // Ensure some extent for culling if radii are zero/negative
-
-    BLRect via_aabb(via.GetX() - max_radius, via.GetY() - max_radius,
-                    2 * max_radius, 2 * max_radius);
-
-    if (!AreRectsIntersecting(via_aabb, worldViewRect))
-    {
-        return; // Cull this via
-    }
-
     // Pad on 'from' layer
     const LayerInfo *layer_from_props = board.GetLayerById(via.GetLayerFrom());
     if (layer_from_props && layer_from_props->IsVisible() && via.GetPadRadiusFrom() > 0)
     {
-        // Individual pad culling (could be redundant if via_aabb already culled, but good for precision)
-        BLRect pad_from_aabb(via.GetX() - via.GetPadRadiusFrom(), via.GetY() - via.GetPadRadiusFrom(),
-                             2 * via.GetPadRadiusFrom(), 2 * via.GetPadRadiusFrom());
-        if (AreRectsIntersecting(pad_from_aabb, worldViewRect))
-        {
-            bl_ctx.setFillStyle(layer_from_props->GetColor());
-            bl_ctx.fillCircle(via.GetX(), via.GetY(), via.GetPadRadiusFrom());
-        }
+        bl_ctx.setFillStyle(layer_from_props->GetColor());
+        bl_ctx.fillCircle(via.GetX(), via.GetY(), via.GetPadRadiusFrom());
     }
 
     // Pad on 'to' layer
@@ -387,38 +252,18 @@ void RenderPipeline::RenderVia(BLContext &bl_ctx, const Via &via, const Board &b
     const LayerInfo *layer_to_props = board.GetLayerById(via.GetLayerTo());
     if (layer_to_props && layer_to_props->IsVisible() && via.GetPadRadiusTo() > 0)
     {
-        BLRect pad_to_aabb(via.GetX() - via.GetPadRadiusTo(), via.GetY() - via.GetPadRadiusTo(),
-                           2 * via.GetPadRadiusTo(), 2 * via.GetPadRadiusTo());
-        if (AreRectsIntersecting(pad_to_aabb, worldViewRect))
-        {
-            // If drawing concentric, ensure this is the smaller radius or drawn on top.
-            // For simple overlay, this is fine. For true concentric with different colors visible:
-            // if (via.GetLayerTo() != via.GetLayerFrom() || via.GetPadRadiusTo() < via.GetPadRadiusFrom()) {
-            // }
-            bl_ctx.setFillStyle(layer_to_props->GetColor());
-            bl_ctx.fillCircle(via.GetX(), via.GetY(), via.GetPadRadiusTo());
-            // }
-        }
+        // If drawing concentric, ensure this is the smaller radius or drawn on top.
+        // For simple overlay, this is fine. For true concentric with different colors visible:
+        // if (via.GetLayerTo() != via.GetLayerFrom() || via.GetPadRadiusTo() < via.GetPadRadiusFrom()) {
+        bl_ctx.setFillStyle(layer_to_props->GetColor());
+        bl_ctx.fillCircle(via.GetX(), via.GetY(), via.GetPadRadiusTo());
+        // }
     }
     // Drill hole rendering can be added here if desired.
 }
 
-void RenderPipeline::RenderArc(BLContext &bl_ctx, const Arc &arc, const BLRect &worldViewRect)
+void RenderPipeline::RenderArc(BLContext &bl_ctx, const Arc &arc)
 {
-    // AABB for the arc (approximated by the bounding box of its circle)
-    // More precise AABB would involve checking arc extents, but this is usually sufficient for culling.
-    double radius = arc.GetRadius();
-    double thickness_for_aabb = arc.GetThickness() > 0 ? arc.GetThickness() : 0.05;
-    BLRect arc_aabb(arc.GetCX() - radius - thickness_for_aabb / 2.0,
-                    arc.GetCY() - radius - thickness_for_aabb / 2.0,
-                    2 * radius + thickness_for_aabb,
-                    2 * radius + thickness_for_aabb);
-
-    if (!AreRectsIntersecting(arc_aabb, worldViewRect))
-    {
-        return; // Cull this arc
-    }
-
     // Color is set by RenderBoard.
     double thickness = arc.GetThickness();
     if (thickness <= 0)
@@ -445,52 +290,13 @@ void RenderPipeline::RenderArc(BLContext &bl_ctx, const Arc &arc, const BLRect &
     bl_ctx.strokePath(path);
 }
 
-void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &component, const Board &board, const BLRect &worldViewRect)
+void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &component, const Board &board)
 {
-    // --- Component Level Culling ---
-    BLMatrix2D componentTransform;
-    componentTransform.translate(component.center_x, component.center_y);
-    componentTransform.rotate(component.rotation * (BL_M_PI / 180.0));
 
-    double local_half_w = component.width / 2.0;
-    double local_half_h = component.height / 2.0;
-    if (local_half_w <= 0)
-        local_half_w = 0.1;
-    if (local_half_h <= 0)
-        local_half_h = 0.1;
-
-    BLRect component_local_aabb(-local_half_w, -local_half_h, local_half_w * 2.0, local_half_h * 2.0);
-    BLRect component_world_aabb = TransformAABB(component_local_aabb, componentTransform);
-
-    if (!AreRectsIntersecting(component_world_aabb, worldViewRect))
-    {
-        return; // Cull entire component
-    }
-
-    bl_ctx.save();
-    bl_ctx.translate(component.center_x, component.center_y);
-    bl_ctx.rotate(component.rotation * (BL_M_PI / 180.0));
-
-    // Render Graphical Elements
+    // Render Graphical Elements (e.g., silkscreen, component outline)
+    // These are now drawn in the component's local coordinate system.
     for (const auto &segment : component.graphical_elements)
     {
-        double seg_min_x = std::min(segment.start.x, segment.end.x);
-        double seg_max_x = std::max(segment.start.x, segment.end.x);
-        double seg_min_y = std::min(segment.start.y, segment.end.y);
-        double seg_max_y = std::max(segment.start.y, segment.end.y);
-        double thickness_for_aabb_seg = segment.thickness > 0 ? segment.thickness : 0.1;
-
-        BLRect segment_local_aabb(seg_min_x - thickness_for_aabb_seg / 2.0,
-                                  seg_min_y - thickness_for_aabb_seg / 2.0,
-                                  seg_max_x - seg_min_x + thickness_for_aabb_seg,
-                                  seg_max_y - seg_min_y + thickness_for_aabb_seg);
-
-        BLRect segment_world_aabb_for_culling = TransformAABB(segment_local_aabb, componentTransform);
-        if (!AreRectsIntersecting(segment_world_aabb_for_culling, worldViewRect))
-        {
-            continue;
-        }
-
         const LayerInfo *element_layer = board.GetLayerById(segment.layer);
         if (element_layer && element_layer->IsVisible())
         {
@@ -508,21 +314,6 @@ void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &compone
     {
         if (!label.is_visible)
             continue;
-
-        double approx_text_width_comp = label.text_content.length() * label.font_size * 0.6 * label.scale;
-        double approx_text_height_comp = label.font_size * label.scale;
-        BLRect label_local_aabb(
-            label.x - approx_text_width_comp / 2.0,
-            label.y - approx_text_height_comp / 2.0,
-            approx_text_width_comp,
-            approx_text_height_comp);
-
-        BLRect label_world_aabb_for_culling = TransformAABB(label_local_aabb, componentTransform);
-        if (!AreRectsIntersecting(label_world_aabb_for_culling, worldViewRect))
-        {
-            continue;
-        }
-
         const LayerInfo *element_layer = board.GetLayerById(label.layer);
         if (element_layer && element_layer->IsVisible())
         {
@@ -536,37 +327,10 @@ void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &compone
     // which are all in the component's local coordinate system.
     for (const auto &pin : component.pins)
     {
-        double pin_local_center_x = pin.x_coord; // Renamed for clarity
-        double pin_local_center_y = pin.y_coord; // Renamed for clarity
-        double max_pin_dim = 0.1;                // Initial small default, will be expanded by pad shape.
-
-        std::visit([&](auto &&shape)
-                   {
-            using T = std::decay_t<decltype(shape)>;
-            pin_local_center_x += shape.x_offset; 
-            pin_local_center_y += shape.y_offset;
-            if constexpr (std::is_same_v<T, CirclePad>) {
-                max_pin_dim = std::max(max_pin_dim, shape.radius * 2.0);
-            } else if constexpr (std::is_same_v<T, RectanglePad>) {
-                max_pin_dim = std::max({max_pin_dim, pin.initial_width, pin.initial_height});
-            } else if constexpr (std::is_same_v<T, CapsulePad>) {
-                max_pin_dim = std::max({max_pin_dim, shape.width, shape.height});
-            } }, pin.pad_shape);
-
-        BLRect pin_local_aabb(pin_local_center_x - max_pin_dim / 2.0,
-                              pin_local_center_y - max_pin_dim / 2.0,
-                              max_pin_dim, max_pin_dim);
-
-        BLRect pin_world_aabb_for_culling = TransformAABB(pin_local_aabb, componentTransform);
-        if (!AreRectsIntersecting(pin_world_aabb_for_culling, worldViewRect))
-        {
-            continue;
-        }
-
-        RenderPin(bl_ctx, pin, component, board);
+        RenderPin(bl_ctx, pin, component, board); // Pass component for context if needed by RenderPin, though layer info comes from board
     }
 
-    bl_ctx.restore();
+    // ***** END REFACTORED CODE *****
 }
 
 void RenderPipeline::RenderTextLabel(BLContext &bl_ctx, const TextLabel &textLabel, const BLRgba32 &color)
@@ -662,12 +426,7 @@ void RenderPipeline::RenderPin(BLContext &bl_ctx, const Pin &pin, const Componen
     }
 
     bl_ctx.setFillStyle(layer_info->GetColor());
-    // DEBUG: If pin.debug_color is set, use it instead of layer_info->GetColor
-    // if (pin.debug_color != BLRgba32(0, 0, 0, 0))
-    // {
-    //     bl_ctx.setFillStyle(pin.debug_color);
-    //     printf("[RenderPin]: Pin %s: Using debug color %d\n", pin.pin_name.c_str(), pin.debug_color);
-    // }
+
     // NOTE: The component's main transformation (center_x, center_y, rotation)
     // is ALREADY APPLIED to bl_ctx by the calling RenderComponent method.
     // So, pin.x_coord, pin.y_coord, and shape.x_offset/y_offset are treated as local
@@ -766,3 +525,4 @@ void RenderPipeline::RenderPin(BLContext &bl_ctx, const Pin &pin, const Componen
             bl_ctx.fillPath(path);
         } }, pin.pad_shape);
 }
+// ***** END ADDED CODE *****

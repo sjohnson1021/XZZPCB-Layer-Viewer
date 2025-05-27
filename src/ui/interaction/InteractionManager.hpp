@@ -9,26 +9,28 @@
 class Camera;
 class Viewport;
 // class InteractionTool; // Base class, NavigationTool.hpp will include it.
-class NavigationTool; // Concrete tool
-class ControlSettings; // Added forward declaration
+class NavigationTool;   // Concrete tool
+class ControlSettings;  // Added forward declaration
 class BoardDataManager; // Added forward declaration
+class PcbRenderer;      // Added forward declaration
 
-class InteractionManager {
+class InteractionManager
+{
 public:
-    InteractionManager(std::shared_ptr<Camera> camera, 
+    InteractionManager(std::shared_ptr<Camera> camera,
                        std::shared_ptr<Viewport> viewport,
                        std::shared_ptr<ControlSettings> controlSettings,
                        std::shared_ptr<BoardDataManager> boardDataManager); // Added parameter
     ~InteractionManager();
 
-    InteractionManager(const InteractionManager&) = delete;
-    InteractionManager& operator=(const InteractionManager&) = delete;
-    InteractionManager(InteractionManager&&) = delete;
-    InteractionManager& operator=(InteractionManager&&) = delete;
+    InteractionManager(const InteractionManager &) = delete;
+    InteractionManager &operator=(const InteractionManager &) = delete;
+    InteractionManager(InteractionManager &&) = delete;
+    InteractionManager &operator=(InteractionManager &&) = delete;
 
     // Called every frame to process inputs
     // Needs context: which window/area is active, mouse position relative to it.
-    void ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isViewportHovered, ImVec2 viewportTopLeft, ImVec2 viewportSize);
+    void ProcessInput(ImGuiIO &io, bool isViewportFocused, bool isViewportHovered, ImVec2 viewportTopLeft, ImVec2 viewportSize, PcbRenderer *pcbRenderer);
 
     // Tool management
     // void AddTool(std::shared_ptr<InteractionTool> tool);
@@ -42,8 +44,8 @@ public:
 
 private:
     std::shared_ptr<Camera> m_camera;
-    std::shared_ptr<Viewport> m_viewport; // Viewport of the render area
-    std::shared_ptr<ControlSettings> m_controlSettings; // Added member
+    std::shared_ptr<Viewport> m_viewport;                 // Viewport of the render area
+    std::shared_ptr<ControlSettings> m_controlSettings;   // Added member
     std::shared_ptr<BoardDataManager> m_boardDataManager; // Added member
 
     // std::vector<std::shared_ptr<InteractionTool>> m_tools;
@@ -54,4 +56,4 @@ private:
 
     // For now, directly own the NavigationTool.
     std::unique_ptr<NavigationTool> m_navigationTool;
-}; 
+};

@@ -1,7 +1,7 @@
 #include "view/Camera.hpp"
 #include "view/Viewport.hpp" // Needed for Camera::FocusOnRect
-#include <cmath> // For std::pow, std::cos, std::sin, etc. if needed for transformations
-#include <algorithm> // For std::min/max
+#include <cmath>             // For std::pow, std::cos, std::sin, etc. if needed for transformations
+#include <algorithm>         // For std::min/max
 
 // If using GLM:
 // #include <glm/gtc/matrix_transform.hpp>
@@ -21,88 +21,99 @@ const float MAX_ZOOM_LEVEL = 100.0f;
 #endif
 
 Camera::Camera()
-    : m_position(DEFAULT_POSITION)
-    , m_zoom(DEFAULT_ZOOM)
-    , m_rotation(DEFAULT_ROTATION) {
+    : m_position(DEFAULT_POSITION), m_zoom(DEFAULT_ZOOM), m_rotation(DEFAULT_ROTATION), m_viewChangedThisFrame(true)
+{
+    float rad = m_rotation * (static_cast<float>(M_PI) / 180.0f);
+    m_cachedCosRotation = std::cos(rad);
+    m_cachedSinRotation = std::sin(rad);
     // UpdateViewMatrix(); // If we had one
 }
 
-void Camera::SetPosition(const Vec2& position) {
-    m_position = position;
+void Camera::SetPosition(const Vec2 &position)
+{
+    if (m_position.x != position.x || m_position.y != position.y)
+    {
+        m_position = position;
+        m_viewChangedThisFrame = true;
+    }
     // UpdateViewMatrix();
 }
 
-const Vec2& Camera::GetPosition() const {
+const Vec2 &Camera::GetPosition() const
+{
     return m_position;
 }
 
-void Camera::SetZoom(float zoom) {
+void Camera::SetZoom(float zoom)
+{
     // Add constraints to zoom if necessary (e.g., min/max zoom)
     float clampedZoom = std::max(MIN_ZOOM_LEVEL, std::min(zoom, MAX_ZOOM_LEVEL));
-    if (clampedZoom > 0.0f) { // Zoom must be positive (already ensured by MIN_ZOOM_LEVEL > 0)
-        m_zoom = clampedZoom;
-        // UpdateViewMatrix();
+    if (clampedZoom > 0.0f)
+    { // Zoom must be positive
+        if (m_zoom != clampedZoom)
+        {
+            m_zoom = clampedZoom;
+            m_viewChangedThisFrame = true;
+        }
     }
+    // UpdateViewMatrix();
 }
 
-float Camera::GetZoom() const {
+float Camera::GetZoom() const
+{
     return m_zoom;
 }
 
-void Camera::SetRotation(float angleDegrees) {
-    m_rotation = angleDegrees;
-    // Normalize angle if desired (e.g., to [0, 360) or [-180, 180))
+void Camera::SetRotation(float angleDegrees)
+{
+    if (m_rotation != angleDegrees)
+    {
+        m_rotation = angleDegrees;
+        // Normalize angle if desired (e.g., to [0, 360) or [-180, 180))
+        float rad = m_rotation * (static_cast<float>(M_PI) / 180.0f);
+        m_cachedCosRotation = std::cos(rad);
+        m_cachedSinRotation = std::sin(rad);
+        m_viewChangedThisFrame = true;
+    }
     // UpdateViewMatrix();
 }
 
-float Camera::GetRotation() const {
+float Camera::GetRotation() const
+{
     return m_rotation;
 }
 
-void Camera::Pan(const Vec2& delta) {
-    // Pan delta is often in screen space and needs to be converted to world space
-    // by dividing by zoom and rotating if the camera is rotated.
-    // For now, let's assume delta is already in world space for simplicity, adjusted for zoom.
-    // A more correct pan would consider rotation:
-    // float rad = m_rotation * (M_PI / 180.0f);
-    // float cosA = std::cos(-rad); // Inverse rotation
-    // float sinA = std::sin(-rad);
-    // Vec2 worldDelta = {
-    //     (delta.x * cosA - delta.y * sinA) / m_zoom,
-    //     (delta.x * sinA + delta.y * cosA) / m_zoom
-    // };
-    // m_position += worldDelta;
-
-    // Simpler pan for now, assuming delta is scaled screen pixels to world units:
-    m_position.x += delta.x;
-    m_position.y += delta.y; // Invert Y-axis for panning
+void Camera::Pan(const Vec2 &delta)
+{
+    if (delta.x != 0.0f || delta.y != 0.0f)
+    {
+        m_position.x += delta.x;
+        m_position.y += delta.y;
+        m_viewChangedThisFrame = true;
+    }
     // UpdateViewMatrix();
 }
 
-void Camera::ZoomAt(const Vec2& screenPoint, float zoomFactor) {
-    // This is a common way to zoom: zoom towards a specific point on the screen.
-    // 1. Convert screenPoint to world coordinates (before zoom).
-    //    This needs the current viewport and camera transform.
-    //    Let P_world_mouse be the world coordinate under the mouse.
-    // 2. Calculate new position: P_new_cam = P_world_mouse - (P_world_mouse - P_old_cam) * (old_zoom / new_zoom)
-    //    Or, equivalently: P_new_cam = P_old_cam + (P_world_mouse - P_old_cam) * (1 - old_zoom / new_zoom)
-    // 3. Set new zoom and new position.
-
-    // This is a complex operation that usually involves the Viewport/CoordinateSystem.
-    // For now, a simpler zoom is in AdjustZoom. We can implement this fully later.
-    // Let's just adjust zoom for now.
+void Camera::ZoomAt(const Vec2 &screenPoint, float zoomFactor)
+{
+    float oldZoom = m_zoom;
     float newZoom = m_zoom * zoomFactor;
-    SetZoom(newZoom);
+    SetZoom(newZoom); // SetZoom will handle clamping and setting m_viewChangedThisFrame if zoom actually changes
+    // If SetZoom resulted in a change, m_viewChangedThisFrame is already true.
+    // The more complex position adjustment logic would also set m_viewChangedThisFrame if SetPosition is called.
 }
 
-void Camera::AdjustZoom(float zoomDelta) {
-    // zoomDelta could be an additive factor or a multiplier
-    // Assuming it's a multiplier (e.g., 1.1 for 10% zoom in, 0.9 for 10% zoom out)
-    SetZoom(m_zoom * zoomDelta);
+void Camera::AdjustZoom(float zoomMultiplier)
+{
+    if (zoomMultiplier != 1.0f)
+    {
+        SetZoom(m_zoom * zoomMultiplier); // SetZoom handles the flag
+    }
 }
 
 // Example of how a simple 2D view transformation might be derived
-Vec2 Camera::GetWorldToViewOffset() const {
+Vec2 Camera::GetWorldToViewOffset() const
+{
     // To transform a world point P_world to view space P_view:
     // 1. Translate by -m_position
     // For rotation around camera center:
@@ -115,43 +126,71 @@ Vec2 Camera::GetWorldToViewOffset() const {
     return Vec2(-m_position.x, -m_position.y);
 }
 
-float Camera::GetWorldToViewScale() const {
+float Camera::GetWorldToViewScale() const
+{
     return m_zoom;
 }
 
-float Camera::GetWorldToViewRotation() const {
+float Camera::GetWorldToViewRotation() const
+{
     // Rotation for the view transform is typically the negative of camera's world rotation.
     return -m_rotation;
 }
 
-void Camera::Reset() {
-    m_position = DEFAULT_POSITION;
-    m_zoom = DEFAULT_ZOOM;
-    m_rotation = DEFAULT_ROTATION;
+void Camera::Reset()
+{
+    bool changed = false;
+    if (m_position.x != DEFAULT_POSITION.x || m_position.y != DEFAULT_POSITION.y)
+    {
+        m_position = DEFAULT_POSITION;
+        changed = true;
+    }
+    if (m_zoom != DEFAULT_ZOOM)
+    {
+        m_zoom = DEFAULT_ZOOM;
+        changed = true;
+    }
+    if (m_rotation != DEFAULT_ROTATION)
+    {
+        m_rotation = DEFAULT_ROTATION;
+        float rad = m_rotation * (static_cast<float>(M_PI) / 180.0f);
+        m_cachedCosRotation = std::cos(rad);
+        m_cachedSinRotation = std::sin(rad);
+        changed = true;
+    }
+    if (changed)
+    {
+        m_viewChangedThisFrame = true;
+    }
     // UpdateViewMatrix();
 }
 
 // void Camera::UpdateViewMatrix() {
-    // If we were using a matrix:
-    // m_viewMatrix = glm::mat4(1.0f);
-    // m_viewMatrix = glm::translate(m_viewMatrix, glm::vec3(m_position.x, m_position.y, 0.0f)); 
-    // m_viewMatrix = glm::scale(m_viewMatrix, glm::vec3(m_zoom, m_zoom, 1.0f));
-    // m_viewMatrix = glm::rotate(m_viewMatrix, glm::radians(m_rotation), glm::vec3(0.0f, 0.0f, 1.0f));
-    // Then usually invert it for the actual view matrix: m_viewMatrix = glm::inverse(m_viewMatrix);
-// } 
+// If we were using a matrix:
+// m_viewMatrix = glm::mat4(1.0f);
+// m_viewMatrix = glm::translate(m_viewMatrix, glm::vec3(m_position.x, m_position.y, 0.0f));
+// m_viewMatrix = glm::scale(m_viewMatrix, glm::vec3(m_zoom, m_zoom, 1.0f));
+// m_viewMatrix = glm::rotate(m_viewMatrix, glm::radians(m_rotation), glm::vec3(0.0f, 0.0f, 1.0f));
+// Then usually invert it for the actual view matrix: m_viewMatrix = glm::inverse(m_viewMatrix);
+// }
 
-void Camera::FocusOnRect(const BLRect& worldRect, const Viewport& viewport, float padding) {
-    if (worldRect.w <= 0 || worldRect.h <= 0 || viewport.GetWidth() <= 0 || viewport.GetHeight() <= 0) {
+void Camera::FocusOnRect(const BLRect &worldRect, const Viewport &viewport, float padding)
+{
+    if (worldRect.w <= 0 || worldRect.h <= 0 || viewport.GetWidth() <= 0 || viewport.GetHeight() <= 0)
+    {
         // Cannot focus on an empty rect or with an invalid viewport
         // Optionally, could reset to default view here or log a warning.
         // For now, do nothing to prevent division by zero or nonsensical state.
         return;
     }
 
-    // Calculate the center of the worldRect. This will be the new camera position.
-    // Since board coordinates are normalized, this should be close to (0,0) for the board itself.
+    float old_target_pan_x = m_position.x;
+    float old_target_pan_y = m_position.y;
+    float old_zoom = m_zoom;
+
     float target_pan_x = static_cast<float>(worldRect.x + worldRect.w / 2.0);
     float target_pan_y = static_cast<float>(worldRect.y + worldRect.h / 2.0);
+    // SetPosition will set m_viewChangedThisFrame if position actually changes
     SetPosition({target_pan_x, target_pan_y});
 
     // Calculate the required zoom to fit the worldRect into the viewport dimensions with padding.
@@ -160,8 +199,10 @@ void Camera::FocusOnRect(const BLRect& worldRect, const Viewport& viewport, floa
     float padded_rect_height = static_cast<float>(worldRect.h * (1.0f + padding));
 
     // Ensure padded dimensions are not zero to avoid division by zero if original w/h was tiny.
-    if (padded_rect_width <= 0) padded_rect_width = 1.0f; // Min effective width for zoom calc
-    if (padded_rect_height <= 0) padded_rect_height = 1.0f; // Min effective height
+    if (padded_rect_width <= 0)
+        padded_rect_width = 1.0f; // Min effective width for zoom calc
+    if (padded_rect_height <= 0)
+        padded_rect_height = 1.0f; // Min effective height
 
     float zoom_x = static_cast<float>(viewport.GetWidth()) / padded_rect_width;
     float zoom_y = static_cast<float>(viewport.GetHeight()) / padded_rect_height;
@@ -171,4 +212,15 @@ void Camera::FocusOnRect(const BLRect& worldRect, const Viewport& viewport, floa
 
     // Rotation is not affected by focusing on a rect, typically.
     // If you want to reset rotation too, you could call SetRotation(DEFAULT_ROTATION);
-} 
+
+    // Ensure flag is set if either position or zoom might have changed, even if SetPosition/SetZoom didn't detect a change
+    // due to floating point comparisons but the intent was to change.
+    // However, SetPosition and SetZoom already compare old/new values.
+    // A simpler way: if the function is called, assume a change is intended.
+    // But more robust is to check if state actually changed.
+    // The individual SetPosition/SetZoom calls should correctly set the flag if they result in a state change.
+    // If SetPosition and SetZoom are called but values are identical, they won't set the flag.
+    // If this function implies a view change regardless, then set it unconditionally:
+    // m_viewChangedThisFrame = true; // Uncomment if FocusOnRect always means a redraw.
+    // For now, rely on SetPosition/SetZoom internal logic.
+}
