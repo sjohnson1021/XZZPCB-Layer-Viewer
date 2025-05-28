@@ -87,8 +87,7 @@ void Camera::Pan(const Vec2 &delta)
 {
     if (delta.x != 0.0f || delta.y != 0.0f)
     {
-        m_position.x += delta.x;
-        m_position.y += delta.y;
+        m_position -= delta;
         m_viewChangedThisFrame = true;
     }
     // UpdateViewMatrix();

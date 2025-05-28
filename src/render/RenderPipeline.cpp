@@ -14,6 +14,7 @@
 #include <iostream>  // For logging
 #include <iomanip>   // For std::hex/std::dec output manipulator
 #include <algorithm> // For std::min/max for AABB checks
+#include <cmath>     // For std::cos and std::sin
 
 // For logging or error reporting:
 // #include <iostream>
@@ -161,8 +162,10 @@ BLRect RenderPipeline::GetVisibleWorldBounds(const Camera &camera, const Viewpor
         worldMax.x = std::max(worldMax.x, worldCorner.x);
         worldMax.y = std::max(worldMax.y, worldCorner.y);
     }
-    // Invert the y coordinates to match camera translation behavior
-    return BLRect(worldMin.x, -worldMax.y, worldMax.x - worldMin.x, worldMax.y - worldMin.y);
+    // worldMin and worldMax are now correctly in Y-Down world coordinates.
+    // BLRect expects (x, y, width, height) where x,y is the top-left corner.
+    // In Y-Down, the top-left y is worldMin.y.
+    return BLRect(worldMin.x, worldMin.y, worldMax.x - worldMin.x, worldMax.y - worldMin.y);
 }
 
 void RenderPipeline::RenderBoard(
@@ -180,7 +183,7 @@ void RenderPipeline::RenderBoard(
     bl_ctx.translate(viewport.GetWidth() / 2.0, viewport.GetHeight() / 2.0);
     bl_ctx.scale(camera.GetZoom());
     // Use cached rotation values from camera
-    float rotationRadians = camera.GetRotation() * (static_cast<float>(BL_M_PI) / 180.0f);
+    // float rotationRadians = camera.GetRotation() * (static_cast<float>(BL_M_PI) / 180.0f);
     // This line is not strictly needed if camera.GetRotation gives the angle for GetCachedSin/Cos
     // but RenderPipeline directly applies rotation here. It can also use the cached sin/cos.
     // For direct rotation, Blend2D expects radians. If GetRotation is degrees:
@@ -189,11 +192,16 @@ void RenderPipeline::RenderBoard(
     // OR, if we want to be consistent and use the cached values (which might be slightly out of sync if SetRotation was called but not yet reflected in a full matrix)
     // For Blend2D's rotate, it takes the angle. The cached sin/cos are for constructing matrices usually.
     // Keeping it simple for now with direct angle conversion.
-    bl_ctx.rotate(camera.GetRotation() * (BL_M_PI / 180.0f));
+    // Flipping rotation direction to match the grid, assuming grid's current rotation is the desired one.
+    bl_ctx.rotate(-camera.GetRotation() * (static_cast<float>(BL_M_PI) / 180.0f));
 
     // Apply camera translation: Use positive Y component of camera position
     // to make board's Y movement consistent with grid's Y movement relative to camera world Y changes.
-    bl_ctx.translate(-camera.GetPosition().x, camera.GetPosition().y);
+    // With a Y-Down world system for the camera, and Blend2D being Y-Down:
+    // If camera.GetPosition().y increases (camera moves "down" in world), the world should appear to move "up".
+    // Blend2D translation by a negative Y moves content up.
+    // So, we translate by -camera.GetPosition().y.
+    bl_ctx.translate(-camera.GetPosition().x, -camera.GetPosition().y);
     BLRect worldViewRect = GetVisibleWorldBounds(camera, viewport);
 
     // Render Traces
@@ -447,50 +455,79 @@ void RenderPipeline::RenderArc(BLContext &bl_ctx, const Arc &arc, const BLRect &
 
 void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &component, const Board &board, const BLRect &worldViewRect)
 {
-    // --- Component Level Culling ---
-    BLMatrix2D componentTransform;
-    componentTransform.translate(component.center_x, component.center_y);
-    componentTransform.rotate(component.rotation * (BL_M_PI / 180.0));
+    // Calculate component's world AABB accounting for rotation, without using a BLMatrix2D object or TransformAABB for this step.
+    double comp_w = component.width;
+    double comp_h = component.height;
+    double comp_cx = component.center_x;
+    double comp_cy = component.center_y;
+    double comp_rot_rad = component.rotation * (BL_M_PI / 180.0);
+    double cos_r = std::cos(comp_rot_rad);
+    double sin_r = std::sin(comp_rot_rad);
 
-    double local_half_w = component.width / 2.0;
-    double local_half_h = component.height / 2.0;
-    if (local_half_w <= 0)
-        local_half_w = 0.1;
-    if (local_half_h <= 0)
-        local_half_h = 0.1;
+    // Ensure minimum dimensions for AABB calculation if width/height are zero or negative
+    if (comp_w <= 0)
+        comp_w = 0.1;
+    if (comp_h <= 0)
+        comp_h = 0.1;
 
-    BLRect component_local_aabb(-local_half_w, -local_half_h, local_half_w * 2.0, local_half_h * 2.0);
-    BLRect component_world_aabb = TransformAABB(component_local_aabb, componentTransform);
+    // Local corners (relative to component's local origin 0,0 before rotation/translation)
+    BLPoint local_corners[4] = {
+        {-comp_w / 2.0, -comp_h / 2.0}, {comp_w / 2.0, -comp_h / 2.0}, {comp_w / 2.0, comp_h / 2.0}, {-comp_w / 2.0, comp_h / 2.0}};
+
+    BLPoint world_corners[4];
+    for (int i = 0; i < 4; ++i)
+    {
+        // Rotate
+        double rx = local_corners[i].x * cos_r - local_corners[i].y * sin_r;
+        double ry = local_corners[i].x * sin_r + local_corners[i].y * cos_r;
+        // Translate
+        world_corners[i].x = rx + comp_cx;
+        world_corners[i].y = ry + comp_cy;
+    }
+
+    // Find min/max of world_corners to form AABB
+    double min_wx = world_corners[0].x, max_wx = world_corners[0].x;
+    double min_wy = world_corners[0].y, max_wy = world_corners[0].y;
+    for (int i = 1; i < 4; ++i)
+    {
+        min_wx = std::min(min_wx, world_corners[i].x);
+        max_wx = std::max(max_wx, world_corners[i].x);
+        min_wy = std::min(min_wy, world_corners[i].y);
+        max_wy = std::max(max_wy, world_corners[i].y);
+    }
+    BLRect component_world_aabb(min_wx, min_wy, max_wx - min_wx, max_wy - min_wy);
+
+    // Debug print for component "N1"
+    if (component.reference_designator == "N1")
+    {
+        printf("RenderComponent (Manual AABB): %s\n", component.reference_designator.c_str());
+        printf("  Comp Data: cx=%.2f, cy=%.2f, w=%.2f, h=%.2f, rot=%.2f\n",
+               component.center_x, component.center_y, component.width, component.height, component.rotation);
+        printf("  Calculated World AABB: x=%.2f, y=%.2f, w=%.2f, h=%.2f\n",
+               component_world_aabb.x, component_world_aabb.y, component_world_aabb.w, component_world_aabb.h);
+        printf("  WorldViewRect: x=%.2f, y=%.2f, w=%.2f, h=%.2f\n",
+               worldViewRect.x, worldViewRect.y, worldViewRect.w, worldViewRect.h);
+    }
 
     if (!AreRectsIntersecting(component_world_aabb, worldViewRect))
     {
+        if (component.reference_designator == "N1")
+        {
+            printf("Culled component (Manual AABB): %s.\n", component.reference_designator.c_str());
+        }
         return; // Cull entire component
     }
 
-    bl_ctx.save();
-    bl_ctx.translate(component.center_x, component.center_y);
-    bl_ctx.rotate(component.rotation * (BL_M_PI / 180.0));
+    // The BLMatrix2D componentTransform and TransformAABB calls for culling were here and are intentionally removed/commented out.
+    // Culling for individual sub-elements (segments, labels, pins) also remains commented out from the previous step.
+
+    // bl_ctx.save();
+    // bl_ctx.translate(component.center_x, component.center_y);
+    // bl_ctx.rotate(component.rotation * (BL_M_PI / 180.0));
 
     // Render Graphical Elements
     for (const auto &segment : component.graphical_elements)
     {
-        double seg_min_x = std::min(segment.start.x, segment.end.x);
-        double seg_max_x = std::max(segment.start.x, segment.end.x);
-        double seg_min_y = std::min(segment.start.y, segment.end.y);
-        double seg_max_y = std::max(segment.start.y, segment.end.y);
-        double thickness_for_aabb_seg = segment.thickness > 0 ? segment.thickness : 0.1;
-
-        BLRect segment_local_aabb(seg_min_x - thickness_for_aabb_seg / 2.0,
-                                  seg_min_y - thickness_for_aabb_seg / 2.0,
-                                  seg_max_x - seg_min_x + thickness_for_aabb_seg,
-                                  seg_max_y - seg_min_y + thickness_for_aabb_seg);
-
-        BLRect segment_world_aabb_for_culling = TransformAABB(segment_local_aabb, componentTransform);
-        if (!AreRectsIntersecting(segment_world_aabb_for_culling, worldViewRect))
-        {
-            continue;
-        }
-
         const LayerInfo *element_layer = board.GetLayerById(segment.layer);
         if (element_layer && element_layer->IsVisible())
         {
@@ -502,71 +539,25 @@ void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &compone
     }
 
     // Render Component-Specific Text Labels
-    // RenderTextLabel expects coordinates in the current context (which is now component's local space).
-    // TextLabel.x, TextLabel.y are relative to the component's origin.
     for (const auto &label : component.text_labels)
     {
         if (!label.is_visible)
             continue;
 
-        double approx_text_width_comp = label.text_content.length() * label.font_size * 0.6 * label.scale;
-        double approx_text_height_comp = label.font_size * label.scale;
-        BLRect label_local_aabb(
-            label.x - approx_text_width_comp / 2.0,
-            label.y - approx_text_height_comp / 2.0,
-            approx_text_width_comp,
-            approx_text_height_comp);
-
-        BLRect label_world_aabb_for_culling = TransformAABB(label_local_aabb, componentTransform);
-        if (!AreRectsIntersecting(label_world_aabb_for_culling, worldViewRect))
-        {
-            continue;
-        }
-
         const LayerInfo *element_layer = board.GetLayerById(label.layer);
         if (element_layer && element_layer->IsVisible())
         {
-            // RenderTextLabel handles its own internal transformations for text rotation if any.
             RenderTextLabel(bl_ctx, label, element_layer->GetColor());
         }
     }
 
     // Render Pins
-    // RenderPin will draw the pin.pad_shape at pin.x_coord, pin.y_coord (plus shape offsets)
-    // which are all in the component's local coordinate system.
     for (const auto &pin : component.pins)
     {
-        double pin_local_center_x = pin.x_coord; // Renamed for clarity
-        double pin_local_center_y = pin.y_coord; // Renamed for clarity
-        double max_pin_dim = 0.1;                // Initial small default, will be expanded by pad shape.
-
-        std::visit([&](auto &&shape)
-                   {
-            using T = std::decay_t<decltype(shape)>;
-            pin_local_center_x += shape.x_offset; 
-            pin_local_center_y += shape.y_offset;
-            if constexpr (std::is_same_v<T, CirclePad>) {
-                max_pin_dim = std::max(max_pin_dim, shape.radius * 2.0);
-            } else if constexpr (std::is_same_v<T, RectanglePad>) {
-                max_pin_dim = std::max({max_pin_dim, pin.initial_width, pin.initial_height});
-            } else if constexpr (std::is_same_v<T, CapsulePad>) {
-                max_pin_dim = std::max({max_pin_dim, shape.width, shape.height});
-            } }, pin.pad_shape);
-
-        BLRect pin_local_aabb(pin_local_center_x - max_pin_dim / 2.0,
-                              pin_local_center_y - max_pin_dim / 2.0,
-                              max_pin_dim, max_pin_dim);
-
-        BLRect pin_world_aabb_for_culling = TransformAABB(pin_local_aabb, componentTransform);
-        if (!AreRectsIntersecting(pin_world_aabb_for_culling, worldViewRect))
-        {
-            continue;
-        }
-
         RenderPin(bl_ctx, pin, component, board);
     }
 
-    bl_ctx.restore();
+    // bl_ctx.restore();
 }
 
 void RenderPipeline::RenderTextLabel(BLContext &bl_ctx, const TextLabel &textLabel, const BLRgba32 &color)

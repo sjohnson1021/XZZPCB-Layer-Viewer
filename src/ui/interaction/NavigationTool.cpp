@@ -7,6 +7,7 @@
 #include "pcb/Board.hpp"             // Added include for BLRect and Board methods
 #include <cmath>                     // For M_PI if not already included by camera/viewport
 #include <algorithm>                 // for std::max if not already there
+#include <iostream>                  // for std::cout and std::endl
 
 // Define PI if not available
 #ifndef M_PI
@@ -92,6 +93,8 @@ void NavigationTool::ProcessInput(ImGuiIO &io, bool isViewportFocused, bool isVi
         {
             Vec2 newPos = camPos_val + (worldPosUnderMouse - camPos_val) * (1.0f - oldZoom_val / newZoom_val);
             m_camera->SetPosition(newPos);
+            // debug print newpos
+            std::cout << "newPos: " << newPos.x << ", " << newPos.y << std::endl;
         }
     }
 
@@ -102,7 +105,7 @@ void NavigationTool::ProcessInput(ImGuiIO &io, bool isViewportFocused, bool isVi
         if (delta.x != 0.0f || delta.y != 0.0f)
         {
             Vec2 worldDelta = m_viewport->ScreenDeltaToWorldDelta({delta.x, delta.y}, *m_camera);
-            m_camera->Pan(-worldDelta);
+            m_camera->Pan(worldDelta);
         }
     }
 
@@ -121,22 +124,22 @@ void NavigationTool::ProcessInput(ImGuiIO &io, bool isViewportFocused, bool isVi
 
         if (IsKeybindActive(m_controlSettings->GetKeybind(InputAction::PanUp), io, false))
         {
-            panInputAccumulator.y += effectivePanSpeed; // Positive Y for local "up"
+            panInputAccumulator.y += effectivePanSpeed; // Positive Y for local "up" (scene moves up, camera moves down - Y increases in Y-Down world)
             isPanning = true;
         }
         if (IsKeybindActive(m_controlSettings->GetKeybind(InputAction::PanDown), io, false))
         {
-            panInputAccumulator.y -= effectivePanSpeed; // Negative Y for local "down"
+            panInputAccumulator.y -= effectivePanSpeed; // Negative Y for local "down" (scene moves down, camera moves up - Y decreases in Y-Down world)
             isPanning = true;
         }
         if (IsKeybindActive(m_controlSettings->GetKeybind(InputAction::PanLeft), io, false))
         {
-            panInputAccumulator.x -= effectivePanSpeed; // Negative X for local "left"
+            panInputAccumulator.x += effectivePanSpeed; // Negative X for local "left"
             isPanning = true;
         }
         if (IsKeybindActive(m_controlSettings->GetKeybind(InputAction::PanRight), io, false))
         {
-            panInputAccumulator.x += effectivePanSpeed; // Positive X for local "right"
+            panInputAccumulator.x -= effectivePanSpeed; // Positive X for local "right"
             isPanning = true;
         }
 
