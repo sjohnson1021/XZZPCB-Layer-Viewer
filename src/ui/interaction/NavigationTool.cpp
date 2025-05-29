@@ -5,9 +5,16 @@
 #include "core/InputActions.hpp"     // Required for InputAction and KeyCombination
 #include "core/BoardDataManager.hpp" // Added include
 #include "pcb/Board.hpp"             // Added include for BLRect and Board methods
+#include "imgui.h"                   // For ImGui:: functions
 #include <cmath>                     // For M_PI if not already included by camera/viewport
 #include <algorithm>                 // for std::max if not already there
 #include <iostream>                  // for std::cout and std::endl
+#include "pcb/elements/Trace.hpp"
+#include "pcb/elements/Pin.hpp"
+#include "pcb/elements/Via.hpp"
+#include "pcb/elements/Arc.hpp"
+#include "pcb/elements/TextLabel.hpp"
+#include "pcb/elements/Component.hpp"
 
 // Define PI if not available
 #ifndef M_PI
@@ -56,22 +63,119 @@ NavigationTool::NavigationTool(std::shared_ptr<Camera> camera,
                                std::shared_ptr<Viewport> viewport,
                                std::shared_ptr<ControlSettings> controlSettings,
                                std::shared_ptr<BoardDataManager> boardDataManager)
-    : InteractionTool("Navigation", camera, viewport), m_controlSettings(controlSettings), m_boardDataManager(boardDataManager) {}
+    : InteractionTool("Navigation", camera, viewport),
+      m_controlSettings(controlSettings),
+      m_boardDataManager(boardDataManager),
+      m_isHoveringElement(false), // Initialize new members
+      m_selectedNetId(-1)
+{
+}
 
 void NavigationTool::ProcessInput(ImGuiIO &io, bool isViewportFocused, bool isViewportHovered, ImVec2 viewportTopLeft, ImVec2 viewportSize)
 {
-    // Optimize for static
-
-    if (!isViewportHovered && !isViewportFocused)
-        return; // Only process if viewport is hovered or the window has focus (for keyboard input)
-    if (!m_camera || !m_viewport || !m_controlSettings)
+    if (!m_camera || !m_viewport || !m_controlSettings || !m_boardDataManager)
         return;
 
     // Update viewport with current dimensions from the window
-    // This is crucial because InteractionTool might be used by multiple viewports in theory
-    // For now, it's tied to one, but good practice to ensure it has current dimensions.
-    // The viewport's screen X,Y should be 0,0 if its coordinates are relative to the texture/content area.
     m_viewport->SetDimensions(0, 0, static_cast<int>(std::round(viewportSize.x)), static_cast<int>(std::round(viewportSize.y)));
+
+    // --- Hover and Selection Logic ---
+    std::shared_ptr<const Board> currentBoard = m_boardDataManager->getBoard();
+    bool boardAvailable = currentBoard && currentBoard->IsLoaded();
+    // Reset hover state for this frame - moved up so it's always reset
+    m_isHoveringElement = false;
+    m_hoveredElementInfo = "";
+
+    if (isViewportHovered && boardAvailable)
+    {
+        ImVec2 screenMousePos = io.MousePos;
+        ImVec2 viewportMousePos_Im = ImVec2(screenMousePos.x - viewportTopLeft.x, screenMousePos.y - viewportTopLeft.y);
+
+        if (viewportMousePos_Im.x >= 0 && viewportMousePos_Im.x <= viewportSize.x &&
+            viewportMousePos_Im.y >= 0 && viewportMousePos_Im.y <= viewportSize.y)
+        {
+            Vec2 viewportMousePos_Vec2 = {viewportMousePos_Im.x, viewportMousePos_Im.y};
+            Vec2 worldMousePos = m_viewport->ScreenToWorld(viewportMousePos_Vec2, *m_camera);
+
+            float pickTolerance = 2.0f / m_camera->GetZoom(); // World units
+            pickTolerance = std::max(0.01f, pickTolerance);   // Ensure minimum pick tolerance
+
+            // Get all potentially interactive elements
+            std::vector<ElementInteractionInfo> interactiveElements = currentBoard->GetAllVisibleElementsForInteraction();
+
+            // Check for hover
+            // Iterate in reverse to prioritize elements rendered on top (assuming later elements in vector are "on top")
+            // However, GetAllVisibleElementsForInteraction doesn't guarantee render order.
+            // For now, simple iteration. If z-ordering becomes an issue, this needs refinement.
+            for (const auto &item : interactiveElements)
+            {
+                if (!item.element)
+                {
+                    continue;
+                }
+                if (item.element->isHit(worldMousePos, pickTolerance, item.parentComponent))
+                {
+                    m_isHoveringElement = true;
+                    m_hoveredElementInfo = item.element->getInfo(item.parentComponent);
+                    break; // Found a hovered element
+                }
+            }
+
+            // Handle Mouse Click for Selection (Left Click)
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && isViewportFocused)
+            {
+                int clickedNetId = -1;
+                for (const auto &item : interactiveElements)
+                {
+                    if (item.element && item.element->isHit(worldMousePos, pickTolerance, item.parentComponent))
+                    {
+                        clickedNetId = item.element->getNetId(); // Assuming getNetId() is part of Element base or handled by derived.
+                                                                 // If element is not associated with a net, it should return -1 or similar.
+                        if (clickedNetId != -1)
+                            break; // Found an element with a net
+                    }
+                }
+
+                if (m_boardDataManager->GetSelectedNetId() == clickedNetId && clickedNetId != -1)
+                { // Clicking an already selected net deselects it
+                    m_boardDataManager->SetSelectedNetId(-1);
+                    std::cout << "NavigationTool: Deselected Net ID: " << clickedNetId << std::endl;
+                }
+                else if (clickedNetId != -1)
+                {
+                    m_boardDataManager->SetSelectedNetId(clickedNetId);
+                    std::cout << "NavigationTool: Selected Net ID: " << clickedNetId << std::endl;
+                }
+                else
+                {
+                    m_boardDataManager->SetSelectedNetId(-1); // Clicked on empty space or non-net element
+                    std::cout << "NavigationTool: Clicked empty or non-net element, selection cleared." << std::endl;
+                }
+                // mark the board as dirty pcbrenderer
+            }
+        }
+        // If mouse is outside viewport content area, m_isHoveringElement remains false (or was set false at the start)
+    }
+    // If not hovering viewport or no board, m_isHoveringElement remains false (or was set false at the start)
+
+    // --- End Hover and Selection Logic ---
+
+    // Existing Navigation Logic (Zooming, Panning, Keyboard controls)
+    // Only process navigation if viewport is hovered or the window has focus (for keyboard input)
+    if (!isViewportHovered && !isViewportFocused)
+    {
+        // If only hover/selection logic was processed and no focus/hover for navigation, display tooltip and exit.
+        if (m_isHoveringElement && !m_hoveredElementInfo.empty() && boardAvailable)
+        {
+            std::cout << "NavigationTool: Displaying tooltip for hovered element: " << m_hoveredElementInfo << std::endl;
+            ImGui::BeginTooltip();
+            ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+            ImGui::TextUnformatted(m_hoveredElementInfo.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndTooltip();
+        }
+        return;
+    }
 
     // Zooming with mouse wheel (only if hovered over the content area)
     if (io.MouseWheel != 0.0f && isViewportHovered)
@@ -124,12 +228,12 @@ void NavigationTool::ProcessInput(ImGuiIO &io, bool isViewportFocused, bool isVi
 
         if (IsKeybindActive(m_controlSettings->GetKeybind(InputAction::PanUp), io, false))
         {
-            panInputAccumulator.y += effectivePanSpeed; // Positive Y for local "up" (scene moves up, camera moves down - Y increases in Y-Down world)
+            panInputAccumulator.y += effectivePanSpeed; // Positive Y for local "up"
             isPanning = true;
         }
         if (IsKeybindActive(m_controlSettings->GetKeybind(InputAction::PanDown), io, false))
         {
-            panInputAccumulator.y -= effectivePanSpeed; // Negative Y for local "down" (scene moves down, camera moves up - Y decreases in Y-Down world)
+            panInputAccumulator.y -= effectivePanSpeed; // Negative Y for local "down"
             isPanning = true;
         }
         if (IsKeybindActive(m_controlSettings->GetKeybind(InputAction::PanLeft), io, false))
@@ -256,7 +360,7 @@ void NavigationTool::ProcessInput(ImGuiIO &io, bool isViewportFocused, bool isVi
         {
             if (m_boardDataManager)
             {
-                std::shared_ptr<Board> currentBoard = m_boardDataManager->getBoard();
+                std::shared_ptr<const Board> currentBoard = m_boardDataManager->getBoard();
                 if (currentBoard && currentBoard->IsLoaded())
                 {
                     BLRect boardBounds = currentBoard->GetBoundingBox(false); // Get bounds of visible layers
@@ -285,4 +389,49 @@ void NavigationTool::ProcessInput(ImGuiIO &io, bool isViewportFocused, bool isVi
             }
         }
     }
+
+    // Display Tooltip (should be after all input processing for the frame for this tool)
+    if (m_isHoveringElement && !m_hoveredElementInfo.empty() && boardAvailable && isViewportHovered) // Check isViewportHovered again for safety
+    {
+        ImGui::SetNextWindowSize(ImVec2(300, 0)); // Example: Set a max width for the tooltip, height automatic
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+        ImGui::TextUnformatted(m_hoveredElementInfo.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
 }
+
+void NavigationTool::OnActivated()
+{
+    std::cout << GetName() << " activated." << std::endl;
+    // Reset selection or hover state if desired when tool becomes active
+    m_boardDataManager->SetSelectedNetId(-1);
+    m_isHoveringElement = false;
+    m_hoveredElementInfo = "";
+}
+
+void NavigationTool::OnDeactivated()
+{
+    std::cout << GetName() << " deactivated." << std::endl;
+    // Clear hover state when tool is deactivated
+    m_isHoveringElement = false;
+    m_hoveredElementInfo = "";
+    // Optionally keep m_selectedNetId or clear it based on desired behavior
+}
+
+int NavigationTool::GetSelectedNetId() const
+{
+    return m_boardDataManager->GetSelectedNetId();
+}
+
+void NavigationTool::ClearSelection()
+{
+    m_boardDataManager->SetSelectedNetId(-1);
+    std::cout << "NavigationTool: Selection cleared." << std::endl;
+    // Potentially trigger a highlight update to clear previous highlighting if PcbRenderer is accessible
+}
+
+// The old helper methods (CheckElementHover, GetNetIdAtPosition, IsMouseOverTrace, etc.)
+// are now removed as their logic is handled by Element::isHit and Element::getInfo/getNetId
+// and the loop over GetAllVisibleElementsForInteraction.}

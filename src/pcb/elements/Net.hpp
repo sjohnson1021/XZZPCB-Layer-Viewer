@@ -9,20 +9,25 @@
 // class Via;
 // class Trace;
 
-class Net {
+class Net
+{
 public:
-    Net(int id_val, const std::string& net_name)
+    Net(int id_val, const std::string &net_name)
         : id(id_val), name(net_name) {}
 
-    // Member Data
-    int id = -1;              // Unique identifier for the net
-    std::string name;         // User-defined name of the net (e.g., "GND", "VCC")
+    // User-defined name of the net (e.g., "GND", "VCC")
 
     // Optionally, a net could store references to all its constituent parts
-    // std::vector<Pin*> pins; 
+    // std::vector<Pin*> pins;
     // std::vector<Via*> vias;
     // std::vector<Trace*> traces;
     // (Using raw pointers here for illustration; smart pointers would be safer)
 
     // Add constructors, getters, setters, and helper methods as needed
-}; 
+    int GetId() const { return id; }
+    const std::string &GetName() const { return name; }
+    // Add other methods as needed
+private:         // Member Data
+    int id = -1; // Unique identifier for the net
+    std::string name;
+};

@@ -9,7 +9,8 @@ class RenderPipeline;
 class Board;
 class Camera;
 class Viewport;
-class Grid; // Added forward declaration for Grid
+class Grid;             // Added forward declaration for Grid
+class BoardDataManager; // Added forward declaration
 
 class PcbRenderer
 {
@@ -23,7 +24,7 @@ public:
     PcbRenderer &operator=(PcbRenderer &&) = delete;
 
     // Initialize with default dimensions for the internal RenderContext's BLImage
-    bool Initialize(int initialWidth, int initialHeight);
+    bool Initialize(int initialWidth, int initialHeight, std::shared_ptr<BoardDataManager> boardDataManager);
     void Shutdown();
 
     // Main rendering method
@@ -57,7 +58,7 @@ public:
 private:
     std::unique_ptr<RenderContext> m_renderContext;
     std::unique_ptr<RenderPipeline> m_renderPipeline;
-    // std::vector<IRenderable*> m_renderables; // If using a list of renderables
+    std::shared_ptr<BoardDataManager> m_boardDataManager;
 
     // Flags for conditional rendering
     bool m_gridDirty = true;

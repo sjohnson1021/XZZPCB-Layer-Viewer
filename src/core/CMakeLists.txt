@@ -16,6 +16,12 @@ set(SOURCE_FILES
     ../pcb/processing/OrientationProcessor.cpp
     ../pcb/Board.cpp
     ../pcb/BoardLoaderFactory.cpp
+    ../pcb/elements/Arc.cpp
+    ../pcb/elements/Component.cpp
+    ../pcb/elements/Pin.cpp
+    ../pcb/elements/TextLabel.cpp
+    ../pcb/elements/Trace.cpp
+    ../pcb/elements/Via.cpp
     BoardDataManager.cpp
     # View components are now in view_lib
     # Utils components
@@ -48,6 +54,7 @@ target_link_libraries(${LIBRARY_NAME}
     blend2d
     render_lib
     view_lib
+    ImGuiFileDialog
     PUBLIC
-    ui_lib
+    # ui_lib # This creates a circular dependency
 ) 

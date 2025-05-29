@@ -125,15 +125,6 @@ bool Application::InitializeCoreSubsystems()
     m_events->SetImGuiManager(m_imguiManager.get());
 
     // Initialize PcbRenderer for Blend2D rendering
-    m_pcbRenderer = std::make_unique<PcbRenderer>();
-    // Use window dimensions loaded from config as initial size for PcbRenderer's image.
-    // PCBViewerWindow can later tell PcbRenderer to resize if its content area is different.
-    if (!m_pcbRenderer->Initialize(m_windowWidth, m_windowHeight))
-    {
-        std::cerr << "Failed to initialize PcbRenderer" << std::endl;
-        // Decide if this is a fatal error. For now, continue, but rendering will be broken.
-        // return false; // Uncomment if this should halt initialization
-    }
 
     return true;
 }
@@ -158,6 +149,14 @@ bool Application::InitializeUISubsystems()
     m_pcbViewerWindow = std::make_unique<PCBViewerWindow>(m_camera, m_viewport, m_grid, m_gridSettings, m_controlSettings, m_boardDataManager);
     m_settingsWindow = std::make_unique<SettingsWindow>(m_gridSettings, m_controlSettings, m_boardDataManager, m_clearColor);
     m_pcbDetailsWindow = std::make_unique<PcbDetailsWindow>();
+
+    // Initialize PcbRenderer with BoardDataManager
+    m_pcbRenderer = std::make_unique<PcbRenderer>();
+    if (!m_pcbRenderer->Initialize(m_windowWidth, m_windowHeight, m_boardDataManager))
+    {
+        std::cerr << "Failed to initialize PcbRenderer!" << std::endl;
+        return false;
+    }
 
     m_fileDialogInstance = std::make_unique<ImGuiFileDialog>();
 

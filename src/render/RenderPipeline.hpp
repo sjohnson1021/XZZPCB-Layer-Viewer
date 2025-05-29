@@ -2,9 +2,10 @@
 
 #include <vector>
 #include <memory>
-#include <string>    // Added for std::string
-#include <map>       // Added for std::map
-#include <blend2d.h> // Include for BLContext
+#include <string>              // Added for std::string
+#include <map>                 // Added for std::map
+#include <blend2d.h>           // Include for BLContext
+#include "utils/Constants.hpp" // For BL_M_PI
 
 // Forward declarations
 class RenderContext; // The Blend2D-focused RenderContext
@@ -49,7 +50,6 @@ public:
         bool renderGrid,  // New: flag to control grid rendering
         bool renderBoard  // New: flag to control board rendering
     );
-    static constexpr double BL_M_PI = 3.14159265358979323846;
     // Process a single renderable item (or this could be a list)
     // void Process(RenderContext& context, IRenderable* renderable);
     // Or, the pipeline might manage a list of renderables itself
@@ -72,10 +72,10 @@ public:
     void RenderTrace(BLContext &bl_ctx, const Trace &trace, const BLRect &worldViewRect);
     void RenderVia(BLContext &bl_ctx, const Via &via, const Board &board, const BLRect &worldViewRect);
     void RenderArc(BLContext &bl_ctx, const Arc &arc, const BLRect &worldViewRect);
-    void RenderComponent(BLContext &bl_ctx, const Component &component, const Board &board, const BLRect &worldViewRect);
+    void RenderComponent(BLContext &bl_ctx, const Component &component, const Board &board, const BLRect &worldViewRect, const BLRgba32 &highlightColor);
     void RenderTextLabel(BLContext &bl_ctx, const TextLabel &textLabel, const BLRgba32 &color);
     // TODO: Consider passing layer_properties_map to RenderTextLabel if it needs more than just color
-    void RenderPin(BLContext &bl_ctx, const Pin &pin, const Component &component, const Board &board);
+    void RenderPin(BLContext &bl_ctx, const Pin &pin, const Component &component, const Board &board, const BLRgba32 &highlightColor);
 
 private:
     // Helper to get a cached font face or load it if not found
@@ -96,8 +96,8 @@ private:
         BLContext &bl_ctx,
         const Board &board, // board is now const Board& as it must exist
         const Camera &camera,
-        const Viewport &viewport // Removed grid parameter
-    );
+        const Viewport &viewport, // Removed grid parameter
+        const BLRect &worldViewRect);
 
     RenderContext *m_renderContext = nullptr; // Store a pointer to the context if needed by multiple methods
     bool m_initialized = false;

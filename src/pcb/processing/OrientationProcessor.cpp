@@ -40,65 +40,123 @@ namespace PCBProcessing
         }
     };
 
-    // Helper function to calculate the square of the distance from a point to a line segment
-    // Adapted from C++ code for shortest distance between point and line segment
-    static double distSqPointToSegment(BoardPoint2D p, BoardPoint2D seg_a, BoardPoint2D seg_b)
+    // Helper function to check for AABB intersection
+    static bool areRectsIntersecting(const BLRect &r1, const BLRect &r2, double tolerance = 1e-6)
     {
-        double l2 = (seg_a.x - seg_b.x) * (seg_a.x - seg_b.x) + (seg_a.y - seg_b.y) * (seg_a.y - seg_b.y);
-        if (l2 == 0.0)
-            return (p.x - seg_a.x) * (p.x - seg_a.x) + (p.y - seg_a.y) * (p.y - seg_a.y); // seg_a == seg_b
-        double t = ((p.x - seg_a.x) * (seg_b.x - seg_a.x) + (p.y - seg_a.y) * (seg_b.y - seg_a.y)) / l2;
-        t = std::max(0.0, std::min(1.0, t)); // Clamp t to the range [0, 1]
-        BoardPoint2D projection = {seg_a.x + t * (seg_b.x - seg_a.x),
-                                   seg_a.y + t * (seg_b.y - seg_a.y)};
-        return (p.x - projection.x) * (p.x - projection.x) + (p.y - projection.y) * (p.y - projection.y);
-    }
-
-    // Helper to convert radians to degrees, normalized to [0, 360)
-    static double radToDeg(double rad)
-    {
-        double deg = rad * 180.0 / M_PI;
-        while (deg < 0.0)
-            deg += 360.0;
-        while (deg >= 360.0)
-            deg -= 360.0;
-        return deg;
-    }
-
-    void OrientationProcessor::processBoard(Board &board)
-    {
-        for (Component &component : board.components)
-        {
-            // Initialize pin dimensions first
-            for (Pin &pin : component.pins)
-            {
-                calculateInitialPinDimensions(pin);
-            }
-
-            // Skip if no pins or already processed (add a flag to Component if needed)
-            if (component.pins.empty())
-            {
-                continue;
-            }
-
-            // Calculate component body rotation
-            double body_rotation_rad = calculateComponentRotation(component);
-            component.rotation = body_rotation_rad; // Store it on the component
-
-            firstPass_AnalyzeComponent(component, body_rotation_rad);
-            // The original logic iterates PinRenderInfo; we iterate Component.pins directly
-            // and modify Pin.orientation and use Pin.initialWidth/Height.
-            secondPass_CheckOverlapsAndBoundaries(component, body_rotation_rad);
-            thirdPass_FinalBoundaryCheck(component, body_rotation_rad);
-        }
+        // Add tolerance to the checks
+        return r1.x < r2.x + r2.w + tolerance &&
+               r1.x + r1.w > r2.x - tolerance &&
+               r1.y < r2.y + r2.h + tolerance &&
+               r1.y + r1.h > r2.y - tolerance;
     }
 
     // Helper function to rotate a point around the origin (0,0)
-    static inline BoardPoint2D rotatePoint(double x, double y, double angle_rad)
+    static inline Vec2 rotatePoint(double x, double y, double angle_rad)
     {
         double cos_a = std::cos(angle_rad);
         double sin_a = std::sin(angle_rad);
         return {x * cos_a - y * sin_a, x * sin_a + y * cos_a};
+    }
+
+    // Helper to get oriented dimensions
+    void OrientationProcessor::getOrientedPinDimensions(const Pin &pin, double &width, double &height)
+    {
+        if (pin.orientation == PinOrientation::Horizontal)
+        {
+            width = pin.long_side;
+            height = pin.short_side;
+        }
+        else if (pin.orientation == PinOrientation::Vertical)
+        {
+            width = pin.short_side;
+            height = pin.long_side;
+        }
+        else
+        { // Natural
+            width = pin.initial_width;
+            height = pin.initial_height;
+        }
+    }
+
+    void OrientationProcessor::processBoard(Board &board)
+    {
+        // Define tolerance for various floating point comparisons
+        constexpr double epsilon = 1e-4; // General small number for floating point comparisons
+        // constexpr double pin_alignment_tolerance = 0.5; // Max distance for pins to be considered aligned (mm or current units)
+        // constexpr double edge_proximity_tolerance = 0.1; // How close a pin needs to be to an edge (mm)
+
+        // First Pass: Analyze individual components
+        if (board.m_components.empty())
+        {
+#ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
+            printf("[OrientationProcessor]: No components found in the board.\\n");
+#endif
+            return;
+        }
+
+#ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
+        printf("[OrientationProcessor]: Starting First Pass - Analyzing %zu components.\\n", board.m_components.size());
+#endif
+        for (Component &component : board.m_components) // Corrected to m_components
+        {
+            if (component.pins.empty())
+                continue;
+            firstPass_AnalyzeComponent(component, epsilon);
+        }
+
+        // Second Pass: Check for overlaps and boundary conditions within components (more detailed heuristics)
+#ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
+        printf("[OrientationProcessor]: Starting Second Pass - Checking overlaps and boundaries for %zu components.\\n", board.m_components.size());
+#endif
+        for (Component &component : board.m_components) // Corrected to m_components
+        {
+            if (component.pins.empty())
+                continue;
+            secondPass_CheckOverlapsAndBoundaries(component, epsilon);
+        }
+
+        // Third Pass: Final adjustments, especially for pins near component edges
+#ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
+        printf("[OrientationProcessor]: Starting Third Pass - Final boundary checks for %zu components.\\n", board.m_components.size());
+#endif
+        for (Component &component : board.m_components) // Corrected to m_components
+        {
+            if (component.pins.empty())
+                continue;
+            thirdPass_FinalBoundaryCheck(component, epsilon);
+        }
+
+#ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
+        printf("[OrientationProcessor]: Pin orientation processing complete for all components.\\n");
+        // Example of printing final orientations for verification:
+        for (const auto &component_ptr : board.m_components) // Assuming m_components stores Component objects directly or smart pointers
+        {
+            // If m_components stores smart pointers, dereference component_ptr
+            // For example, if it's std::vector<std::unique_ptr<Component>>:
+            // const Component& component = *component_ptr;
+            // If it's std::vector<Component>:
+            const Component &component = component_ptr; // If m_components is vector<Component> directly as implied by loop earlier
+
+            if (component.pins.empty())
+                continue;
+            printf("Component: %s\\n", component.reference_designator.c_str());
+            for (const auto &pin_ptr : component.pins) // Iterate through unique_ptrs
+            {
+                if (pin_ptr)
+                { // Check if unique_ptr is not null
+                    auto pinOrientationToString = [](PinOrientation o)
+                    {
+                        if (o == PinOrientation::Vertical)
+                            return "Vertical";
+                        if (o == PinOrientation::Horizontal)
+                            return "Horizontal";
+                        return "Natural";
+                    };
+                    printf("  Pin: %s, Orientation: %s\\n", pin_ptr->pin_name.c_str(), pinOrientationToString(pin_ptr->orientation));
+                }
+            }
+        }
+#endif
     }
 
     void OrientationProcessor::calculateInitialPinDimensions(Pin &pin)
@@ -129,710 +187,518 @@ namespace PCBProcessing
         // }
     }
 
-    void OrientationProcessor::firstPass_AnalyzeComponent(Component &component, double component_rotation_radians)
+    void OrientationProcessor::firstPass_AnalyzeComponent(Component &component, double tolerance)
     {
-        // component_rotation_radians is the angle to rotate the component *back* to be axis-aligned.
-        // So, we rotate pin coordinates by -component_rotation_radians.
-        double local_rotation_rad = -component_rotation_radians;
+#ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
+        printf("[firstPass]: Analyzing component %s with %zu pins.\\n", component.reference_designator.c_str(), component.pins.size());
+#endif
+        if (component.pins.empty())
+            return;
 
-        // Create local versions of component graphical segments (for bounding box calculation)
-        std::vector<LocalLineSegment> local_graphical_segments;
-        if (!component.graphical_elements.empty())
-        {
-            for (const auto &seg : component.graphical_elements)
-            {
-                BoardPoint2D local_start = rotatePoint(seg.start.x, seg.start.y, local_rotation_rad);
-                BoardPoint2D local_end = rotatePoint(seg.end.x, seg.end.y, local_rotation_rad);
-                local_graphical_segments.emplace_back(local_start, local_end);
-            }
-        }
-        else if (component.width > 1e-6 && component.height > 1e-6)
-        {
-            BoardPoint2D p1 = {-component.width / 2.0, -component.height / 2.0};
-            BoardPoint2D p2 = {component.width / 2.0, -component.height / 2.0};
-            BoardPoint2D p3 = {component.width / 2.0, component.height / 2.0};
-            BoardPoint2D p4 = {-component.width / 2.0, component.height / 2.0};
-            local_graphical_segments.emplace_back(p1, p2);
-            local_graphical_segments.emplace_back(p2, p3);
-            local_graphical_segments.emplace_back(p3, p4);
-            local_graphical_segments.emplace_back(p4, p1);
-        }
+        calculatePinBoundingBox(component, tolerance);
 
+        // Simple checks based on pin count
         component.is_single_pin = (component.pins.size() == 1);
-        if (component.is_single_pin)
+        component.is_two_pad = (component.pins.size() == 2);
+
+        if (component.is_single_pin && !component.pins.empty())
         {
-            if (!component.pins.empty())
-            {
-                Pin &pin = component.pins[0];
-                pin.orientation = (pin.initial_height > pin.initial_width) ? PinOrientation::Vertical : PinOrientation::Horizontal;
-            }
-            return;
+            Pin &pin = *component.pins[0];             // Dereference unique_ptr
+            pin.orientation = PinOrientation::Natural; // Typically no specific orientation needed
+#ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
+            printf("  Pin %s (single): Set to Natural.\\n", pin.pin_name.c_str());
+#endif
+            return; // Nothing more to do for single pin components
         }
 
-        // Store local pin positions
-        std::vector<BoardPoint2D> local_pin_positions(component.pins.size());
+        // Further analysis for multi-pin components
+        double pin_bbox_width = component.pin_bbox_max_x - component.pin_bbox_min_x;
+        double pin_bbox_height = component.pin_bbox_max_y - component.pin_bbox_min_y;
+
+        component.is_wide_component = pin_bbox_width > pin_bbox_height * 1.25; // Heuristic: 25% wider
+        component.is_tall_component = pin_bbox_height > pin_bbox_width * 1.25; // Heuristic: 25% taller
+
+        // Collect local pin positions relative to component center and rotated to align with component axes
+        std::vector<Vec2> local_pin_positions(component.pins.size());
+        double local_rotation_rad = -component.rotation * (M_PI / 180.0); // Inverse rotation, Changed BL_M_PI to M_PI
+
         for (size_t i = 0; i < component.pins.size(); ++i)
         {
-            local_pin_positions[i] = rotatePoint(component.pins[i].x_coord, component.pins[i].y_coord, local_rotation_rad);
+            if (!component.pins[i])
+                continue;
+            // Access x_coord and y_coord from the Pin object pointed to by unique_ptr
+            // rotatePoint now returns Vec2, so direct assignment is fine.
+            local_pin_positions[i] = rotatePoint(component.pins[i]->x_coord - component.center_x, component.pins[i]->y_coord - component.center_y, local_rotation_rad);
         }
 
-        // Calculate component local boundaries (comp_b notation for clarity)
-        double comp_b_min_x = std::numeric_limits<double>::max();
-        double comp_b_max_x = std::numeric_limits<double>::lowest();
-        double comp_b_min_y = std::numeric_limits<double>::max();
-        double comp_b_max_y = std::numeric_limits<double>::lowest();
-
-        if (!local_graphical_segments.empty())
-        {
-            for (const auto &seg : local_graphical_segments)
-            {
-                comp_b_min_x = std::min({comp_b_min_x, seg.start.x, seg.end.x});
-                comp_b_max_x = std::max({comp_b_max_x, seg.start.x, seg.end.x});
-                comp_b_min_y = std::min({comp_b_min_y, seg.start.y, seg.end.y});
-                comp_b_max_y = std::max({comp_b_max_y, seg.start.y, seg.end.y});
-            }
-        }
-        else if (component.width > 1e-6 && component.height > 1e-6)
-        { // From component dimensions if no graphics
-            comp_b_min_x = -component.width / 2.0;
-            comp_b_max_x = component.width / 2.0;
-            comp_b_min_y = -component.height / 2.0;
-            comp_b_max_y = component.height / 2.0;
-        }
-        else if (!component.pins.empty())
-        { // Fallback to pin bounding box
-            for (const auto &pos : local_pin_positions)
-            {
-                comp_b_min_x = std::min(comp_b_min_x, pos.x);
-                comp_b_max_x = std::max(comp_b_max_x, pos.x);
-                comp_b_min_y = std::min(comp_b_min_y, pos.y);
-                comp_b_max_y = std::max(comp_b_max_y, pos.y);
-            }
-        }
-        else
-        { // No information to determine boundaries
-            return;
-        }
-
-        // Update component's pin bounding box (used elsewhere or for reference)
-        component.pin_bbox_min_x = comp_b_min_x;
-        component.pin_bbox_max_x = comp_b_max_x;
-        component.pin_bbox_min_y = comp_b_min_y;
-        component.pin_bbox_max_y = comp_b_max_y;
-
-        // Determine characteristic (wide/tall) based on actual component dimensions if available
-        if (component.width > 1e-6 && component.height > 1e-6)
-        {
-            component.is_wide_component = component.width > component.height * 1.2;
-            component.is_tall_component = component.height > component.width * 1.2;
-        }
-        else
-        { // Fallback to pin bbox aspect if component dimensions unknown
-            double pin_bbox_width = comp_b_max_x - comp_b_min_x;
-            double pin_bbox_height = comp_b_max_y - comp_b_min_y;
-            if (pin_bbox_width > 1e-6 && pin_bbox_height > 1e-6)
-            {
-                component.is_wide_component = pin_bbox_width > pin_bbox_height * 1.2;
-                component.is_tall_component = pin_bbox_height > pin_bbox_width * 1.2;
-            }
-            else
-            {
-                component.is_wide_component = false;
-                component.is_tall_component = false;
-            }
-        }
-
-        double short_side_for_tol;
-        if (component.width > 1e-6 && component.height > 1e-6)
-        {
-            short_side_for_tol = std::min(component.width, component.height);
-        }
-        else if ((comp_b_max_x - comp_b_min_x) > 1e-6 && (comp_b_max_y - comp_b_min_y) > 1e-6)
-        {
-            short_side_for_tol = std::min((comp_b_max_x - comp_b_min_x), (comp_b_max_y - comp_b_min_y));
-        }
-        else
-        {
-            short_side_for_tol = 1.0; // Default fallback
-        }
-
-        // --- New Edge Detection Logic ---
-        std::map<size_t, LocalEdge> pin_to_local_edge_map;
-        for (size_t i = 0; i < component.pins.size(); ++i)
-            pin_to_local_edge_map[i] = LocalEdge::INTERIOR;
-
-        if (component.pins.size() > 1)
-        {                                                                              // Edge detection only relevant for multi-pin components
-            const double discretization_resolution = short_side_for_tol * 0.05 + 1e-9; // Add epsilon to avoid division by zero if short_side_for_tol is tiny
-            const unsigned int min_pins_for_line_group = 2;                            // Minimum pins to be considered a "line"
-            // Max gap: if short_side_for_tol is small, use a multiple of it. If large, cap it.
-            // Example: If short_side_for_tol = 0.1mm, max_gap = 0.5mm. If short_side_for_tol=10mm, max_gap=5mm.
-            const double max_gap_factor = 2.0; // Pins further apart than this factor times their typical size are not in the same line segment.
-                                               // Using average short side of pins as a reference for gap.
-            double avg_pin_short_side = 0.0;
-            if (!component.pins.empty())
-            {
-                for (const auto &p : component.pins)
-                    avg_pin_short_side += p.short_side;
-                avg_pin_short_side /= component.pins.size();
-            }
-            if (avg_pin_short_side < 1e-6)
-                avg_pin_short_side = short_side_for_tol * 0.1; // Fallback if pins have no size.
-            const double max_gap_in_line = std::max(avg_pin_short_side * max_gap_factor, discretization_resolution * 5.0);
-
-            std::map<int, std::vector<size_t>> x_coord_map;
-            std::map<int, std::vector<size_t>> y_coord_map;
-
-            for (size_t i = 0; i < component.pins.size(); ++i)
-            {
-                int disc_x = static_cast<int>(std::round(local_pin_positions[i].x / discretization_resolution));
-                int disc_y = static_cast<int>(std::round(local_pin_positions[i].y / discretization_resolution));
-                x_coord_map[disc_x].push_back(i);
-                y_coord_map[disc_y].push_back(i);
-            }
-
-            std::vector<std::vector<size_t>> vertical_pin_lines;
-            for (auto const &[disc_x, pin_indices_at_x] : x_coord_map)
-            {
-                if (pin_indices_at_x.size() < min_pins_for_line_group)
-                    continue;
-                std::vector<size_t> sorted_indices = pin_indices_at_x;
-                std::sort(sorted_indices.begin(), sorted_indices.end(), [&](size_t a, size_t b)
-                          { return local_pin_positions[a].y < local_pin_positions[b].y; });
-
-                std::vector<size_t> current_line;
-                if (!sorted_indices.empty())
-                {
-                    current_line.push_back(sorted_indices[0]);
-                    for (size_t i = 1; i < sorted_indices.size(); ++i)
-                    {
-                        if (local_pin_positions[sorted_indices[i]].y - local_pin_positions[sorted_indices[i - 1]].y > max_gap_in_line)
-                        {
-                            if (current_line.size() >= min_pins_for_line_group)
-                                vertical_pin_lines.push_back(current_line);
-                            current_line.clear();
-                        }
-                        current_line.push_back(sorted_indices[i]);
-                    }
-                    if (current_line.size() >= min_pins_for_line_group)
-                        vertical_pin_lines.push_back(current_line);
-                }
-            }
-
-            std::vector<std::vector<size_t>> horizontal_pin_lines;
-            for (auto const &[disc_y, pin_indices_at_y] : y_coord_map)
-            {
-                if (pin_indices_at_y.size() < min_pins_for_line_group)
-                    continue;
-                std::vector<size_t> sorted_indices = pin_indices_at_y;
-                std::sort(sorted_indices.begin(), sorted_indices.end(), [&](size_t a, size_t b)
-                          { return local_pin_positions[a].x < local_pin_positions[b].x; });
-
-                std::vector<size_t> current_line;
-                if (!sorted_indices.empty())
-                {
-                    current_line.push_back(sorted_indices[0]);
-                    for (size_t i = 1; i < sorted_indices.size(); ++i)
-                    {
-                        if (local_pin_positions[sorted_indices[i]].x - local_pin_positions[sorted_indices[i - 1]].x > max_gap_in_line)
-                        {
-                            if (current_line.size() >= min_pins_for_line_group)
-                                horizontal_pin_lines.push_back(current_line);
-                            current_line.clear();
-                        }
-                        current_line.push_back(sorted_indices[i]);
-                    }
-                    if (current_line.size() >= min_pins_for_line_group)
-                        horizontal_pin_lines.push_back(current_line);
-                }
-            }
-
-            const double edge_zone_thickness = short_side_for_tol * 0.25; // Pins within 25% of short side from boundary are edge pins
-
-            for (const auto &line : vertical_pin_lines)
-            {
-                double avg_x = 0;
-                for (size_t pin_idx : line)
-                    avg_x += local_pin_positions[pin_idx].x;
-                avg_x /= line.size();
-                if (avg_x < comp_b_min_x + edge_zone_thickness)
-                {
-                    for (size_t pin_idx : line)
-                        pin_to_local_edge_map[pin_idx] = LocalEdge::LEFT;
-                }
-                else if (avg_x > comp_b_max_x - edge_zone_thickness)
-                {
-                    for (size_t pin_idx : line)
-                        pin_to_local_edge_map[pin_idx] = LocalEdge::RIGHT;
-                }
-            }
-            for (const auto &line : horizontal_pin_lines)
-            {
-                double avg_y = 0;
-                for (size_t pin_idx : line)
-                    avg_y += local_pin_positions[pin_idx].y;
-                avg_y /= line.size();
-                if (avg_y < comp_b_min_y + edge_zone_thickness)
-                { // Pins on bottom edge
-                    for (size_t pin_idx : line)
-                    {
-                        // If already on LEFT/RIGHT, it's a corner. Prioritize TOP/BOTTOM for now if also on horizontal edge.
-                        pin_to_local_edge_map[pin_idx] = LocalEdge::BOTTOM;
-                    }
-                }
-                else if (avg_y > comp_b_max_y - edge_zone_thickness)
-                { // Pins on top edge
-                    for (size_t pin_idx : line)
-                    {
-                        pin_to_local_edge_map[pin_idx] = LocalEdge::TOP;
-                    }
-                }
-            }
-        }
-        // --- End New Edge Detection Logic ---
-
+        // Classify pins to edges (Left, Right, Top, Bottom, Interior)
+        // This is a simplified classification based on the pin bounding box
         component.left_edge_pin_indices.clear();
         component.right_edge_pin_indices.clear();
         component.top_edge_pin_indices.clear();
         component.bottom_edge_pin_indices.clear();
+        std::vector<LocalEdge> pin_to_local_edge_map(component.pins.size(), LocalEdge::INTERIOR);
+
+        double avg_pin_short_side = 0;
+        int valid_pins_for_avg = 0;
+        for (const auto &p_ptr : component.pins)
+        {
+            if (p_ptr)
+            {
+                avg_pin_short_side += p_ptr->short_side; // Access via ->
+                valid_pins_for_avg++;
+            }
+        }
+        if (valid_pins_for_avg > 0)
+            avg_pin_short_side /= valid_pins_for_avg;
+        else
+            avg_pin_short_side = 0.1; // Default if no valid pins
+
+        // ... (rest of edge classification logic, ensuring pin_ptr->member access)
+
+        // Example of edge classification (needs to be completed and refined)
+        // Tolerance for being "on" an edge, could be related to avg_pin_short_side
+        double edge_tolerance = avg_pin_short_side * 0.6;
 
         for (size_t i = 0; i < component.pins.size(); ++i)
         {
-            component.pins[i].local_edge = pin_to_local_edge_map[i]; // Store on pin itself
-            if (pin_to_local_edge_map[i] == LocalEdge::LEFT)
+            if (!component.pins[i])
+                continue;                        // Skip null unique_ptrs
+            const Pin &pin = *component.pins[i]; // Dereference for easier access
+
+            // Use local_pin_positions which are relative to component center and aligned
+            Vec2 local_pos = local_pin_positions[i];
+
+            // Calculate component-local boundaries (relative to component center 0,0)
+            double local_left_edge = -pin_bbox_width / 2.0;
+            double local_right_edge = pin_bbox_width / 2.0;
+            double local_top_edge = -pin_bbox_height / 2.0;   // Top is often min Y in local graphics
+            double local_bottom_edge = pin_bbox_height / 2.0; // Bottom is often max Y
+
+            if (std::abs(local_pos.x - local_left_edge) < edge_tolerance)
+            {
+                pin_to_local_edge_map[i] = LocalEdge::LEFT;
                 component.left_edge_pin_indices.push_back(i);
-            else if (pin_to_local_edge_map[i] == LocalEdge::RIGHT)
+            }
+            else if (std::abs(local_pos.x - local_right_edge) < edge_tolerance)
+            {
+                pin_to_local_edge_map[i] = LocalEdge::RIGHT;
                 component.right_edge_pin_indices.push_back(i);
-            else if (pin_to_local_edge_map[i] == LocalEdge::TOP)
+            }
+            else if (std::abs(local_pos.y - local_top_edge) < edge_tolerance)
+            {
+                pin_to_local_edge_map[i] = LocalEdge::TOP;
                 component.top_edge_pin_indices.push_back(i);
-            else if (pin_to_local_edge_map[i] == LocalEdge::BOTTOM)
+            }
+            else if (std::abs(local_pos.y - local_bottom_edge) < edge_tolerance)
+            {
+                pin_to_local_edge_map[i] = LocalEdge::BOTTOM;
                 component.bottom_edge_pin_indices.push_back(i);
+            }
+            else
+            {
+                pin_to_local_edge_map[i] = LocalEdge::INTERIOR;
+            }
+        }
+        for (size_t i = 0; i < component.pins.size(); ++i)
+        {
+            if (component.pins[i])
+            {                                                             // Check if unique_ptr is not null
+                component.pins[i]->local_edge = pin_to_local_edge_map[i]; // Store on pin itself, access via ->
+            }
         }
 
-        component.is_qfp = (component.left_edge_pin_indices.size() >= 2 && // Relaxed QFP detection slightly for robustness
-                            component.right_edge_pin_indices.size() >= 2 &&
-                            component.top_edge_pin_indices.size() >= 2 &&
-                            component.bottom_edge_pin_indices.size() >= 2);
+        // Default orientation based on component shape and pin distribution
+        for (auto &pin_ptr : component.pins) // Iterate unique_ptr
+        {
+            if (!pin_ptr)
+                continue;
+            Pin &pin = *pin_ptr; // Dereference
 
-        bool high_pins_top_or_bottom = component.top_edge_pin_indices.size() >= 8 || component.bottom_edge_pin_indices.size() >= 8;
-        bool high_pins_left_or_right = component.left_edge_pin_indices.size() >= 8 || component.right_edge_pin_indices.size() >= 8;
+            if (pin.local_edge == LocalEdge::LEFT || pin.local_edge == LocalEdge::RIGHT)
+            {
+                pin.orientation = PinOrientation::Horizontal;
+            }
+            else if (pin.local_edge == LocalEdge::TOP || pin.local_edge == LocalEdge::BOTTOM)
+            {
+                pin.orientation = PinOrientation::Vertical;
+            }
+            else
+            { // Interior or unclassified
+                // If component is distinctly wide or tall, orient pins along the shorter dimension of the component
+                if (component.is_wide_component)
+                    pin.orientation = PinOrientation::Vertical; // Pins run vertically on a wide component
+                else if (component.is_tall_component)
+                    pin.orientation = PinOrientation::Horizontal; // Pins run horizontally on a tall component
+                else
+                    pin.orientation = PinOrientation::Natural; // Default for square-ish or interior
+            }
+        }
 
-        component.is_connector = (high_pins_top_or_bottom || high_pins_left_or_right) && !component.is_qfp;
-        if (component.is_qfp)
-            component.is_connector = false;
+        // Special case for 2-pin components (resistors, capacitors, diodes)
+        if (component.is_two_pad && component.pins.size() == 2)
+        {
+            if (!component.pins[0] || !component.pins[1])
+                return; // Should not happen if size is 2
 
-        // Pin Orientation Logic
+            Pin &p0 = *component.pins[0]; // Dereference
+            Pin &p1 = *component.pins[1]; // Dereference
+
+            double dx = p1.x_coord - p0.x_coord;
+            double dy = p1.y_coord - p0.y_coord;
+
+            if (std::abs(dx) > std::abs(dy) * 1.2) // More horizontal than vertical (allow some tolerance)
+            {
+                p0.orientation = PinOrientation::Horizontal;
+                p1.orientation = PinOrientation::Horizontal;
+            }
+            else if (std::abs(dy) > std::abs(dx) * 1.2) // More vertical than horizontal
+            {
+                p0.orientation = PinOrientation::Vertical;
+                p1.orientation = PinOrientation::Vertical;
+            }
+            else
+            { // Roughly diagonal or same point, default based on component shape or keep Natural
+                PinOrientation default_orientation = PinOrientation::Natural;
+                if (component.is_wide_component)
+                    default_orientation = PinOrientation::Vertical;
+                else if (component.is_tall_component)
+                    default_orientation = PinOrientation::Horizontal;
+                p0.orientation = default_orientation;
+                p1.orientation = default_orientation;
+            }
+#ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
+            auto pinOrientationToString = [](PinOrientation o)
+            {
+                if (o == PinOrientation::Vertical)
+                    return "Vertical";
+                if (o == PinOrientation::Horizontal)
+                    return "Horizontal";
+                return "Natural";
+            };
+            printf("  Component %s (2-pin): p0 (%s) orientation: %s, p1 (%s) orientation: %s\\n",
+                   component.reference_designator.c_str(), p0.pin_name.c_str(), pinOrientationToString(p0.orientation),
+                   p1.pin_name.c_str(), pinOrientationToString(p1.orientation));
+#endif
+        }
+#ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
+        printf("[firstPass]: Finished analyzing component %s.\\n", component.reference_designator.c_str());
+        auto localEdgeToString = [](LocalEdge le)
+        {
+            if (le == LocalEdge::LEFT)
+                return "Left";
+            if (le == LocalEdge::RIGHT)
+                return "Right";
+            if (le == LocalEdge::TOP)
+                return "Top";
+            if (le == LocalEdge::BOTTOM)
+                return "Bottom";
+            if (le == LocalEdge::INTERIOR)
+                return "Interior";
+            return "Unknown";
+        };
+        for (size_t i = 0; i < component.pins.size(); ++i)
+        {
+            if (component.pins[i])
+            {
+                printf("  Pin %s (%s): Initial Orientation: %s\\n", component.pins[i]->pin_name.c_str(), localEdgeToString(component.pins[i]->local_edge), (component.pins[i]->orientation == PinOrientation::Vertical ? "Vertical" : (component.pins[i]->orientation == PinOrientation::Horizontal ? "Horizontal" : "Natural")));
+            }
+        }
+#endif
+    }
+
+    void OrientationProcessor::secondPass_CheckOverlapsAndBoundaries(Component &component, double tolerance)
+    {
+#ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
+        printf("[secondPass]: Checking component %s\n", component.reference_designator.c_str());
+#endif
+
+        // Helper lambdas for string conversion
+        auto pinOrientationToString = [](PinOrientation o)
+        {
+            if (o == PinOrientation::Vertical)
+                return "Vertical";
+            if (o == PinOrientation::Horizontal)
+                return "Horizontal";
+            return "Natural";
+        };
+
         for (size_t pin_idx = 0; pin_idx < component.pins.size(); ++pin_idx)
         {
-            Pin &pin = component.pins[pin_idx];
-            LocalEdge assigned_edge = pin_to_local_edge_map[pin_idx]; // Use the new map
-
-            bool is_square_or_circle = std::abs(pin.initial_width - pin.initial_height) < 1e-3;
-
-            if (is_square_or_circle)
-            { // Covers single pin case too if it's square/circle
-                pin.orientation = PinOrientation::Natural;
+            if (!component.pins[pin_idx])
                 continue;
-            }
-            // Single non-square/circle pins handled by general logic or INTERIOR if not on edge
+            Pin &current_pin = *component.pins[pin_idx]; // Dereference
 
-            component.is_two_pad = (component.pins.size() == 2); // Recalc here or ensure it's set earlier
-            if (component.is_two_pad)
-            {                                            // Specific logic for two-pad non-square/circle
-                const Pin &p0_const = component.pins[0]; // Assuming pin_idx is 0 or 1
-                const Pin &p1_const = component.pins[(pin_idx == 0) ? 1 : 0];
-                BoardPoint2D local_p0_pos = local_pin_positions[pin_idx];                // current pin
-                BoardPoint2D local_p1_pos = local_pin_positions[(pin_idx == 0) ? 1 : 0]; // other pin
+            // Calculate current pin's bounding box (simplified, assuming centered rectangle)
+            double current_w, current_h;
+            getOrientedPinDimensions(current_pin, current_w, current_h);
+            BLRect current_pin_bbox = BLRect(current_pin.x_coord - current_w / 2.0, current_pin.y_coord - current_h / 2.0, current_w, current_h);
 
-                // If pins are more separated horizontally than vertically in local frame, they form a horizontal pair
-                bool pins_form_horizontal_pair = std::abs(local_p0_pos.x - local_p1_pos.x) > std::abs(local_p0_pos.y - local_p1_pos.y);
-                // For a horizontal pair of pins, orient pins vertically
-                // For a vertical pair of pins, orient pins horizontally
-                pin.orientation = pins_form_horizontal_pair ? PinOrientation::Vertical : PinOrientation::Horizontal;
-            }
-            else if (component.is_qfp)
+            // Check against other pins in the same component
+            for (size_t other_idx = 0; other_idx < component.pins.size(); ++other_idx)
             {
-                if (assigned_edge == LocalEdge::TOP || assigned_edge == LocalEdge::BOTTOM)
+                if (pin_idx == other_idx || !component.pins[other_idx])
+                    continue;
+
+                const Pin &other_pin_const = *component.pins[other_idx]; // Dereference
+
+                double other_w, other_h;
+                getOrientedPinDimensions(other_pin_const, other_w, other_h);
+                BLRect other_pin_bbox = BLRect(other_pin_const.x_coord - other_w / 2.0, other_pin_const.y_coord - other_h / 2.0, other_w, other_h);
+
+                if (areRectsIntersecting(current_pin_bbox, other_pin_bbox, tolerance))
                 {
-                    pin.orientation = PinOrientation::Vertical;
-                }
-                else if (assigned_edge == LocalEdge::LEFT || assigned_edge == LocalEdge::RIGHT)
-                {
-                    pin.orientation = PinOrientation::Horizontal;
-                }
-                else
-                { // Interior QFP pin? Fallback to natural aspect
-                    pin.orientation = (pin.initial_height > pin.initial_width) ? PinOrientation::Vertical : PinOrientation::Horizontal;
+#ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
+                    // printf("[secondPass]: Pin %s intersects with Pin %s. (Further logic needed)\\n", current_pin.pin_name.c_str(), other_pin_const.pin_name.c_str());
+#endif
+                    // TODO: Add more sophisticated overlap resolution if needed.
+                    // For now, this just identifies an overlap.
                 }
             }
-            else if (component.is_connector)
-            { // QFP and Connector are mutually exclusive
-                if (component.is_wide_component)
+
+            // Check if pin (with current orientation) extends beyond component's main body outline
+            // This requires knowing component's body dimensions (comp.width, comp.height)
+            // and assumes pins are defined relative to component.center_x, component.center_y
+            // Note: component.width/height are in unrotated component space.
+            // Pin coords (current_pin.x_coord, y_coord) are in world space (or board space).
+            // We need to transform pin bbox to component's local, unrotated space.
+
+            // Create a temporary pin to test opposite orientation
+            if (current_pin.orientation != PinOrientation::Natural)
+            {
+                // Construct a temporary Pin by copying members
+                Pin test_pin_for_opposite(
+                    current_pin.x_coord, current_pin.y_coord, current_pin.pin_name,
+                    current_pin.pad_shape, current_pin.getLayerId(), current_pin.getNetId(),
+                    current_pin.orientation);
+                test_pin_for_opposite.initial_width = current_pin.initial_width; // copy these as well
+                test_pin_for_opposite.initial_height = current_pin.initial_height;
+                // Also copy long_side and short_side as getOrientedPinDimensions relies on them
+                test_pin_for_opposite.long_side = current_pin.long_side;
+                test_pin_for_opposite.short_side = current_pin.short_side;
+
+                PinOrientation opposite_orientation = (current_pin.orientation == PinOrientation::Vertical) ? PinOrientation::Horizontal : PinOrientation::Vertical;
+                test_pin_for_opposite.orientation = opposite_orientation;
+
+                double opposite_w, opposite_h;
+                getOrientedPinDimensions(test_pin_for_opposite, opposite_w, opposite_h);
+                BLRect opposite_pin_bbox = BLRect(test_pin_for_opposite.x_coord - opposite_w / 2.0, test_pin_for_opposite.y_coord - opposite_h / 2.0, opposite_w, opposite_h);
+
+                bool current_overlaps_any = false;
+                bool opposite_overlaps_any = false;
+
+                for (size_t other_idx_check = 0; other_idx_check < component.pins.size(); ++other_idx_check)
                 {
-                    pin.orientation = PinOrientation::Vertical;
+                    if (pin_idx == other_idx_check || !component.pins[other_idx_check])
+                        continue;
+                    const Pin &other_pin_const_check = *component.pins[other_idx_check]; // Dereference
+
+                    double other_w_check, other_h_check;
+                    getOrientedPinDimensions(other_pin_const_check, other_w_check, other_h_check);
+                    BLRect other_pin_bbox_check = BLRect(other_pin_const_check.x_coord - other_w_check / 2.0, other_pin_const_check.y_coord - other_h_check / 2.0, other_w_check, other_h_check);
+
+                    if (areRectsIntersecting(current_pin_bbox, other_pin_bbox_check, 0.0)) // Stricter check for this test
+                        current_overlaps_any = true;
+                    if (areRectsIntersecting(opposite_pin_bbox, other_pin_bbox_check, 0.0))
+                        opposite_overlaps_any = true;
                 }
-                else if (component.is_tall_component)
+
+                if (current_overlaps_any && !opposite_overlaps_any)
                 {
-                    pin.orientation = PinOrientation::Horizontal;
+#ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
+                    printf("[secondPass]: Pin %s: Current orientation (%s) overlaps, opposite (%s) does not. Flipping.\\n",
+                           current_pin.pin_name.c_str(),
+                           pinOrientationToString(current_pin.orientation),
+                           pinOrientationToString(opposite_orientation));
+#endif
+                    current_pin.orientation = opposite_orientation;
                 }
-                else
-                { // Roughly square connector
-                    if (assigned_edge == LocalEdge::TOP || assigned_edge == LocalEdge::BOTTOM)
-                        pin.orientation = PinOrientation::Vertical;
-                    else if (assigned_edge == LocalEdge::LEFT || assigned_edge == LocalEdge::RIGHT)
-                        pin.orientation = PinOrientation::Horizontal;
-                    else
-                        pin.orientation = (pin.initial_height > pin.initial_width) ? PinOrientation::Vertical : PinOrientation::Horizontal;
+                else if (!current_overlaps_any && !opposite_overlaps_any)
+                {
+                    // If neither overlaps, maybe check which one fits "better" within component boundary,
+                    // or which one aligns better with the pin's local_edge property if it's not INTERIOR.
+                    // For now, if current is fine, leave it.
+                }
+            }
+        }
+    }
+
+    void OrientationProcessor::thirdPass_FinalBoundaryCheck(Component &component, double tolerance)
+    {
+#ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
+        printf("[thirdPass]: Final boundary check for component %s\n", component.reference_designator.c_str());
+#endif
+
+        // Helper lambdas for string conversion
+        auto pinOrientationToString = [](PinOrientation o)
+        {
+            if (o == PinOrientation::Vertical)
+                return "Vertical";
+            if (o == PinOrientation::Horizontal)
+                return "Horizontal";
+            return "Natural";
+        };
+        auto localEdgeToString = [](LocalEdge le)
+        {
+            if (le == LocalEdge::LEFT)
+                return "Left";
+            if (le == LocalEdge::RIGHT)
+                return "Right";
+            if (le == LocalEdge::TOP)
+                return "Top";
+            if (le == LocalEdge::BOTTOM)
+                return "Bottom";
+            if (le == LocalEdge::INTERIOR)
+                return "Interior";
+            return "Unknown";
+        };
+
+        // This pass ensures pins respect component boundaries if they are on edges.
+        // It assumes component.width and component.height are the unrotated body dimensions.
+        // Pin coordinates (pin.x_coord, pin.y_coord) are in global/board space.
+        // Component center (component.center_x, component.center_y) is also global/board space.
+        // Component rotation (component.rotation) is in degrees.
+
+        // Transform component boundaries to global space or pin to local unrotated component space.
+        // Let's transform pin to local unrotated component space.
+        double comp_rot_rad_inv = -component.rotation * (M_PI / 180.0);
+
+        for (auto &pin_ptr : component.pins) // Iterate unique_ptr
+        {
+            if (!pin_ptr)
+                continue;
+            Pin &pin = *pin_ptr; // Dereference
+
+            if (pin.local_edge == LocalEdge::INTERIOR || pin.orientation == PinOrientation::Natural)
+                continue; // Focus on edge pins with determined orientations
+
+            // Pin center in world space: (pin.x_coord, pin.y_coord)
+            // Pin center relative to component center (world space):
+            double rel_pin_x = pin.x_coord - component.center_x;
+            double rel_pin_y = pin.y_coord - component.center_y;
+
+            // Rotate this relative vector to align with component's unrotated axes:
+            Vec2 local_unrotated_pin_center = rotatePoint(rel_pin_x, rel_pin_y, comp_rot_rad_inv);
+
+            double pin_w, pin_h;
+            getOrientedPinDimensions(pin, pin_w, pin_h);
+
+            // Local unrotated component half-dimensions
+            double comp_half_w = component.width / 2.0;
+            double comp_half_h = component.height / 2.0;
+
+            bool extends_beyond = false;
+            if (pin.orientation == PinOrientation::Horizontal)
+            {                                                                                // Pin is wider than tall in its current orientation
+                if (local_unrotated_pin_center.x - pin_w / 2.0 < -comp_half_w - tolerance || // Left edge
+                    local_unrotated_pin_center.x + pin_w / 2.0 > comp_half_w + tolerance ||  // Right edge
+                    local_unrotated_pin_center.y - pin_h / 2.0 < -comp_half_h - tolerance || // Top edge
+                    local_unrotated_pin_center.y + pin_h / 2.0 > comp_half_h + tolerance)    // Bottom edge
+                {
+                    extends_beyond = true;
                 }
             }
             else
-            { // General multi-pin components (not QFP, not Connector, not 2-pad, not single_pin handled by square/circle)
-                switch (assigned_edge)
+            { // Pin is taller than wide (Vertical orientation)
+                if (local_unrotated_pin_center.x - pin_w / 2.0 < -comp_half_w - tolerance ||
+                    local_unrotated_pin_center.x + pin_w / 2.0 > comp_half_w + tolerance ||
+                    local_unrotated_pin_center.y - pin_h / 2.0 < -comp_half_h - tolerance ||
+                    local_unrotated_pin_center.y + pin_h / 2.0 > comp_half_h + tolerance)
                 {
-                case LocalEdge::LEFT:
-                case LocalEdge::RIGHT:
-                    // Align short side parallel to Y-axis (edge is vertical)
-                    // Pin's oriented height should be its short side. Achieved with Horizontal.
-                    pin.orientation = PinOrientation::Horizontal;
-                    break;
-                case LocalEdge::TOP:
-                case LocalEdge::BOTTOM:
-                    // Align short side parallel to X-axis (edge is horizontal)
-                    // Pin's oriented width should be its short side. Achieved with Vertical.
-                    pin.orientation = PinOrientation::Vertical;
-                    break;
-                case LocalEdge::INTERIOR:
-                case LocalEdge::UNKNOWN:
-                    pin.orientation = PinOrientation::Natural;
-                    break;
-                default:
-                    // Component is roughly square or aspect unknown
-                    pin.orientation = PinOrientation::Natural;
-
-                    break;
-                }
-            }
-        }
-        // Note: The alignment flags (e.g., left_pins_vertically_aligned) and detectPinAlignment are removed
-        // as the new orientation logic is more direct based on edge type or component type.
-        // The "Initial Problem Check & Tentative Flip" from previous refactoring is also omitted for now,
-        // relying on Pass 2 and 3 for corrections.
-    }
-
-    void OrientationProcessor::secondPass_CheckOverlapsAndBoundaries(Component &component, double component_rotation_radians)
-    {
-        double local_rotation_rad = -component_rotation_radians;
-
-        if (component.pins.size() <= 1)
-            return;
-
-        double comp_min_x = std::numeric_limits<double>::max();
-        double comp_max_x = std::numeric_limits<double>::lowest();
-        double comp_min_y = std::numeric_limits<double>::max();
-        double comp_max_y = std::numeric_limits<double>::lowest();
-
-        if (!component.graphical_elements.empty())
-        {
-            for (const auto &seg : component.graphical_elements)
-            {
-                BoardPoint2D local_start = rotatePoint(seg.start.x, seg.start.y, local_rotation_rad);
-                BoardPoint2D local_end = rotatePoint(seg.end.x, seg.end.y, local_rotation_rad);
-                comp_min_x = std::min({comp_min_x, local_start.x, local_end.x});
-                comp_max_x = std::max({comp_max_x, local_start.x, local_end.x});
-                comp_min_y = std::min({comp_min_y, local_start.y, local_end.y});
-                comp_max_y = std::max({comp_max_y, local_start.y, local_end.y});
-            }
-            double margin_x = (comp_max_x - comp_min_x) * 0.05;
-            double margin_y = (comp_max_y - comp_min_y) * 0.05;
-            if (margin_x < 1e-6)
-                margin_x = 0.1;
-            if (margin_y < 1e-6)
-                margin_y = 0.1;
-            comp_min_x -= margin_x;
-            comp_max_x += margin_x;
-            comp_min_y -= margin_y;
-            comp_max_y += margin_y;
-        }
-        else if (component.width > 0 && component.height > 0)
-        {
-            // Assume component.width/height define the AABB in its local, unrotated frame, centered at (0,0) locally.
-            // Pin coordinates are relative to component anchor, which is our local (0,0) after rotation.
-            comp_min_x = -component.width / 2.0;
-            comp_max_x = component.width / 2.0;
-            comp_min_y = -component.height / 2.0;
-            comp_max_y = component.height / 2.0;
-        }
-        else
-        {
-            // Fallback to pin bounding box (calculated in local frame in pass 1)
-            comp_min_x = component.pin_bbox_min_x;
-            comp_max_x = component.pin_bbox_max_x;
-            comp_min_y = component.pin_bbox_min_y;
-            comp_max_y = component.pin_bbox_max_y;
-            double tol = 0.1;
-            comp_min_x -= tol;
-            comp_max_x += tol;
-            comp_min_y -= tol;
-            comp_max_y += tol;
-        }
-
-        for (size_t pin_idx = 0; pin_idx < component.pins.size(); ++pin_idx)
-        {
-            Pin &current_pin = component.pins[pin_idx];
-            BoardPoint2D local_current_pin_pos = rotatePoint(current_pin.x_coord, current_pin.y_coord, local_rotation_rad);
-
-            double current_w, current_h;
-            getOrientedPinDimensions(current_pin, current_w, current_h); // Uses current_pin.scale_factor
-            double current_half_w = current_w / 2.0;
-            double current_half_h = current_h / 2.0;
-
-            bool extends_beyond_bounds =
-                (local_current_pin_pos.x - current_half_w < comp_min_x) ||
-                (local_current_pin_pos.x + current_half_w > comp_max_x) ||
-                (local_current_pin_pos.y - current_half_h < comp_min_y) ||
-                (local_current_pin_pos.y + current_half_h > comp_max_y);
-
-            bool overlaps_other_pin = false;
-            for (size_t other_idx = 0; other_idx < component.pins.size(); ++other_idx)
-            {
-                if (pin_idx == other_idx)
-                    continue;
-                const Pin &other_pin_const = component.pins[other_idx];
-                BoardPoint2D local_other_pin_pos = rotatePoint(other_pin_const.x_coord, other_pin_const.y_coord, local_rotation_rad);
-
-                double other_w, other_h;
-                getOrientedPinDimensions(other_pin_const, other_w, other_h); // Uses other_pin.scale_factor
-                double other_half_w = other_w / 2.0;
-                double other_half_h = other_h / 2.0;
-
-                bool x_overlap = std::abs(local_current_pin_pos.x - local_other_pin_pos.x) < (current_half_w + other_half_w);
-                bool y_overlap = std::abs(local_current_pin_pos.y - local_other_pin_pos.y) < (current_half_h + other_half_h);
-
-                if (x_overlap && y_overlap)
-                {
-                    overlaps_other_pin = true;
-                    break;
+                    extends_beyond = true;
                 }
             }
 
-            // Store original state for decision making and scaling
-            PinOrientation initial_pin_orientation = current_pin.orientation;
-            bool problem_detected = extends_beyond_bounds || overlaps_other_pin;
-
-            if (problem_detected)
+            if (extends_beyond)
             {
-                // For Natural square/circle pins, flipping is not typically done. Scaling will be handled later if needed.
-                bool is_natural_square_circle = (initial_pin_orientation == PinOrientation::Natural && std::abs(current_pin.initial_width - current_pin.initial_height) < 1e-3);
+#ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
+                printf("[thirdPass]: Pin %s: Extends beyond boundaries. On %s. Current orientation: %s\\n",
+                       pin.pin_name.c_str(), localEdgeToString(pin.local_edge), pinOrientationToString(pin.orientation));
+#endif
+                // Try flipping orientation if it's not Natural
+                PinOrientation opposite_orientation = (pin.orientation == PinOrientation::Vertical) ? PinOrientation::Horizontal : PinOrientation::Vertical;
 
-                if (!is_natural_square_circle)
+                Pin test_pin_opposite(
+                    pin.x_coord, pin.y_coord, pin.pin_name, pin.pad_shape,
+                    pin.getLayerId(), pin.getNetId(), opposite_orientation);
+                test_pin_opposite.initial_width = pin.initial_width;
+                test_pin_opposite.initial_height = pin.initial_height;
+                // Also copy long_side and short_side as getOrientedPinDimensions relies on them
+                test_pin_opposite.long_side = pin.long_side;
+                test_pin_opposite.short_side = pin.short_side;
+
+                double opp_pin_w, opp_pin_h;
+                getOrientedPinDimensions(test_pin_opposite, opp_pin_w, opp_pin_h);
+
+                bool opposite_extends_beyond = false;
+                if (test_pin_opposite.orientation == PinOrientation::Horizontal)
                 {
-                    PinOrientation opposite_orientation;
-                    if (initial_pin_orientation == PinOrientation::Vertical)
-                        opposite_orientation = PinOrientation::Horizontal;
-                    else if (initial_pin_orientation == PinOrientation::Horizontal)
-                        opposite_orientation = PinOrientation::Vertical;
-                    else // Natural but not square/circle, or some other state
+                    if (local_unrotated_pin_center.x - opp_pin_w / 2.0 < -comp_half_w - tolerance ||
+                        local_unrotated_pin_center.x + opp_pin_w / 2.0 > comp_half_w + tolerance ||
+                        local_unrotated_pin_center.y - opp_pin_h / 2.0 < -comp_half_h - tolerance ||
+                        local_unrotated_pin_center.y + opp_pin_h / 2.0 > comp_half_h + tolerance)
                     {
-                        if (current_pin.initial_width > current_pin.initial_height)      // Naturally wider
-                            opposite_orientation = PinOrientation::Vertical;             // Try to make it tall
-                        else if (current_pin.initial_height > current_pin.initial_width) // Naturally taller
-                            opposite_orientation = PinOrientation::Horizontal;           // Try to make it wide
-                        else                                                             // Still effectively square/circle from initial dimensions
-                            opposite_orientation = PinOrientation::Horizontal;           // Default opposite
-                    }
-
-                    // Test opposite orientation using the pin's current scale factor
-                    Pin test_pin_for_opposite = current_pin; // Copies current scale_factor
-                    test_pin_for_opposite.orientation = opposite_orientation;
-                    double opposite_w, opposite_h;
-                    getOrientedPinDimensions(test_pin_for_opposite, opposite_w, opposite_h);
-                    double opposite_half_w = opposite_w / 2.0;
-                    double opposite_half_h = opposite_h / 2.0;
-
-                    bool opposite_extends =
-                        (local_current_pin_pos.x - opposite_half_w < comp_min_x) ||
-                        (local_current_pin_pos.x + opposite_half_w > comp_max_x) ||
-                        (local_current_pin_pos.y - opposite_half_h < comp_min_y) ||
-                        (local_current_pin_pos.y + opposite_half_h > comp_max_y);
-
-                    bool opposite_overlaps = false;
-                    for (size_t other_idx = 0; other_idx < component.pins.size(); ++other_idx)
-                    {
-                        if (pin_idx == other_idx)
-                            continue;
-                        const Pin &other_pin_const_check = component.pins[other_idx]; // Renamed to avoid conflict
-                        BoardPoint2D local_other_pin_pos_check = rotatePoint(other_pin_const_check.x_coord, other_pin_const_check.y_coord, local_rotation_rad);
-
-                        double other_w_check, other_h_check;
-                        getOrientedPinDimensions(other_pin_const_check, other_w_check, other_h_check);
-                        double other_half_w_check = other_w_check / 2.0;
-                        double other_half_h_check = other_h_check / 2.0;
-
-                        bool x_overlap_opp = std::abs(local_current_pin_pos.x - local_other_pin_pos_check.x) < (opposite_half_w + other_half_w_check);
-                        bool y_overlap_opp = std::abs(local_current_pin_pos.y - local_other_pin_pos_check.y) < (opposite_half_h + other_half_h_check);
-
-                        if (x_overlap_opp && y_overlap_opp)
-                        {
-                            opposite_overlaps = true;
-                            break;
-                        }
-                    }
-
-                    // Decision to flip:
-                    // 1. If opposite orientation is perfect (no extension, no overlap), flip.
-                    if (!opposite_extends && !opposite_overlaps)
-                    {
-                        printf("[secondPass]: Pin %s: Opposite orientation is perfect. Flipping from %s to %s\n", current_pin.pin_name.c_str(), current_pin.orientation_name().c_str(), opposite_orientation == PinOrientation::Vertical ? "Vertical" : "Horizontal");
-                        current_pin.orientation = opposite_orientation;
+                        opposite_extends_beyond = true;
                     }
                 }
-            } // End of problem_detected block (flipping logic)
-        }
-    }
-
-    void OrientationProcessor::thirdPass_FinalBoundaryCheck(Component &component, double component_rotation_radians)
-    {
-        double local_rotation_rad = -component_rotation_radians;
-
-        if (component.pins.empty())
-            return;
-
-        double comp_min_x = std::numeric_limits<double>::max();
-        double comp_max_x = std::numeric_limits<double>::lowest();
-        double comp_min_y = std::numeric_limits<double>::max();
-        double comp_max_y = std::numeric_limits<double>::lowest();
-        bool boundary_defined = false;
-
-        if (!component.graphical_elements.empty())
-        {
-            for (const auto &seg : component.graphical_elements)
-            {
-                BoardPoint2D local_start = rotatePoint(seg.start.x, seg.start.y, local_rotation_rad);
-                BoardPoint2D local_end = rotatePoint(seg.end.x, seg.end.y, local_rotation_rad);
-                comp_min_x = std::min({comp_min_x, local_start.x, local_end.x});
-                comp_max_x = std::max({comp_max_x, local_start.x, local_end.x});
-                comp_min_y = std::min({comp_min_y, local_start.y, local_end.y});
-                comp_max_y = std::max({comp_max_y, local_start.y, local_end.y});
-            }
-            boundary_defined = true;
-        }
-        else if (component.width > 0 && component.height > 0)
-        {
-            comp_min_x = -component.width / 2.0;
-            comp_max_x = component.width / 2.0;
-            comp_min_y = -component.height / 2.0;
-            comp_max_y = component.height / 2.0;
-            boundary_defined = true;
-        }
-
-        if (!boundary_defined)
-            return;
-
-        double margin_x = (comp_max_x - comp_min_x) * 0.001;
-        double margin_y = (comp_max_y - comp_min_y) * 0.001;
-        margin_x = std::max(margin_x, 1e-4);
-        margin_y = std::max(margin_y, 1e-4);
-
-        for (Pin &pin : component.pins)
-        {
-            if (pin.orientation == PinOrientation::Natural)
-            {
-                continue;
-            }
-
-            BoardPoint2D local_pin_pos = rotatePoint(pin.x_coord, pin.y_coord, local_rotation_rad);
-
-            // Calculate current pin dimensions (already scaled from pass 2) and extents in local frame
-            double current_w, current_h;
-            getOrientedPinDimensions(pin, current_w, current_h); // Uses pin.scale_factor
-            double current_half_w = current_w / 2.0;
-            double current_half_h = current_h / 2.0;
-
-            double pin_min_x_local = local_pin_pos.x - current_half_w;
-            double pin_max_x_local = local_pin_pos.x + current_half_w;
-            double pin_min_y_local = local_pin_pos.y - current_half_h;
-            double pin_max_y_local = local_pin_pos.y + current_half_h;
-
-            bool extends_significantly =
-                (pin_min_x_local < comp_min_x - margin_x) ||
-                (pin_max_x_local > comp_max_x + margin_x) ||
-                (pin_min_y_local < comp_min_y - margin_y) ||
-                (pin_max_y_local > comp_max_y + margin_y);
-
-            if (extends_significantly)
-            {
-                printf("[thirdPass]: Pin %s: Extends beyond boundaries. On %s. Current orientation: %s\n", pin.pin_name.c_str(), pin.edge_name().c_str(), pin.orientation_name().c_str());
-                pin.debug_color = BLRgba32(255, 0, 0, 200);
-                double current_extension = 0.0;
-                if (pin_min_x_local < comp_min_x)
-                    current_extension += (comp_min_x - pin_min_x_local);
-                if (pin_max_x_local > comp_max_x)
-                    current_extension += (pin_max_x_local - comp_max_x);
-                if (pin_min_y_local < comp_min_y)
-                    current_extension += (comp_min_y - pin_min_y_local);
-                if (pin_max_y_local > comp_max_y)
-                    current_extension += (pin_max_y_local - comp_max_y);
-
-                PinOrientation opposite_orientation;
-                if (pin.orientation == PinOrientation::Vertical)
-                    opposite_orientation = PinOrientation::Horizontal;
-                else if (pin.orientation == PinOrientation::Horizontal)
-                    opposite_orientation = PinOrientation::Vertical;
                 else
-                { // Should not happen due to Natural check, but as a fallback
-                    opposite_orientation = (pin.initial_width > pin.initial_height) ? PinOrientation::Vertical : PinOrientation::Horizontal;
+                { // Vertical
+                    if (local_unrotated_pin_center.x - opp_pin_w / 2.0 < -comp_half_w - tolerance ||
+                        local_unrotated_pin_center.x + opp_pin_w / 2.0 > comp_half_w + tolerance ||
+                        local_unrotated_pin_center.y - opp_pin_h / 2.0 < -comp_half_h - tolerance ||
+                        local_unrotated_pin_center.y + opp_pin_h / 2.0 > comp_half_h + tolerance)
+                    {
+                        opposite_extends_beyond = true;
+                    }
                 }
 
-                Pin test_pin_opposite = pin; // Copies current scale_factor too
-                test_pin_opposite.orientation = opposite_orientation;
-                double opposite_w, opposite_h;
-                getOrientedPinDimensions(test_pin_opposite, opposite_w, opposite_h);
-                double opposite_half_w = opposite_w / 2.0;
-                double opposite_half_h = opposite_h / 2.0;
-
-                double opposite_pin_min_x_local = local_pin_pos.x - opposite_half_w;
-                double opposite_pin_max_x_local = local_pin_pos.x + opposite_half_w;
-                double opposite_pin_min_y_local = local_pin_pos.y - opposite_half_h;
-                double opposite_pin_max_y_local = local_pin_pos.y + opposite_half_h;
-
-                double opposite_extension = 0.0;
-                if (opposite_pin_min_x_local < comp_min_x)
-                    opposite_extension += (comp_min_x - opposite_pin_min_x_local);
-                if (opposite_pin_max_x_local > comp_max_x)
-                    opposite_extension += (opposite_pin_max_x_local - comp_max_x);
-                if (opposite_pin_min_y_local < comp_min_y)
-                    opposite_extension += (comp_min_y - opposite_pin_min_y_local);
-                if (opposite_pin_max_y_local > comp_max_y)
-                    opposite_extension += (opposite_pin_max_y_local - comp_max_y);
-
-                if (opposite_extension < current_extension)
+                if (!opposite_extends_beyond)
                 {
+#ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
+                    printf("  Pin %s: Flipped to %s, which fits within boundaries.\\n", pin.pin_name.c_str(), pinOrientationToString(opposite_orientation));
+#endif
                     pin.orientation = opposite_orientation;
                 }
+                else
+                {
+#ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
+                    printf("  Pin %s: Both current and opposite orientations extend beyond boundaries. No change made.\\n", pin.pin_name.c_str());
+#endif
+                }
             }
         }
     }
 
-    void OrientationProcessor::getOrientedPinDimensions(const Pin &pin, double &width, double &height)
+    void OrientationProcessor::calculatePinBoundingBox(Component &component, double tolerance)
     {
-        width = pin.initial_width;
-        height = pin.initial_height;
+        if (component.pins.empty())
+        {
+            component.pin_bbox_min_x = component.pin_bbox_max_x = component.center_x;
+            component.pin_bbox_min_y = component.pin_bbox_max_y = component.center_y;
+            return;
+        }
 
-        if (pin.orientation == PinOrientation::Vertical)
+        component.pin_bbox_min_x = std::numeric_limits<double>::max();
+        component.pin_bbox_max_x = std::numeric_limits<double>::lowest();
+        component.pin_bbox_min_y = std::numeric_limits<double>::max();
+        component.pin_bbox_max_y = std::numeric_limits<double>::lowest();
+
+        for (const auto &pin_ptr : component.pins) // Iterate unique_ptr
         {
-            if (width > height)
-            { // If natural/initial was horizontal, swap for vertical
-                std::swap(width, height);
-            }
+            if (!pin_ptr)
+                continue;
+            const Pin &pin = *pin_ptr; // Dereference
+            // Consider the pin's own bounding box, not just its center point
+            // For simplicity, using pin coordinates + some extent if available, or just coordinates
+            // This needs to be more robust by using the pin's actual shape and dimensions
+            double half_width = pin.initial_width / 2.0;   // Assuming initial_width is relevant
+            double half_height = pin.initial_height / 2.0; // Assuming initial_height is relevant
+
+            component.pin_bbox_min_x = std::min(component.pin_bbox_min_x, pin.x_coord - half_width);
+            component.pin_bbox_max_x = std::max(component.pin_bbox_max_x, pin.x_coord + half_width);
+            component.pin_bbox_min_y = std::min(component.pin_bbox_min_y, pin.y_coord - half_height);
+            component.pin_bbox_max_y = std::max(component.pin_bbox_max_y, pin.y_coord + half_height);
         }
-        else if (pin.orientation == PinOrientation::Horizontal)
-        {
-            if (height > width)
-            { // If natural/initial was vertical, swap for horizontal
-                std::swap(width, height);
-            }
-        }
-        // For PinOrientation::Natural, width and height remain as initial_width and initial_height (before scaling)
     }
 
     double OrientationProcessor::calculateComponentRotation(const Component &component)

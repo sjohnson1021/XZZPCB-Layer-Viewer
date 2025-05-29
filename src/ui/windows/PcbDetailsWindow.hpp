@@ -6,7 +6,8 @@
 #include <vector>
 #include <memory>
 
-class PcbDetailsWindow {
+class PcbDetailsWindow
+{
 public:
     PcbDetailsWindow();
     void render();
@@ -18,12 +19,12 @@ private:
     std::shared_ptr<Board> current_board_;
     bool is_visible_ = false;
 
-    void displayBasicInfo(const Board* boardData);
-    void displayLayers(const Board* boardData);
-    void displayNets(const Board* boardData);
-    void displayComponents(const Board* boardData);
-    void displayPins(const Board* boardData, const std::vector<Pin>& pins);
-    void displayPadShape(const PadShape& shape);
-    void displayGraphicalElements(const std::vector<LineSegment>& elements);
-    void displayStandaloneElements(const Board* boardData);
-}; 
+    void displayBasicInfo(const Board *boardData);
+    void displayLayers(const Board *boardData);
+    void displayNets(const Board *boardData);
+    void displayComponents(const Board *boardData);
+    void displayPins(const Board *boardData, const std::vector<std::unique_ptr<Pin>> &pins);
+    void displayPadShape(const PadShape &shape);
+    void displayGraphicalElements(const std::vector<LineSegment> &elements);
+    void displayStandaloneElements(const Board *boardData);
+};

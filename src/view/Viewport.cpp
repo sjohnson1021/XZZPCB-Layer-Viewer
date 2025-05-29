@@ -50,14 +50,17 @@ Vec2 Viewport::ScreenToWorld(const Vec2 &screenPoint, const Camera &camera) cons
     // 2. Unscale by camera zoom.
     Vec2 pointInCameraSpaceNoRotation = pointInViewport / camera.GetZoom();
 
-    // 3. Unrotate by camera rotation (rotate by -A).
-    // If camera is rotated by A, world = R(-A) * p_cam_space
+    // 3. Unrotate by camera rotation (rotate by A).
+    // If camera is rotated by A, world = R(A) * p_cam_space
+    // R(A) = [cosA -sinA; sinA cosA]
+    // x_rotated = x * cosA - y * sinA
+    // y_rotated = x * sinA + y * cosA
     float cosA = camera.GetCachedCosRotation();
     float sinA = camera.GetCachedSinRotation(); // sinA for positive angle A
 
     Vec2 pointInCameraSpace = {
-        pointInCameraSpaceNoRotation.x * cosA + pointInCameraSpaceNoRotation.y * sinA,
-        -pointInCameraSpaceNoRotation.x * sinA + pointInCameraSpaceNoRotation.y * cosA};
+        pointInCameraSpaceNoRotation.x * cosA - pointInCameraSpaceNoRotation.y * sinA,
+        pointInCameraSpaceNoRotation.x * sinA + pointInCameraSpaceNoRotation.y * cosA};
 
     // 4. Translate by camera position. (Camera position is Y-Down world)
     Vec2 worldPoint = pointInCameraSpace + camera.GetPosition();

@@ -1,34 +1,56 @@
 #pragma once
 
+#include "pcb/elements/Element.hpp" // Include base class
+#include "utils/Vec2.hpp"           // For Vec2
 #include <string>
-#include <cstdint>
+// #include <cstdint> // No longer strictly needed
 
-class Via {
+class Via : public Element
+{ // Inherit from Element
 public:
-    Via(double x_coord, double y_coord, int start_layer, int end_layer, 
-        double radius_start_layer, double radius_end_layer)
-        : x(x_coord), y(y_coord), layer_from(start_layer), layer_to(end_layer),
-          pad_radius_from(radius_start_layer), pad_radius_to(radius_end_layer) {}
+    Via(double x_coord, double y_coord, int start_layer, int end_layer,
+        double drill_dia, double radius_start_layer, double radius_end_layer, int net_id_val = -1, const std::string &text = "")
+        : Element(start_layer, ElementType::VIA, net_id_val), // Use start_layer as primary layer for Element
+          x(x_coord), y(y_coord), layer_from(start_layer), layer_to(end_layer),
+          drill_diameter(drill_dia), pad_radius_from(radius_start_layer), pad_radius_to(radius_end_layer),
+          optional_text(text)
+    {
+    }
 
-    // Member Data
+    // Copy constructor
+    Via(const Via &other)
+        : Element(other.m_layerId, other.m_type, other.m_netId), // Initialize Element base
+          x(other.x),
+          y(other.y),
+          layer_from(other.layer_from),
+          layer_to(other.layer_to),
+          drill_diameter(other.drill_diameter),
+          pad_radius_from(other.pad_radius_from),
+          pad_radius_to(other.pad_radius_to),
+          optional_text(other.optional_text)
+    {
+        setVisible(other.isVisible()); // Copy visibility state
+    }
+
+    // --- Overridden virtual methods ---
+    BLRect getBoundingBox(const Component *parentComponent = nullptr) const override;
+    bool isHit(const Vec2 &worldMousePos, float tolerance, const Component *parentComponent = nullptr) const override;
+    std::string getInfo(const Component *parentComponent = nullptr) const override;
+    void translate(double dx, double dy) override; // Declaration only
+
+    // --- Via-specific Member Data ---
     double x = 0.0;
     double y = 0.0;
-    int layer = 30; // Default layer for vias - for rendering purposes
-    int layer_from = 0; // Starting layer index
-    int layer_to = 0;   // Ending layer index
-    
-    double drill_diameter = 0.2; // Diameter of the drilled hole
-    double pad_radius_from = 0.0; // Pad radius on the starting layer
-    double pad_radius_to = 0.0;   // Pad radius on the ending layer
-    // Or, if pads are always symmetrical: double pad_radius;
+    // int layer = 30; // This 'layer' member was a bit ambiguous for vias; m_layerId from Element now holds primary layer
+    int layer_from = 0;
+    int layer_to = 0;
+    double drill_diameter = 0.2;
+    double pad_radius_from = 0.0;
+    double pad_radius_to = 0.0;
+    std::string optional_text;
+    // net_id is in Element
 
-    int net_id = -1;           // Associated net ID
-    std::string optional_text; // Optional text annotation
-
-    // bool is_tented = false; // Example: for solder mask properties
-    // bool is_filled = false; // Example: if via is filled (e.g. with conductive paste)
-
-    // Add constructors, getters, setters, and helper methods as needed
+    // --- Via-specific Getters ---
     double GetX() const { return x; }
     double GetY() const { return y; }
     int GetLayerFrom() const { return layer_from; }
@@ -36,14 +58,11 @@ public:
     double GetPadRadiusFrom() const { return pad_radius_from; }
     double GetPadRadiusTo() const { return pad_radius_to; }
     double GetDrillDiameter() const { return drill_diameter; }
-    int GetNetId() const { return net_id; }
-    const std::string& GetOptionalText() const { return optional_text; }
+    const std::string &GetOptionalText() const { return optional_text; }
+    // GetLayerId() (primary) and GetNetId() are inherited
 
-    // Add other methods as needed
-    bool IsOnLayer(int layer_id) const {
-        return layer_from <= layer_id && layer_id <= layer_to;
+    bool IsOnLayer(int query_layer_id) const
+    {
+        return query_layer_id >= layer_from && query_layer_id <= layer_to;
     }
-    
-
-    
-}; 
+};

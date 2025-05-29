@@ -109,7 +109,8 @@ void RenderPipeline::Execute(
     // Conditionally render the board
     if (shouldRenderBoard && board)
     {
-        RenderBoard(bl_ctx, *board, camera, viewport);
+        BLRect worldViewRect = GetVisibleWorldBounds(camera, viewport); // Calculate once
+        RenderBoard(bl_ctx, *board, camera, viewport, worldViewRect);   // Pass to RenderBoard
     }
 }
 // Helper function to check if two AABB rectangles intersect
@@ -172,107 +173,155 @@ void RenderPipeline::RenderBoard(
     BLContext &bl_ctx,
     const Board &board,
     const Camera &camera,
-    const Viewport &viewport) // Removed grid parameter
+    const Viewport &viewport,
+    const BLRect &worldViewRect) // Added worldViewRect parameter
 {
-    // std::cout << "RenderBoard (Corrected Logic): Board has " << board.layers.size() << " layers defined." << std::endl;
-
-    // Get the visible world rectangle for culling
-
     bl_ctx.save();
 
+    // Apply viewport and camera transformations
     bl_ctx.translate(viewport.GetWidth() / 2.0, viewport.GetHeight() / 2.0);
     bl_ctx.scale(camera.GetZoom());
-    // Use cached rotation values from camera
-    // float rotationRadians = camera.GetRotation() * (static_cast<float>(BL_M_PI) / 180.0f);
-    // This line is not strictly needed if camera.GetRotation gives the angle for GetCachedSin/Cos
-    // but RenderPipeline directly applies rotation here. It can also use the cached sin/cos.
-    // For direct rotation, Blend2D expects radians. If GetRotation is degrees:
-    // float rad = camera.GetRotation() * (BL_M_PI / 180.0f);
-    // bl_ctx.rotate(rad);
-    // OR, if we want to be consistent and use the cached values (which might be slightly out of sync if SetRotation was called but not yet reflected in a full matrix)
-    // For Blend2D's rotate, it takes the angle. The cached sin/cos are for constructing matrices usually.
-    // Keeping it simple for now with direct angle conversion.
-    // Flipping rotation direction to match the grid, assuming grid's current rotation is the desired one.
     bl_ctx.rotate(-camera.GetRotation() * (static_cast<float>(BL_M_PI) / 180.0f));
-
-    // Apply camera translation: Use positive Y component of camera position
-    // to make board's Y movement consistent with grid's Y movement relative to camera world Y changes.
-    // With a Y-Down world system for the camera, and Blend2D being Y-Down:
-    // If camera.GetPosition().y increases (camera moves "down" in world), the world should appear to move "up".
-    // Blend2D translation by a negative Y moves content up.
-    // So, we translate by -camera.GetPosition().y.
     bl_ctx.translate(-camera.GetPosition().x, -camera.GetPosition().y);
-    BLRect worldViewRect = GetVisibleWorldBounds(camera, viewport);
 
-    // Render Traces
-    for (const auto &trace : board.GetTraces())
+    // Get the selected net ID from BoardDataManager
+    int selectedNetId = -1;
+    BLRgba32 highlightColor;
+    BLRgba32 baseColor;
+    if (m_renderContext && m_renderContext->GetBoardDataManager())
     {
-        const LayerInfo *layer_info = board.GetLayerById(trace.GetLayer());
-        if (layer_info && layer_info->IsVisible())
+        selectedNetId = m_renderContext->GetBoardDataManager()->GetSelectedNetId();
+        highlightColor = m_renderContext->GetBoardDataManager()->GetNetHighlightColor();
+        baseColor = m_renderContext->GetBoardDataManager()->GetBaseLayerColor();
+    }
+
+    // Iterate through defined layers to maintain drawing order and visibility
+    for (const LayerInfo &layerInfo : board.GetLayers()) // board.GetLayers() provides the correct order
+    {
+        if (!layerInfo.IsVisible())
+            continue;
+
+        // Find elements associated with the current layer ID in m_elementsByLayer
+        auto it = board.m_elementsByLayer.find(layerInfo.GetId());
+        if (it != board.m_elementsByLayer.end())
         {
-            bl_ctx.setStrokeStyle(layer_info->GetColor());
-            RenderTrace(bl_ctx, trace, worldViewRect);
+            const auto &elements_on_layer = it->second;
+            for (const auto &element_ptr : elements_on_layer)
+            {
+                if (!element_ptr || !element_ptr->isVisible())
+                    continue;
+
+                // Optional: Broad-phase culling against worldViewRect
+                // BLRect elementBounds = element_ptr->getBoundingBox(nullptr);
+                // if (!AreRectsIntersecting(elementBounds, worldViewRect))
+                //     continue;
+
+                // Check if this element belongs to the selected net
+                bool isSelectedNet = (selectedNetId != -1 && element_ptr->getNetId() == selectedNetId);
+
+                // Set color based on whether this element is part of the selected net
+                if (isSelectedNet)
+                {
+                    bl_ctx.setStrokeStyle(highlightColor);
+                    bl_ctx.setFillStyle(highlightColor);
+                }
+                else
+                {
+                    bl_ctx.setStrokeStyle(layerInfo.GetColor());
+                    bl_ctx.setFillStyle(layerInfo.GetColor());
+                }
+
+                switch (element_ptr->getElementType())
+                {
+                case ElementType::COMPONENT:
+                    if (auto component = dynamic_cast<const Component *>(element_ptr.get()))
+                    {
+                        const LayerInfo *layerInfo = board.GetLayerById(component->getLayerId());
+                        if (layerInfo && layerInfo->IsVisible())
+                        {
+                            RenderComponent(bl_ctx, *component, board, worldViewRect, isSelectedNet ? highlightColor : layerInfo->GetColor());
+                        }
+                    }
+                    break;
+
+                case ElementType::PIN:
+                    if (auto pin = dynamic_cast<const Pin *>(element_ptr.get()))
+                    {
+                        const LayerInfo *layerInfo = board.GetLayerById(pin->getLayerId());
+                        if (layerInfo && layerInfo->IsVisible())
+                        {
+                            // Find the parent component for this pin
+                            for (const auto &component : board.GetComponents())
+                            {
+                                for (const auto &component_pin : component.pins)
+                                {
+                                    if (component_pin.get() == pin)
+                                    {
+                                        RenderPin(bl_ctx, *pin, component, board, isSelectedNet ? highlightColor : layerInfo->GetColor());
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    break;
+
+                case ElementType::TRACE:
+                    if (auto trace = dynamic_cast<const Trace *>(element_ptr.get()))
+                    {
+                        RenderTrace(bl_ctx, *trace, worldViewRect);
+                    }
+                    break;
+                case ElementType::ARC:
+                    if (auto arc = dynamic_cast<const Arc *>(element_ptr.get()))
+                    {
+                        RenderArc(bl_ctx, *arc, worldViewRect);
+                    }
+                    break;
+                case ElementType::VIA:
+                    if (auto via = dynamic_cast<const Via *>(element_ptr.get()))
+                    {
+                        RenderVia(bl_ctx, *via, board, worldViewRect);
+                    }
+                    break;
+                case ElementType::TEXT_LABEL:
+                    if (auto textLabel = dynamic_cast<const TextLabel *>(element_ptr.get()))
+                    {
+                        RenderTextLabel(bl_ctx, *textLabel, isSelectedNet ? highlightColor : layerInfo.GetColor());
+                    }
+                    break;
+                default:
+                    break;
+                }
+            }
         }
     }
 
-    // Render Arcs
-    for (const auto &arc : board.GetArcs())
-    {
-        const LayerInfo *layer_info = board.GetLayerById(arc.GetLayer());
-        if (layer_info && layer_info->IsVisible())
-        {
-            bl_ctx.setStrokeStyle(layer_info->GetColor());
-            RenderArc(bl_ctx, arc, worldViewRect);
-        }
-    }
-
-    // Render Vias
-    for (const auto &via : board.GetVias())
-    {
-        // Via visibility is often tied to layers, but pads might span multiple visible layers.
-        // Culling individual pads within RenderVia.
-        RenderVia(bl_ctx, via, board, worldViewRect);
-    }
-
-    // Render Components
+    // Render Components separately.
+    // Components internally manage rendering their pins and text labels,
+    // which should respect their own layer properties or the component's primary layer.
     for (const auto &component : board.GetComponents())
     {
-        // RenderComponent will handle its own culling and layer visibility internally
-        RenderComponent(bl_ctx, component, board, worldViewRect);
-    }
-
-    // Render Standalone Text Labels
-    for (const auto &text_label : board.GetTextLabels())
-    {
-        if (!text_label.is_visible)
-            continue;
-
-        // AABB for text label (approximate)
-        // This is a rough approximation. For accurate AABB, we'd need font metrics.
-        // Assuming font_size is in world units for now.
-        // The text is drawn with its origin at (textLabel.x, textLabel.y)
-        // Rotation makes AABB more complex. For simplicity, we'll use an unrotated AABB
-        // around the origin point, scaled by font size.
-        // A more accurate AABB would consider the text block's actual rendered extent.
-        double approx_text_width = text_label.text_content.length() * text_label.font_size * 0.6; // Rough guess
-        double approx_text_height = text_label.font_size;
-        BLRect text_aabb(
-            text_label.x - approx_text_width / 2.0, // Assuming centered for culling, adjust if origin is top-left
-            text_label.y - approx_text_height / 2.0,
-            approx_text_width,
-            approx_text_height);
-        // If rotation is significant, this AABB needs to be expanded or transformed.
-        // For simplicity, we'll use this, but it might incorrectly cull rotated text.
-
-        if (!AreRectsIntersecting(text_aabb, worldViewRect))
+        const LayerInfo *componentLayerInfo = board.GetLayerById(component.layer);
+        if (componentLayerInfo && componentLayerInfo->IsVisible())
         {
-            continue;
-        }
+            // Check if any pins in this component belong to the selected net
+            bool componentHasSelectedNet = false;
+            if (selectedNetId != -1)
+            {
+                for (const auto &pin : component.pins)
+                {
+                    if (pin && pin->getNetId() == selectedNetId)
+                    {
+                        componentHasSelectedNet = true;
+                        break;
+                    }
+                }
+            }
 
-        const LayerInfo *layer_info = board.GetLayerById(text_label.layer);
-        if (layer_info && layer_info->IsVisible())
-        {
-            RenderTextLabel(bl_ctx, text_label, layer_info->GetColor());
+            // Pass the highlight color to RenderComponent if needed
+            RenderComponent(bl_ctx, component, board, worldViewRect,
+                            componentHasSelectedNet ? highlightColor : componentLayerInfo->GetColor());
         }
     }
 
@@ -331,27 +380,6 @@ void RenderPipeline::RenderTrace(BLContext &bl_ctx, const Trace &trace, const BL
     if (width <= 0)
     {
         width = 0.05; // Default width. TODO: Configurable or dynamic based on zoom.
-    }
-
-    static bool first_trace_logged_after_refactor = false;
-    if (!first_trace_logged_after_refactor)
-    {
-        BLMatrix2D ctm;
-        ctm = bl_ctx.userTransform();
-        BLPoint world_start(trace.GetStartX(), trace.GetStartY());
-        BLPoint world_end(trace.GetEndX(), trace.GetEndY());
-        BLPoint screen_start = ctm.mapPoint(world_start);
-        BLPoint screen_end = ctm.mapPoint(world_end);
-
-        std::cout << "[RenderTrace First Call Log] Layer=" << trace.GetLayer()
-                  << " WorldS: (" << world_start.x << "," << world_start.y << ")"
-                  << " WorldE: (" << world_end.x << "," << world_end.y << ")"
-                  << " ScreenS: (" << screen_start.x << "," << screen_start.y << ")"
-                  << " ScreenE: (" << screen_end.x << "," << screen_end.y << ")"
-                  << " CTM: [" << ctm.m00 << "," << ctm.m01 << "; "
-                  << ctm.m10 << "," << ctm.m11 << "; "
-                  << ctm.m20 << "," << ctm.m21 << "]" << std::endl;
-        first_trace_logged_after_refactor = true;
     }
 
     bl_ctx.setStrokeWidth(width);
@@ -453,9 +481,9 @@ void RenderPipeline::RenderArc(BLContext &bl_ctx, const Arc &arc, const BLRect &
     bl_ctx.strokePath(path);
 }
 
-void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &component, const Board &board, const BLRect &worldViewRect)
+void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &component, const Board &board, const BLRect &worldViewRect, const BLRgba32 &highlightColor)
 {
-    // Calculate component's world AABB accounting for rotation, without using a BLMatrix2D object or TransformAABB for this step.
+    // Calculate component's world AABB accounting for rotation
     double comp_w = component.width;
     double comp_h = component.height;
     double comp_cx = component.center_x;
@@ -496,109 +524,138 @@ void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &compone
         max_wy = std::max(max_wy, world_corners[i].y);
     }
     BLRect component_world_aabb(min_wx, min_wy, max_wx - min_wx, max_wy - min_wy);
-
-    // Debug print for component "N1"
-    if (component.reference_designator == "N1")
-    {
-        printf("RenderComponent (Manual AABB): %s\n", component.reference_designator.c_str());
-        printf("  Comp Data: cx=%.2f, cy=%.2f, w=%.2f, h=%.2f, rot=%.2f\n",
-               component.center_x, component.center_y, component.width, component.height, component.rotation);
-        printf("  Calculated World AABB: x=%.2f, y=%.2f, w=%.2f, h=%.2f\n",
-               component_world_aabb.x, component_world_aabb.y, component_world_aabb.w, component_world_aabb.h);
-        printf("  WorldViewRect: x=%.2f, y=%.2f, w=%.2f, h=%.2f\n",
-               worldViewRect.x, worldViewRect.y, worldViewRect.w, worldViewRect.h);
-    }
-
     if (!AreRectsIntersecting(component_world_aabb, worldViewRect))
     {
-        if (component.reference_designator == "N1")
-        {
-            printf("Culled component (Manual AABB): %s.\n", component.reference_designator.c_str());
-        }
         return; // Cull entire component
     }
 
-    // The BLMatrix2D componentTransform and TransformAABB calls for culling were here and are intentionally removed/commented out.
-    // Culling for individual sub-elements (segments, labels, pins) also remains commented out from the previous step.
+    // Get the component's layer color
+    const LayerInfo *componentLayerInfo = board.GetLayerById(component.layer);
+    BLRgba32 componentColor = componentLayerInfo ? componentLayerInfo->GetColor() : BLRgba32(0, 0, 0, 255);
 
-    // bl_ctx.save();
-    // bl_ctx.translate(component.center_x, component.center_y);
-    // bl_ctx.rotate(component.rotation * (BL_M_PI / 180.0));
+    // Draw component outline using Blend2D path
+    BLPath outline;
+    outline.moveTo(component.center_x - comp_w / 2.0, component.center_y - comp_h / 2.0);
+    outline.lineTo(component.center_x + comp_w / 2.0, component.center_y - comp_h / 2.0);
+    outline.lineTo(component.center_x + comp_w / 2.0, component.center_y + comp_h / 2.0);
+    outline.lineTo(component.center_x - comp_w / 2.0, component.center_y + comp_h / 2.0);
+    outline.close();
 
-    // Render Graphical Elements
-    for (const auto &segment : component.graphical_elements)
+    // Set fill and stroke styles for the component
+    // Use component's layer color for fill, but use highlight color for outline if component has highlighted pins
+    bl_ctx.setFillStyle(BLRgba32(componentColor.r(), componentColor.g(), componentColor.b(), 32)); // Semi-transparent fill
+    bl_ctx.setStrokeStyle(highlightColor);                                                         // Use highlight color for outline to show it contains highlighted pins
+    bl_ctx.setStrokeWidth(0.1);                                                                    // Thin outline
+
+    // Fill and stroke the component outline
+    bl_ctx.fillPath(outline);
+    bl_ctx.strokePath(outline);
+
+    // // Render Graphical Elements (silkscreen, courtyard, etc.)
+    // for (const auto &segment : component.graphical_elements)
+    // {
+    //     const LayerInfo *element_layer = board.GetLayerById(segment.layer);
+    //     if (element_layer && element_layer->IsVisible())
+    //     {
+    //         bl_ctx.setStrokeStyle(element_layer->GetColor()); // Use layer color for graphical elements
+    //         double thickness = segment.thickness > 0 ? segment.thickness : 0.1;
+    //         bl_ctx.setStrokeWidth(thickness);
+    //         bl_ctx.strokeLine(segment.start.x, segment.start.y, segment.end.x, segment.end.y);
+    //     }
+    // }
+
+    // Render Component Pins
+    for (const auto &pin_ptr : component.pins)
     {
-        const LayerInfo *element_layer = board.GetLayerById(segment.layer);
-        if (element_layer && element_layer->IsVisible())
+        if (pin_ptr && pin_ptr->isVisible())
         {
-            bl_ctx.setStrokeStyle(element_layer->GetColor());
-            double thickness = segment.thickness > 0 ? segment.thickness : 0.1; // Default thickness
-            bl_ctx.setStrokeWidth(thickness);
-            bl_ctx.strokeLine(segment.start.x, segment.start.y, segment.end.x, segment.end.y);
+            // Get the pin's layer color
+            const LayerInfo *pinLayerInfo = board.GetLayerById(pin_ptr->getLayerId());
+            BLRgba32 pinColor = pinLayerInfo ? pinLayerInfo->GetColor() : BLRgba32(0, 0, 0, 255);
+
+            // Check if this pin belongs to the selected net
+            bool isSelectedNet = (m_renderContext && m_renderContext->GetBoardDataManager() &&
+                                  m_renderContext->GetBoardDataManager()->GetSelectedNetId() != -1 &&
+                                  pin_ptr->getNetId() == m_renderContext->GetBoardDataManager()->GetSelectedNetId());
+
+            // Use highlight color only for pins that belong to the selected net
+            RenderPin(bl_ctx, *pin_ptr, component, board, isSelectedNet ? highlightColor : pinColor);
         }
     }
 
     // Render Component-Specific Text Labels
-    for (const auto &label : component.text_labels)
+    for (const auto &label_ptr : component.text_labels)
     {
-        if (!label.is_visible)
-            continue;
-
-        const LayerInfo *element_layer = board.GetLayerById(label.layer);
-        if (element_layer && element_layer->IsVisible())
+        if (label_ptr && label_ptr->isVisible())
         {
-            RenderTextLabel(bl_ctx, label, element_layer->GetColor());
+            const LayerInfo *element_layer = board.GetLayerById(label_ptr->getLayerId());
+            if (element_layer && element_layer->IsVisible())
+            {
+                RenderTextLabel(bl_ctx, *label_ptr, element_layer->GetColor()); // Use layer color for text labels
+            }
         }
     }
-
-    // Render Pins
-    for (const auto &pin : component.pins)
-    {
-        RenderPin(bl_ctx, pin, component, board);
-    }
-
-    // bl_ctx.restore();
 }
 
 void RenderPipeline::RenderTextLabel(BLContext &bl_ctx, const TextLabel &textLabel, const BLRgba32 &color)
 {
-    if (!textLabel.is_visible || textLabel.text_content.empty())
+    if (!textLabel.isVisible() || textLabel.text_content.empty()) // Ensure isVisible() is used
     {
         return;
     }
 
-    // Font setup
     BLFont font;
     BLFontFace face;
-    BLResult err = BL_SUCCESS; // Initialize err
+    BLResult err = BL_SUCCESS;
 
-    if (!textLabel.font_family.empty())
+    // Try to find cached font face
+    auto it = m_fontFaceCache.find(textLabel.font_family);
+    if (it != m_fontFaceCache.end())
     {
-        std::cerr << "Attempting to load font family: " << textLabel.font_family << std::endl;
+        face = it->second;
+        // Optional: Check if face is valid, though it should be if cached.
+        // if (!face.isValid()) { /* Handle error or remove from cache */ }
+    }
+    else if (!textLabel.font_family.empty())
+    {
         err = face.createFromFile(textLabel.font_family.c_str());
-        std::cerr << "Result for '" << textLabel.font_family << "': " << err << std::endl;
+        if (err == BL_SUCCESS)
+        {
+            m_fontFaceCache[textLabel.font_family] = face; // Cache successfully loaded font
+        }
     }
 
-    if (err != BL_SUCCESS)
-    { // If specific font failed or was not provided, try fallbacks
+    // If specific font failed or was not provided, or not found in cache and not specified
+    if (err != BL_SUCCESS || textLabel.font_family.empty() || !face.isValid())
+    {
         const char *fallbackFonts[] = {"DejaVuSans.ttf", "arial.ttf", "LiberationSans-Regular.ttf"};
         bool loadedFallback = false;
         for (const char *fontName : fallbackFonts)
         {
-            std::cerr << "Attempting to load fallback font: " << fontName << std::endl;
+            // Check cache first for fallback fonts
+            auto fallback_it = m_fontFaceCache.find(fontName);
+            if (fallback_it != m_fontFaceCache.end())
+            {
+                face = fallback_it->second;
+                if (face.isValid())
+                {
+                    loadedFallback = true;
+                    break;
+                }
+            }
+            // If not in cache, try to load and then cache it
             err = face.createFromFile(fontName);
-            std::cerr << "Result for '" << fontName << "': " << err << std::endl;
             if (err == BL_SUCCESS)
             {
-                std::cerr << "Successfully loaded fallback font: " << fontName << std::endl;
+                m_fontFaceCache[fontName] = face; // Cache successfully loaded fallback font
                 loadedFallback = true;
                 break;
             }
         }
         if (!loadedFallback)
         {
-            std::cerr << "Failed to load any fallback font for text label: " << textLabel.text_content << std::endl;
-            return; // If no font could be loaded, cannot render text.
+            // std::cerr << "Failed to load any fallback font for text label: " << textLabel.text_content << std::endl;
+            return;
         }
     }
 
@@ -644,15 +701,15 @@ void RenderPipeline::RenderTextLabel(BLContext &bl_ctx, const TextLabel &textLab
 // }
 
 // ***** BEGIN ADDED CODE *****
-void RenderPipeline::RenderPin(BLContext &bl_ctx, const Pin &pin, const Component &component, const Board &board)
+void RenderPipeline::RenderPin(BLContext &bl_ctx, const Pin &pin, const Component &component, const Board &board, const BLRgba32 &highlightColor)
 {
-    const LayerInfo *layer_info = board.GetLayerById(pin.layer); // Assuming pin has a 'layer' member
+    const LayerInfo *layer_info = board.GetLayerById(pin.getLayerId()); // Ensure getLayerId() is used
     if (!layer_info || !layer_info->IsVisible())
     {
         return;
     }
 
-    bl_ctx.setFillStyle(layer_info->GetColor());
+    bl_ctx.setFillStyle(highlightColor);
     // DEBUG: If pin.debug_color is set, use it instead of layer_info->GetColor
     // if (pin.debug_color != BLRgba32(0, 0, 0, 0))
     // {
@@ -667,91 +724,94 @@ void RenderPipeline::RenderPin(BLContext &bl_ctx, const Pin &pin, const Componen
     std::visit([&](auto &&shape) // Note: auto&& shape is important here for perfect forwarding
                {
         using T = std::decay_t<decltype(shape)>;
-        // Calculate effective pin center in component's local space
-        double local_pin_center_x = pin.x_coord + shape.x_offset;
-        double local_pin_center_y = pin.y_coord + shape.y_offset;
+        // Pin coordinates are now global, no need for offsets
+        double pin_center_x = pin.x_coord;
+        double pin_center_y = pin.y_coord;
 
         if constexpr (std::is_same_v<T, CirclePad>) {
-            bl_ctx.fillCircle(local_pin_center_x, local_pin_center_y, shape.radius);
+            bl_ctx.fillCircle(pin_center_x, pin_center_y, shape.radius);
         } else if constexpr (std::is_same_v<T, RectanglePad>) {
-            double width = 0;
-            double height = 0;
+            double width = pin.initial_width;
+            double height = pin.initial_height;
 
             if (pin.orientation == PinOrientation::Vertical) {
-                height = pin.initial_height;
-                width = pin.initial_width;
+                // width = pin.initial_width; // Already set
+                // height = pin.initial_height; // Already set
             } else if (pin.orientation == PinOrientation::Horizontal) {
+                width = pin.initial_height; // Swap for horizontal
                 height = pin.initial_width;
-                width = pin.initial_height;
-            } else {
-                height = pin.initial_height;
-                width = pin.initial_width;
-            }
+            } // Else, natural orientation uses initial_width and initial_height as is
 
-            // if pin edge interior. and component is taller than wide, then pin should be taller than wide.
-            if (pin.local_edge == LocalEdge::INTERIOR && component.height > component.width) {
-                if (pin.initial_width > pin.initial_height) {
-                    height = pin.initial_width;
+            // Adjust if interior and component aspect ratio suggests a swap
+            if (pin.local_edge == LocalEdge::INTERIOR) {
+                bool component_taller = component.height > component.width;
+                bool pin_wider_than_tall = pin.initial_width > pin.initial_height; // Based on initial dimensions
+
+                if (component_taller && pin_wider_than_tall) {
+                    // Tall component, but pin is initially wide. Make pin tall.
                     width = pin.initial_height;
-                } else {
+                    height = pin.initial_width;
+                } else if (!component_taller && !pin_wider_than_tall) {
+                    // Wide component, but pin is initially tall. Make pin wide.
+                    // This case might be tricky: if pin is initially square, it remains square.
+                    // If pin is (10w, 20h) and component is (100w, 50h), should it become (20w,10h)?
+                    // The original logic implies this swap.
                     width = pin.initial_height;
                     height = pin.initial_width;
                 }
-            } else if (pin.local_edge == LocalEdge::INTERIOR && component.height < component.width) {
-                if (pin.initial_width > pin.initial_height) {
-                    width = pin.initial_width;
-                    height = pin.initial_height;
-                } else {
-                    width = pin.initial_height;
-                    height = pin.initial_width;
-                }
+                // If component_taller && !pin_wider_than_tall (tall comp, tall pin) -> no change from initial
+                // If !component_taller && pin_wider_than_tall (wide comp, wide pin) -> no change from initial
             }
-            // Draw centered rectangle at local_pin_center_x, local_pin_center_y
-            bl_ctx.fillRect(BLRect(local_pin_center_x - width / 2.0, local_pin_center_y - height / 2.0, width, height));
+            
+            // Draw centered rectangle at pin_center_x, pin_center_y
+            bl_ctx.fillRect(BLRect(pin_center_x - width / 2.0, pin_center_y - height / 2.0, width, height));
 
         } else if constexpr (std::is_same_v<T, CapsulePad>) {
-            double total_width = shape.width;
-            double total_height = shape.height;
-            // Effective pad center is local_pin_center_x, local_pin_center_y
+            // Effective pad center is pin_center_x, pin_center_y
 
-            bool is_effectively_vertical = false;
-            if (pin.orientation == PinOrientation::Vertical) {
-                if (shape.width > shape.height) { 
-                    total_width = shape.height;
-                    total_height = shape.width;
-                }
-                is_effectively_vertical = true;
-            } else if (pin.orientation == PinOrientation::Horizontal) {
-                 if (shape.height > shape.width) { 
-                    total_width = shape.height;
-                    total_height = shape.width;
-                }
-                is_effectively_vertical = false;
-            } else { // PinOrientation::Natural
-                is_effectively_vertical = (shape.height > shape.width);
+            double cap_axis_len; // Length along the capsule's main axis (e.g., height if vertical)
+            double cap_cross_len; // Length across the capsule's main axis (e.g., width if vertical)
+            bool is_vertical;
+
+            if (pin.orientation == PinOrientation::Natural) {
+                is_vertical = shape.height > shape.width;
+                cap_axis_len = is_vertical ? shape.height : shape.width;
+                cap_cross_len = is_vertical ? shape.width : shape.height;
+            } else if (pin.orientation == PinOrientation::Vertical) {
+                is_vertical = true;
+                // If pin is meant to be vertical, its 'height' is shape.height, 'width' is shape.width
+                // unless shape itself is wider than tall, then we use shape.width as effective height.
+                cap_axis_len = shape.height >= shape.width ? shape.height : shape.width;
+                cap_cross_len = shape.height >= shape.width ? shape.width : shape.height;
+            } else { // PinOrientation::Horizontal
+                is_vertical = false;
+                // If pin is meant to be horizontal, its 'width' is shape.width, 'height' is shape.height
+                // unless shape itself is taller than wide, then we use shape.height as effective width.
+                cap_axis_len = shape.width >= shape.height ? shape.width : shape.height;
+                cap_cross_len = shape.width >= shape.height ? shape.height : shape.width;
             }
 
             BLPath path;
-            if (is_effectively_vertical) { 
-                double radius = total_width / 2.0;
-                double rect_height = total_height - total_width;
-                if (rect_height < 0) rect_height = 0; 
+            if (is_vertical) {
+                double radius = cap_cross_len / 2.0;
+                double rect_height = cap_axis_len - cap_cross_len; // cap_axis_len is total height
+                if (rect_height < 0) rect_height = 0;
 
-                path.moveTo(local_pin_center_x - radius, local_pin_center_y - rect_height / 2.0);
-                path.arcTo(local_pin_center_x, local_pin_center_y - rect_height / 2.0, radius, radius, BL_M_PI, BL_M_PI);
-                path.lineTo(local_pin_center_x + radius, local_pin_center_y + rect_height / 2.0);
-                path.arcTo(local_pin_center_x, local_pin_center_y + rect_height / 2.0, radius, radius, 0.0, BL_M_PI);
+                path.moveTo(pin_center_x - radius, pin_center_y - rect_height / 2.0);
+                path.arcTo(pin_center_x, pin_center_y - rect_height / 2.0, radius, radius, BL_M_PI, BL_M_PI); // Top cap
+                path.lineTo(pin_center_x + radius, pin_center_y + rect_height / 2.0);
+                path.arcTo(pin_center_x, pin_center_y + rect_height / 2.0, radius, radius, 0.0, BL_M_PI); // Bottom cap
                 path.close();
-            } else { 
-                double radius = total_height / 2.0;
-                double rect_width = total_width - total_height;
+            } else { // Horizontal Capsule
+                double radius = cap_cross_len / 2.0;
+                double rect_width = cap_axis_len - cap_cross_len; // cap_axis_len is total width
                 if (rect_width < 0) rect_width = 0;
 
-                path.moveTo(local_pin_center_x - rect_width / 2.0, local_pin_center_y - radius);
-                path.lineTo(local_pin_center_x + rect_width / 2.0, local_pin_center_y - radius);
-                path.arcTo(local_pin_center_x + rect_width / 2.0, local_pin_center_y, radius, radius, -BL_M_PI / 2.0, BL_M_PI);
-                path.lineTo(local_pin_center_x - rect_width / 2.0, local_pin_center_y + radius);
-                path.arcTo(local_pin_center_x - rect_width / 2.0, local_pin_center_y, radius, radius, BL_M_PI / 2.0, BL_M_PI);
+                path.moveTo(pin_center_x - rect_width / 2.0, pin_center_y - radius);
+                path.lineTo(pin_center_x + rect_width / 2.0, pin_center_y - radius);
+                path.arcTo(pin_center_x + rect_width / 2.0, pin_center_y, radius, radius, -BL_M_PI / 2.0, BL_M_PI); // Right cap
+                path.lineTo(pin_center_x - rect_width / 2.0, pin_center_y + radius);
+                path.arcTo(pin_center_x - rect_width / 2.0, pin_center_y, radius, radius, BL_M_PI / 2.0, BL_M_PI); // Left cap
                 path.close();
             }
             bl_ctx.fillPath(path);

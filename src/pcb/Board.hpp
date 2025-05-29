@@ -3,15 +3,21 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include <memory>    // For potential use of smart pointers
+#include <map>       // For std::map
+#include <memory>    // For std::unique_ptr
 #include <blend2d.h> // Added for BLRgba32
 
-#include "elements/Arc.hpp"
-#include "elements/Component.hpp"
-#include "elements/Net.hpp"
-#include "elements/Trace.hpp"
-#include "elements/Via.hpp"
-#include "elements/TextLabel.hpp" // For standalone text not part of components
+#include "elements/Element.hpp"   // Base class for all elements
+#include "elements/Component.hpp" // Components are containers, not Elements themselves directly
+#include "elements/Net.hpp"       // Nets are metadata
+
+// Forward declarations
+class BoardDataManager;
+class Arc;
+class Via;
+class Trace;
+class TextLabel;
+// Component is already included
 
 // Structure to define a layer
 struct LayerInfo
@@ -55,12 +61,25 @@ struct BoardPoint2D
     double y = 0.0;
 };
 
+// New struct for interaction queries
+struct ElementInteractionInfo
+{
+    const Element *element = nullptr;
+    const Component *parentComponent = nullptr; // Null if not part of a component or if element is a Component's graphical_element
+};
+
 class Board
 {
 public:
     // Constructor that takes a file path (implementation will be in Board.cpp)
     explicit Board(const std::string &filePath);
     Board(); // Keep default constructor if needed, or remove if filePath constructor is primary
+
+    // New initialization method
+    bool initialize(const std::string &filePath);
+
+    // Set the BoardDataManager for handling layer visibility changes
+    void SetBoardDataManager(std::shared_ptr<BoardDataManager> manager);
 
     // --- Board Metadata ---
     std::string board_name;
@@ -75,40 +94,31 @@ public:
 
     std::vector<LayerInfo> layers;
 
-    // --- PCB Elements ---
-    // Using value semantics for simplicity here.
-    // Smart pointers (e.g., std::vector<std::unique_ptr<Arc>>) could be used
-    // if elements are large, polymorphic, or have complex ownership.
+    // --- NEW PCB Element Storage ---
+    // Elements are grouped by layer ID for efficient layer-based operations.
+    // Components are stored separately as they are containers of other elements (pins, specific text).
+    std::map<int, std::vector<std::unique_ptr<Element>>> m_elementsByLayer;
+    std::vector<Component> m_components; // Keep storing components as before
+    std::unordered_map<int, Net> m_nets; // Keep storing nets as before
 
-    std::vector<Arc> arcs;
-    std::vector<Via> vias;
-    std::vector<Trace> traces;
-    std::vector<TextLabel> standalone_text_labels; // Text not directly part of a component
-    std::vector<Component> components;
-    std::unordered_map<int, Net> nets; // Keyed by Net ID for quick lookup
+    // --- Methods to add elements (modified) ---
+    // These will now emplace std::unique_ptr<Element> into m_elementsByLayer
+    void addArc(const Arc &arc);
+    void addVia(const Via &via);
+    void addTrace(const Trace &trace);
+    void addStandaloneTextLabel(const TextLabel &label); // For text not part of a component
+    void addComponent(const Component &component);       // Will store in m_components
+    void addNet(const Net &net);                         // Will store in m_nets
+    void addLayer(const LayerInfo &layer);               // Will store in layers
 
-    // --- Methods ---
-    // Methods to add elements
-    void addArc(const Arc &arc) { arcs.push_back(arc); }
-    void addVia(const Via &via) { vias.push_back(via); }
-    void addTrace(const Trace &trace) { traces.push_back(trace); }
-    void addStandaloneTextLabel(const TextLabel &label) { standalone_text_labels.push_back(label); }
-    void addComponent(const Component &component) { components.push_back(component); }
-    void addNet(const Net &net) { nets.emplace(net.id, net); }
-    void addLayer(const LayerInfo &layer) { layers.push_back(layer); }
+    // --- Methods to retrieve elements (modified/new) ---
+    const std::vector<Component> &GetComponents() const { return m_components; }
+    // Old GetTraces, GetVias, etc. are removed. Use GetAllVisibleElementsForInteraction or iterate m_elementsByLayer if needed.
 
-    // Methods to retrieve elements (examples)
-    const std::vector<Component> &GetComponents() const { return components; }
-    const std::vector<Trace> &GetTraces() const { return traces; }
-    const std::vector<Via> &GetVias() const { return vias; }
-    const std::vector<Arc> &GetArcs() const { return arcs; }
-    const std::vector<TextLabel> &GetTextLabels() const { return standalone_text_labels; }
-    const Net *getNetById(int net_id) const
-    {
-        auto it = nets.find(net_id);
-        return (it != nets.end()) ? &(it->second) : nullptr;
-    }
+    const Net *getNetById(int net_id) const;
     const LayerInfo *GetLayerById(int layerId) const;
+
+    std::vector<ElementInteractionInfo> GetAllVisibleElementsForInteraction() const;
 
     // --- Layer Access Methods ---
     std::vector<LayerInfo> GetLayers() const;
@@ -116,6 +126,7 @@ public:
     std::string GetLayerName(int layerIndex) const; // Consider returning const&
     bool IsLayerVisible(int layerIndex) const;
     void SetLayerVisible(int layerIndex, bool visible);
+    void SetLayerColor(int layerIndex, BLRgba32 color);
 
     // --- Loading Status Methods ---
     bool IsLoaded() const;
@@ -137,4 +148,5 @@ private:
     std::string m_errorMessage;
     // If PcbLoader is to be used internally:
     // void ParseBoardFile(const std::string& filePath);
+    std::shared_ptr<BoardDataManager> m_boardDataManager;
 };

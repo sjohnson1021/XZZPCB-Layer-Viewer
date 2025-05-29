@@ -1,73 +1,93 @@
 #include "pcb/Board.hpp"
 #include "pcb/BoardLoaderFactory.hpp" // Include the factory
+#include "core/BoardDataManager.hpp"  // Include for implementation
 #include <iostream>                   // For std::cerr or logging
+#include <algorithm>                  // For std::min/max in GetBoundingBox
+#include <vector>
+
+// Include concrete element types for make_unique
+#include "pcb/elements/Arc.hpp"
+#include "pcb/elements/Via.hpp"
+#include "pcb/elements/Trace.hpp"
+#include "pcb/elements/TextLabel.hpp"
+// Component.hpp and Net.hpp are already included via Board.hpp (as they are not just Element types)
 
 // Default constructor
 Board::Board() : m_isLoaded(false)
 {
-    // Default initialization, maybe an empty board or specific default state
+    // Default initialization only
 }
 
-// Constructor that takes a file path
+// Constructor that takes a file path - now just calls initialize
 Board::Board(const std::string &filePath)
     : file_path(filePath), m_isLoaded(false)
+{
+    initialize(filePath);
+}
+
+// New initialization method that can be called by both constructor and loaders
+bool Board::initialize(const std::string &filePath)
 {
     if (filePath.empty())
     {
         m_errorMessage = "File path is empty.";
-        // m_isLoaded is already false
-        return;
+        m_isLoaded = false;
+        return false;
     }
 
     if (filePath == "dummy_fail.pcb")
-    { // Keep this for testing error modal
+    {
         m_errorMessage = "This is a dummy failure to test the error modal.";
-        // m_isLoaded is already false
-        return;
+        m_isLoaded = false;
+        return false;
     }
 
-    BoardLoaderFactory factory;                                             // Create the factory
-    std::unique_ptr<Board> loaded_board_data = factory.loadBoard(filePath); // Use the factory
-
-    if (loaded_board_data)
+    // Automatically normalize coordinates after loading
+    BLRect bounds = GetBoundingBox(true);
+    if (bounds.w > 0 && bounds.h > 0)
     {
-        // If loading was successful, we need to move the data from loaded_board_data
-        // to 'this' Board object. This is a bit tricky because loadBoard returns a new Board.
-        // A more common pattern is for the loader to populate an existing Board object, or for the
-        // factory to return a Board, and then we'd copy/move members.
-        // For now, let's assume a simple member-wise move/copy. This needs careful review!
-
-        // Steal the data from the loaded board.
-        // This is a shallow copy for pointers/unique_ptrs and deep for values/vectors if not moved.
-        *this = std::move(*loaded_board_data); // This uses Board's move assignment operator.
-                                               // Ensure Board has a proper move constructor and move assignment operator.
-        this->file_path = filePath;            // Reset file_path as it might be overwritten by move
-        this->m_isLoaded = true;
-        this->m_errorMessage.clear();
-
-        // Automatically normalize coordinates after loading
-        BLRect bounds = this->GetBoundingBox(true); // Use 'true' to include all layers for bounding box calculation,
-                                                    // especially ensuring the outline layer is used regardless of visibility.
-        if (bounds.w > 0 && bounds.h > 0)
-        {
-            this->NormalizeCoordinatesAndGetCenterOffset(bounds);
-        }
-        else
-        {
-            // Optionally, log a warning if bounding box is invalid or couldn't be determined,
-            // though NormalizeCoordinatesAndGetCenterOffset already handles zero-size bounds.
-            std::cerr << "Warning: Could not determine valid bounding box for normalization for file: " << filePath << std::endl;
-        }
-
-        // RegenerateLayerColors might be needed if it's not handled by Board's move/copy semantics
-        // or if the loaded_board_data didn't have colors generated in its context.
-        // For now, assume it's handled or not immediately critical here after a move.
+        NormalizeCoordinatesAndGetCenterOffset(bounds);
     }
     else
     {
-        m_errorMessage = "Failed to load board from file: " + filePath + ". Check logs for details.";
-        // m_isLoaded is already false
+        std::cerr << "Warning: Could not determine valid bounding box for normalization for file: " << filePath << std::endl;
     }
+
+    m_isLoaded = true;
+    m_errorMessage.clear();
+    return true;
+}
+
+// --- Add Methods ---
+void Board::addArc(const Arc &arc)
+{
+    m_elementsByLayer[arc.getLayerId()].emplace_back(std::make_unique<Arc>(arc));
+}
+void Board::addVia(const Via &via)
+{
+    // Vias can span multiple layers. Add to m_elementsByLayer based on their primary layer id.
+    // The IsOnLayer() check within Via itself handles multi-layer aspect for rendering/interaction.
+    m_elementsByLayer[via.getLayerId()].emplace_back(std::make_unique<Via>(via));
+}
+void Board::addTrace(const Trace &trace)
+{
+    m_elementsByLayer[trace.getLayerId()].emplace_back(std::make_unique<Trace>(trace));
+}
+void Board::addStandaloneTextLabel(const TextLabel &label)
+{
+    m_elementsByLayer[label.getLayerId()].emplace_back(std::make_unique<TextLabel>(label));
+}
+void Board::addComponent(const Component &component)
+{
+    m_components.push_back(component); // Components stored directly
+}
+void Board::addNet(const Net &net)
+{
+    m_nets.emplace(net.GetId(), net); // Nets stored directly
+}
+void Board::addLayer(const LayerInfo &layer)
+{
+    layers.push_back(layer);
 }
 
 // --- Layer Access Methods ---
@@ -104,9 +124,21 @@ void Board::SetLayerVisible(int layerIndex, bool visible)
     if (layerIndex >= 0 && layerIndex < layers.size())
     {
         layers[layerIndex].is_visible = visible;
-        // Here, you might want to trigger an event or mark the board as modified
+        // Use BoardDataManager if available
+        if (m_boardDataManager)
+        {
+            m_boardDataManager->SetLayerVisible(layerIndex, visible);
+        }
     }
     // Else: handle error or do nothing for invalid index
+}
+
+void Board::SetLayerColor(int layerIndex, BLRgba32 color)
+{
+    if (layerIndex >= 0 && layerIndex < static_cast<int>(layers.size()))
+    {
+        layers[layerIndex].color = color;
+    }
 }
 
 // --- Loading Status Methods ---
@@ -137,30 +169,22 @@ const LayerInfo *Board::GetLayerById(int layerId) const
     return nullptr; // Not found
 }
 
-// Calculate the bounding box based on traces on Layer 28 (Board Outline for XZZ)
+// Calculate the bounding box based on elements on Layer 28 (Board Outline for XZZ)
 BLRect Board::GetBoundingBox(bool include_invisible_layers) const
 {
     bool first = true;
     double min_x = 0, min_y = 0, max_x = 0, max_y = 0;
-    const int board_outline_layer_id = 28;
+    const int board_outline_layer_id = 28; // XZZ specific
 
-    const LayerInfo *outline_layer = nullptr;
-    for (const auto &l : layers)
+    const LayerInfo *outline_layer_info = GetLayerById(board_outline_layer_id);
+
+    if (!outline_layer_info)
     {
-        if (l.id == board_outline_layer_id)
-        {
-            outline_layer = &l;
-            break;
-        }
+        std::cerr << "Warning: Board outline layer ID " << board_outline_layer_id << " not found in layer definitions." << std::endl;
+        return BLRect(0, 0, 0, 0); // Layer 28 not defined, cannot determine outline.
     }
 
-    if (!outline_layer)
-    {
-        // Layer 28 not defined, cannot determine outline.
-        return BLRect(0, 0, 0, 0);
-    }
-
-    if (!include_invisible_layers && !outline_layer->is_visible)
+    if (!include_invisible_layers && !outline_layer_info->IsVisible())
     {
         // Layer 28 is not visible and we are not including invisible layers.
         return BLRect(0, 0, 0, 0);
@@ -187,22 +211,37 @@ BLRect Board::GetBoundingBox(bool include_invisible_layers) const
         }
     };
 
-    for (const auto &trace : traces)
+    auto expand_rect_from_blrect = [&](const BLRect &r)
     {
-        if (trace.layer == board_outline_layer_id)
+        if (r.w <= 0 || r.h <= 0)
+            return; // Skip invalid rects
+        expand_rect_from_point(r.x, r.y);
+        expand_rect_from_point(r.x + r.w, r.y + r.h);
+    };
+
+    auto it = m_elementsByLayer.find(board_outline_layer_id);
+    if (it != m_elementsByLayer.end())
+    {
+        for (const auto &element_ptr : it->second)
         {
-            // For traces, their width contributes to the bounding box.
-            // We expand by start/end points. A more precise calculation would consider thickness.
-            expand_rect_from_point(trace.x1, trace.y1);
-            expand_rect_from_point(trace.x2, trace.y2);
-            // Note: Trace width is not explicitly used here to expand bounds further,
-            // assuming the centerlines of outline traces define the extents.
-            // If trace thickness should define the outer edge, expand_rect_with_width would be needed.
+            if (!element_ptr)
+                continue;
+
+            // All elements on the outline layer should contribute.
+            // The Element::getBoundingBox() should provide the necessary extent.
+            // We pass nullptr for parentComponent as these are standalone elements.
+            BLRect elem_bounds = element_ptr->getBoundingBox(nullptr);
+            expand_rect_from_blrect(elem_bounds);
         }
+    }
+    else
+    {
+        std::cerr << "Warning: No elements found on board outline layer ID " << board_outline_layer_id << "." << std::endl;
     }
 
     if (first)
-    { // No traces found on layer 28
+    { // No elements found on layer 28, or they all had invalid bounding boxes
+        std::cerr << "Warning: Could not determine board bounds from outline layer " << board_outline_layer_id << ". Resulting bounds are empty." << std::endl;
         return BLRect(0, 0, 0, 0);
     }
     return BLRect(min_x, min_y, max_x - min_x, max_y - min_y);
@@ -212,75 +251,137 @@ BoardPoint2D Board::NormalizeCoordinatesAndGetCenterOffset(const BLRect &origina
 {
     if (original_bounds.w <= 0 || original_bounds.h <= 0)
     {
+        // std::cerr << "NormalizeCoordinatesAndGetCenterOffset: Original bounds invalid, skipping normalization." << std::endl;
         return {0.0, 0.0}; // No valid bounds to normalize against
     }
 
     double offset_x = original_bounds.x + original_bounds.w / 2.0;
     double offset_y = original_bounds.y + original_bounds.h / 2.0;
 
-    // Normalize Traces
-    for (auto &trace : traces)
-    {
-        trace.x1 -= offset_x;
-        trace.y1 -= offset_y;
-        trace.x2 -= offset_x;
-        trace.y2 -= offset_y;
-    }
+    // std::cout << "Normalizing by offset: X=" << offset_x << ", Y=" << offset_y << std::endl;
 
-    // Normalize Vias
-    for (auto &via : vias)
+    // Normalize all standalone elements in m_elementsByLayer
+    for (auto &layer_pair : m_elementsByLayer)
     {
-        via.x -= offset_x;
-        via.y -= offset_y;
-    }
-
-    // Normalize Arcs
-    for (auto &arc : arcs)
-    {
-        arc.cx -= offset_x;
-        arc.cy -= offset_y;
-    }
-
-    // Normalize Standalone Text Labels
-    for (auto &label : standalone_text_labels)
-    {
-        label.x -= offset_x;
-        label.y -= offset_y;
-    }
-
-    // Normalize Components and their sub-elements
-    for (auto &comp : components)
-    {
-        comp.center_x -= offset_x;
-        comp.center_y -= offset_y;
-
-        for (auto &pin : comp.pins)
+        for (auto &element_ptr : layer_pair.second)
         {
-            pin.x_coord -= offset_x;
-            pin.y_coord -= offset_y;
-            // Note: PadShape internal offsets (if any) are relative to pin.x_coord, pin.y_coord, so they don't need direct normalization here.
-        }
-
-        for (auto &elem : comp.graphical_elements)
-        {
-            elem.start.x -= offset_x;
-            elem.start.y -= offset_y;
-            elem.end.x -= offset_x;
-            elem.end.y -= offset_y;
-        }
-
-        for (auto &label : comp.text_labels)
-        {
-            label.x -= offset_x;
-            label.y -= offset_y;
+            if (element_ptr)
+            {
+                element_ptr->translate(-offset_x, -offset_y);
+            }
         }
     }
 
-    // Update the board's own origin_offset if you want to store this normalization offset
+    // Normalize Components and their sub-elements (pins, component graphics, component text labels)
+    // The Component::translate method should handle its children.
+    for (auto &comp : m_components)
+    {
+        comp.translate(-offset_x, -offset_y);
+    }
+
+    // Update the board's own origin_offset to store this normalization offset
     this->origin_offset = {offset_x, offset_y};
+
+    // The board's width and height are derived from the original_bounds,
+    // they don't change due to normalization, only their position relative to (0,0).
+    this->width = original_bounds.w;
+    this->height = original_bounds.h;
+
+    // std::cout << "Board dimensions after norm: W=" << this->width << ", H=" << this->height << std::endl;
+    // BLRect new_bounds_check = GetBoundingBox(true);
+    // std::cout << "New bounds after norm: X=" << new_bounds_check.x << " Y=" << new_bounds_check.y << " W=" << new_bounds_check.w << " H=" << new_bounds_check.h << std::endl;
 
     return {offset_x, offset_y};
 }
 
 // If PcbLoader is used internally by Board::ParseBoardFile (example skeleton)
 // ... existing code ...
+
+// --- GetAllVisibleElementsForInteraction (New Implementation) ---
+std::vector<ElementInteractionInfo> Board::GetAllVisibleElementsForInteraction() const
+{
+    std::vector<ElementInteractionInfo> result;
+    result.reserve(5000); // Pre-allocate, adjust based on typical board size
+
+    // 1. Iterate through standalone elements grouped by layer
+    for (const auto &layer_pair : m_elementsByLayer)
+    {
+        const LayerInfo *layer_info = GetLayerById(layer_pair.first);
+        if (layer_info && layer_info->IsVisible())
+        {
+            for (const auto &element_ptr : layer_pair.second)
+            {
+                if (element_ptr && element_ptr->isVisible()) // Assuming Element base has isVisible()
+                {
+                    result.push_back({element_ptr.get(), nullptr});
+                }
+            }
+        }
+        else
+        {
+            std::cout << "Board: Layer " << layer_pair.first << " is not visible or not found" << std::endl;
+        }
+    }
+
+    // 2. Iterate through components and their elements (Pins, component-specific TextLabels)
+    for (const auto &comp : m_components) // comp is const Component&
+    {
+        const LayerInfo *comp_layer_info = GetLayerById(comp.layer); // Component's primary layer
+
+        if (comp_layer_info && comp_layer_info->IsVisible())
+        {
+            // Add Pins of the component
+            for (const auto &pin_ptr : comp.pins) // pin_ptr is std::unique_ptr<Pin>
+            {
+                if (!pin_ptr)
+                    continue;
+                const LayerInfo *pin_layer_info = GetLayerById(pin_ptr->getLayerId());
+                // Assuming Pin has isVisible() and getLayerId()
+                if (pin_ptr->isVisible() && pin_layer_info && pin_layer_info->IsVisible())
+                {
+                    result.push_back({pin_ptr.get(), &comp}); // Use .get() for unique_ptr
+                }
+                else
+                {
+                }
+            }
+
+            // Add TextLabels of the component
+            for (const auto &label_ptr : comp.text_labels) // label_ptr is std::unique_ptr<TextLabel>
+            {
+                if (!label_ptr)
+                    continue;
+                const LayerInfo *label_layer_info = GetLayerById(label_ptr->getLayerId());
+                // Assuming TextLabel has isVisible() and getLayerId()
+                if (label_ptr->isVisible() && label_layer_info && label_layer_info->IsVisible())
+                {
+                    result.push_back({label_ptr.get(), &comp}); // Use .get() for unique_ptr
+                }
+                else
+                {
+                    std::cout << "Board: TextLabel on layer " << label_ptr->getLayerId() << " is not visible or layer not found" << std::endl;
+                }
+            }
+        }
+        else
+        {
+            std::cout << "Board: Component layer is not visible or not found" << std::endl;
+        }
+    }
+    return result;
+}
+
+const Net *Board::getNetById(int net_id) const
+{
+    auto it = m_nets.find(net_id);
+    if (it != m_nets.end())
+    {
+        return &(it->second);
+    }
+    return nullptr;
+}
+
+void Board::SetBoardDataManager(std::shared_ptr<BoardDataManager> manager)
+{
+    m_boardDataManager = manager;
+}

@@ -21,8 +21,9 @@ PcbRenderer::~PcbRenderer()
     // std::cout << "PcbRenderer destroyed." << std::endl;
 }
 
-bool PcbRenderer::Initialize(int initialWidth, int initialHeight)
+bool PcbRenderer::Initialize(int initialWidth, int initialHeight, std::shared_ptr<BoardDataManager> boardDataManager)
 {
+    m_boardDataManager = boardDataManager;
     m_renderContext = std::make_unique<RenderContext>();
     if (!m_renderContext->Initialize(initialWidth, initialHeight))
     {
@@ -41,12 +42,32 @@ bool PcbRenderer::Initialize(int initialWidth, int initialHeight)
         m_renderPipeline.reset();
         return false;
     }
+
+    // Set the BoardDataManager in the RenderContext
+    m_renderContext->SetBoardDataManager(m_boardDataManager);
+
+    // Register for NetID change callbacks
+    if (m_boardDataManager)
+    {
+        m_boardDataManager->RegisterNetIdChangeCallback([this](int netId)
+                                                        { this->MarkBoardDirty(); this->MarkGridDirty(); });
+        m_boardDataManager->RegisterSettingsChangeCallback([this]()
+                                                           { this->MarkBoardDirty(); this->MarkGridDirty(); });
+    }
+
     std::cout << "PcbRenderer initialized." << std::endl;
     return true;
 }
 
 void PcbRenderer::Shutdown()
 {
+    // Unregister the callbacks before shutting down
+    if (m_boardDataManager)
+    {
+        m_boardDataManager->UnregisterNetIdChangeCallback();
+        m_boardDataManager->UnregisterSettingsChangeCallback();
+    }
+
     if (m_renderPipeline)
     {
         m_renderPipeline->Shutdown();

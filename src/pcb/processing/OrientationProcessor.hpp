@@ -27,6 +27,7 @@ namespace PCBProcessing
     private:
         // Helper methods adapted from the ConvertPCBtoLineSegments logic
         static void calculateInitialPinDimensions(Pin &pin);
+        static void calculatePinBoundingBox(Component &component, double tolerance);
         static void firstPass_AnalyzeComponent(Component &component, double component_rotation_radians);
         static void secondPass_CheckOverlapsAndBoundaries(Component &component, double component_rotation_radians);
         static void thirdPass_FinalBoundaryCheck(Component &component, double component_rotation_radians);
