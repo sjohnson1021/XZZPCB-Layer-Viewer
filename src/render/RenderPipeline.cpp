@@ -184,16 +184,37 @@ void RenderPipeline::RenderBoard(
     bl_ctx.rotate(-camera.GetRotation() * (static_cast<float>(BL_M_PI) / 180.0f));
     bl_ctx.translate(-camera.GetPosition().x, -camera.GetPosition().y);
 
-    // Get the selected net ID from BoardDataManager
-    int selectedNetId = -1;
-    BLRgba32 highlightColor;
-    BLRgba32 baseColor;
+    // --- Color Caching ---
+    std::unordered_map<BoardDataManager::ColorType, BLRgba32> theme_color_cache;
+    std::unordered_map<int, BLRgba32> layer_id_color_cache;
+    int selectedNetId = -1; // Cache selectedNetId as well
+
     if (m_renderContext && m_renderContext->GetBoardDataManager())
     {
-        selectedNetId = m_renderContext->GetBoardDataManager()->GetSelectedNetId();
-        highlightColor = m_renderContext->GetBoardDataManager()->GetColor(BoardDataManager::ColorType::kNetHighlight);
-        baseColor = m_renderContext->GetBoardDataManager()->GetColor(BoardDataManager::ColorType::kBaseLayer);
+        auto bdm = m_renderContext->GetBoardDataManager();
+        selectedNetId = bdm->GetSelectedNetId();
+
+        // Cache theme colors
+        theme_color_cache[BoardDataManager::ColorType::kNetHighlight] = bdm->GetColor(BoardDataManager::ColorType::kNetHighlight);
+        theme_color_cache[BoardDataManager::ColorType::kComponent] = bdm->GetColor(BoardDataManager::ColorType::kComponent);
+        theme_color_cache[BoardDataManager::ColorType::kPin] = bdm->GetColor(BoardDataManager::ColorType::kPin);
+        theme_color_cache[BoardDataManager::ColorType::kBaseLayer] = bdm->GetColor(BoardDataManager::ColorType::kBaseLayer); // Though GetLayerColor uses this internally
+        theme_color_cache[BoardDataManager::ColorType::kSilkscreen] = bdm->GetColor(BoardDataManager::ColorType::kSilkscreen);
+        theme_color_cache[BoardDataManager::ColorType::kBoardEdges] = bdm->GetColor(BoardDataManager::ColorType::kBoardEdges);
+
+        // Cache layer-specific colors (which might involve hue rotation etc.)
+        for (const LayerInfo &layerInfo : board.GetLayers())
+        {
+            layer_id_color_cache[layerInfo.GetId()] = bdm->GetLayerColor(layerInfo.GetId());
+        }
     }
+    // Fallback if no BDM (should ideally not happen in a normal run)
+    BLRgba32 fallback_highlight_color(0xFFFFFFFF);
+    BLRgba32 fallback_component_color(0xFF0000FF);
+    BLRgba32 fallback_pin_color(0xFF999999);
+    BLRgba32 fallback_layer_color(0xFF888888);
+
+    BLRgba32 highlightColor = theme_color_cache.count(BoardDataManager::ColorType::kNetHighlight) ? theme_color_cache.at(BoardDataManager::ColorType::kNetHighlight) : fallback_highlight_color;
 
     // Iterate through defined layers to maintain drawing order and visibility
     for (const LayerInfo &layerInfo : board.GetLayers()) // board.GetLayers() provides the correct order
@@ -222,15 +243,15 @@ void RenderPipeline::RenderBoard(
                 }
                 else if (type == ElementType::COMPONENT)
                 {
-                    current_element_color = m_renderContext->GetBoardDataManager()->GetColor(BoardDataManager::ColorType::kComponent);
+                    current_element_color = theme_color_cache.count(BoardDataManager::ColorType::kComponent) ? theme_color_cache.at(BoardDataManager::ColorType::kComponent) : fallback_component_color;
                 }
                 else if (type == ElementType::PIN)
                 {
-                    current_element_color = m_renderContext->GetBoardDataManager()->GetColor(BoardDataManager::ColorType::kPin);
+                    current_element_color = theme_color_cache.count(BoardDataManager::ColorType::kPin) ? theme_color_cache.at(BoardDataManager::ColorType::kPin) : fallback_pin_color;
                 }
-                else
+                else // For Traces, Arcs, Vias, standalone TextLabels on specific layers
                 {
-                    current_element_color = m_renderContext->GetBoardDataManager()->GetLayerColor(layerInfo.GetId());
+                    current_element_color = layer_id_color_cache.count(layerInfo.GetId()) ? layer_id_color_cache.at(layerInfo.GetId()) : fallback_layer_color;
                 }
 
                 bl_ctx.setStrokeStyle(current_element_color);
@@ -242,7 +263,7 @@ void RenderPipeline::RenderBoard(
                     if (auto component = dynamic_cast<const Component *>(element_ptr.get()))
                     {
                         // Color already set above by current_element_color
-                        RenderComponent(bl_ctx, *component, board, worldViewRect, current_element_color);
+                        RenderComponent(bl_ctx, *component, board, worldViewRect, current_element_color, theme_color_cache, layer_id_color_cache);
                     }
                     break;
 
@@ -250,36 +271,35 @@ void RenderPipeline::RenderBoard(
                     if (auto pin = dynamic_cast<const Pin *>(element_ptr.get()))
                     {
                         // This case is for standalone pins not part of a component from m_elementsByLayer.
-                        // If pins are ALWAYS part of components and not in m_elementsByLayer, this might not be hit.
                         // Color already set above by current_element_color.
-                        // We need to determine if this pin is part of any component to pass to RenderPin if its API strictly requires it.
-                        // For now, assuming RenderPin can handle a nullptr for component if it's a standalone pin.
                         RenderPin(bl_ctx, *pin, nullptr, current_element_color);
                     }
                     break;
-
                 case ElementType::TRACE:
                     if (auto trace = dynamic_cast<const Trace *>(element_ptr.get()))
                     {
-                        RenderTrace(bl_ctx, *trace, worldViewRect);
+                        RenderTrace(bl_ctx, *trace, worldViewRect); // Color set by loop
                     }
                     break;
                 case ElementType::ARC:
                     if (auto arc = dynamic_cast<const Arc *>(element_ptr.get()))
                     {
-                        RenderArc(bl_ctx, *arc, worldViewRect);
+                        RenderArc(bl_ctx, *arc, worldViewRect); // Color set by loop
                     }
                     break;
                 case ElementType::VIA:
                     if (auto via = dynamic_cast<const Via *>(element_ptr.get()))
                     {
-                        RenderVia(bl_ctx, *via, board, worldViewRect);
+                        // Via needs to look up colors for its specific start/end layers from the cache
+                        BLRgba32 via_color_from = layer_id_color_cache.count(via->GetLayerFrom()) ? layer_id_color_cache.at(via->GetLayerFrom()) : fallback_layer_color;
+                        BLRgba32 via_color_to = layer_id_color_cache.count(via->GetLayerTo()) ? layer_id_color_cache.at(via->GetLayerTo()) : fallback_layer_color;
+                        RenderVia(bl_ctx, *via, board, worldViewRect, via_color_from, via_color_to);
                     }
                     break;
                 case ElementType::TEXT_LABEL:
                     if (auto textLabel = dynamic_cast<const TextLabel *>(element_ptr.get()))
                     {
-                        RenderTextLabel(bl_ctx, *textLabel, current_element_color);
+                        RenderTextLabel(bl_ctx, *textLabel, current_element_color); // Color set by loop
                     }
                     break;
                 default:
@@ -292,7 +312,7 @@ void RenderPipeline::RenderBoard(
     // Render Components separately.
     for (const auto &component : board.GetComponents())
     {
-        const LayerInfo *componentLayerInfo = board.GetLayerById(component.layer);
+        const LayerInfo *componentLayerInfo = board.GetLayerById(component.layer); // Component's primary layer for visibility
         if (componentLayerInfo && componentLayerInfo->IsVisible())
         {
             bool componentHasSelectedNet = false;
@@ -309,8 +329,8 @@ void RenderPipeline::RenderBoard(
             }
 
             BLRgba32 component_draw_color = componentHasSelectedNet ? highlightColor
-                                                                    : m_renderContext->GetBoardDataManager()->GetColor(BoardDataManager::ColorType::kComponent);
-            RenderComponent(bl_ctx, component, board, worldViewRect, component_draw_color);
+                                                                    : (theme_color_cache.count(BoardDataManager::ColorType::kComponent) ? theme_color_cache.at(BoardDataManager::ColorType::kComponent) : fallback_component_color);
+            RenderComponent(bl_ctx, component, board, worldViewRect, component_draw_color, theme_color_cache, layer_id_color_cache);
         }
     }
 
@@ -378,7 +398,7 @@ void RenderPipeline::RenderTrace(BLContext &bl_ctx, const Trace &trace, const BL
     bl_ctx.strokeLine(trace.GetStartX(), trace.GetStartY(), trace.GetEndX(), trace.GetEndY());
 }
 
-void RenderPipeline::RenderVia(BLContext &bl_ctx, const Via &via, const Board &board, const BLRect &worldViewRect)
+void RenderPipeline::RenderVia(BLContext &bl_ctx, const Via &via, const Board &board, const BLRect &worldViewRect, const BLRgba32 &color_from, const BLRgba32 &color_to)
 {
     // AABB for the entire via (bounding box of all its pads)
     double max_radius = std::max(via.GetPadRadiusFrom(), via.GetPadRadiusTo());
@@ -402,13 +422,12 @@ void RenderPipeline::RenderVia(BLContext &bl_ctx, const Via &via, const Board &b
                              2 * via.GetPadRadiusFrom(), 2 * via.GetPadRadiusFrom());
         if (AreRectsIntersecting(pad_from_aabb, worldViewRect))
         {
-            bl_ctx.setFillStyle(m_renderContext->GetBoardDataManager()->GetLayerColor(layer_from_props->GetId()));
+            bl_ctx.setFillStyle(color_from); // Use cached color_from
             bl_ctx.fillCircle(via.GetX(), via.GetY(), via.GetPadRadiusFrom());
         }
     }
 
     // Pad on 'to' layer
-    // Draw larger circle first if implementing concentric for different colors
     const LayerInfo *layer_to_props = board.GetLayerById(via.GetLayerTo());
     if (layer_to_props && layer_to_props->IsVisible() && via.GetPadRadiusTo() > 0)
     {
@@ -416,13 +435,8 @@ void RenderPipeline::RenderVia(BLContext &bl_ctx, const Via &via, const Board &b
                            2 * via.GetPadRadiusTo(), 2 * via.GetPadRadiusTo());
         if (AreRectsIntersecting(pad_to_aabb, worldViewRect))
         {
-            // If drawing concentric, ensure this is the smaller radius or drawn on top.
-            // For simple overlay, this is fine. For true concentric with different colors visible:
-            // if (via.GetLayerTo() != via.GetLayerFrom() || via.GetPadRadiusTo() < via.GetPadRadiusFrom()) {
-            // }
-            bl_ctx.setFillStyle(m_renderContext->GetBoardDataManager()->GetLayerColor(layer_to_props->GetId()));
+            bl_ctx.setFillStyle(color_to); // Use cached color_to
             bl_ctx.fillCircle(via.GetX(), via.GetY(), via.GetPadRadiusTo());
-            // }
         }
     }
     // Drill hole rendering can be added here if desired.
@@ -470,7 +484,15 @@ void RenderPipeline::RenderArc(BLContext &bl_ctx, const Arc &arc, const BLRect &
     bl_ctx.strokePath(path);
 }
 
-void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &component, const Board &board, const BLRect &worldViewRect, const BLRgba32 &componentBaseColor)
+void RenderPipeline::RenderComponent(
+    BLContext &bl_ctx,
+    const Component &component,
+    const Board &board,
+    const BLRect &worldViewRect,
+    const BLRgba32 &componentBaseColor,
+    const std::unordered_map<BoardDataManager::ColorType, BLRgba32> &theme_color_cache,
+    const std::unordered_map<int, BLRgba32> &layer_id_color_cache // For component text labels on different layers
+)
 {
     // Calculate component's world AABB accounting for rotation
     double comp_w = component.width;
@@ -541,14 +563,14 @@ void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &compone
     bl_ctx.strokePath(outline);
 
     // Render Component Pins
-    BLRgba32 pin_net_highlight_color = componentBaseColor; // Default to component's color, override if highlighted
-    BLRgba32 pin_standard_color = componentBaseColor;      // Default to component's color, override for standard pin
-    int selected_net_id = -1;
+    BLRgba32 pin_net_highlight_color = theme_color_cache.count(BoardDataManager::ColorType::kNetHighlight) ? theme_color_cache.at(BoardDataManager::ColorType::kNetHighlight) : componentBaseColor;
+    BLRgba32 pin_standard_color = theme_color_cache.count(BoardDataManager::ColorType::kPin) ? theme_color_cache.at(BoardDataManager::ColorType::kPin) : componentBaseColor;
+    int selected_net_id = -1; // Assuming selectedNetId is globally available or passed if needed by RenderPin logic directly
 
+    // Re-fetch selected_net_id if not passed (though it was cached in RenderBoard)
+    // This is a bit redundant if RenderBoard cached it, but safer if RenderComponent is called from elsewhere.
     if (m_renderContext && m_renderContext->GetBoardDataManager())
     {
-        pin_net_highlight_color = m_renderContext->GetBoardDataManager()->GetColor(BoardDataManager::ColorType::kNetHighlight);
-        pin_standard_color = m_renderContext->GetBoardDataManager()->GetColor(BoardDataManager::ColorType::kPin);
         selected_net_id = m_renderContext->GetBoardDataManager()->GetSelectedNetId();
     }
 
@@ -571,7 +593,9 @@ void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &compone
             const LayerInfo *element_layer = board.GetLayerById(label_ptr->getLayerId());
             if (element_layer && element_layer->IsVisible())
             {
-                RenderTextLabel(bl_ctx, *label_ptr, m_renderContext->GetBoardDataManager()->GetLayerColor(element_layer->GetId()));
+                // Use layer_id_color_cache for text labels on specific layers
+                BLRgba32 text_color = layer_id_color_cache.count(element_layer->GetId()) ? layer_id_color_cache.at(element_layer->GetId()) : BLRgba32(0xFFFFFFFF); // Default white if not found
+                RenderTextLabel(bl_ctx, *label_ptr, text_color);
             }
         }
     }

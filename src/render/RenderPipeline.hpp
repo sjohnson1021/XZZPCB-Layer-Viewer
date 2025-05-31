@@ -6,6 +6,8 @@
 #include <map>                 // Added for std::map
 #include <blend2d.h>           // Include for BLContext
 #include "utils/Constants.hpp" // For BL_M_PI
+#include <unordered_map>
+#include "core/BoardDataManager.hpp"
 
 // Forward declarations
 class RenderContext; // The Blend2D-focused RenderContext
@@ -70,9 +72,16 @@ public:
 
     // Helper methods for rendering specific PCB elements
     void RenderTrace(BLContext &bl_ctx, const Trace &trace, const BLRect &worldViewRect);
-    void RenderVia(BLContext &bl_ctx, const Via &via, const Board &board, const BLRect &worldViewRect);
+    void RenderVia(BLContext &bl_ctx, const Via &via, const Board &board, const BLRect &worldViewRect, const BLRgba32 &color_from, const BLRgba32 &color_to);
     void RenderArc(BLContext &bl_ctx, const Arc &arc, const BLRect &worldViewRect);
-    void RenderComponent(BLContext &bl_ctx, const Component &component, const Board &board, const BLRect &worldViewRect, const BLRgba32 &highlightColor);
+    void RenderComponent(
+        BLContext &bl_ctx,
+        const Component &component,
+        const Board &board,
+        const BLRect &worldViewRect,
+        const BLRgba32 &componentBaseColor,
+        const std::unordered_map<BoardDataManager::ColorType, BLRgba32> &theme_color_cache,
+        const std::unordered_map<int, BLRgba32> &layer_id_color_cache);
     void RenderTextLabel(BLContext &bl_ctx, const TextLabel &textLabel, const BLRgba32 &color);
     // TODO: Consider passing layer_properties_map to RenderTextLabel if it needs more than just color
     // void RenderPin(BLContext &bl_ctx, const Pin &pin, const Component &component, const Board &board, const BLRgba32 &highlightColor);
@@ -95,9 +104,9 @@ private:
     // Helper methods for drawing specific parts, called from Execute
     void RenderBoard(
         BLContext &bl_ctx,
-        const Board &board, // board is now const Board& as it must exist
+        const Board &board,
         const Camera &camera,
-        const Viewport &viewport, // Removed grid parameter
+        const Viewport &viewport,
         const BLRect &worldViewRect);
 
     RenderContext *m_renderContext = nullptr; // Store a pointer to the context if needed by multiple methods
