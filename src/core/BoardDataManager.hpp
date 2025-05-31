@@ -78,20 +78,20 @@ public:
     void SaveColorsToConfig(class Config &config) const;
 
 private:
-    std::shared_ptr<Board> m_currentBoard; // Added member to hold the current board
-    PcbLoader m_pcbLoader;                 // This seems out of place if BoardDataManager doesn't load boards
-    mutable std::mutex m_boardMutex;       // Mutex to protect access to m_currentBoard
+    std::shared_ptr<Board> current_board_; // Renamed from m_currentBoard
+    PcbLoader pcb_loader_;                 // Renamed from m_pcbLoader
+    mutable std::mutex board_mutex_;       // Renamed from m_boardMutex
 
-    float m_layerHueStep = 15.0f; // Default hue step in degrees
+    float layer_hue_step_ = 15.0f; // Renamed from m_layerHueStep
 
-    int m_selectedNetId = -1;
-    mutable std::mutex m_netMutex; // Mutex to protect net-related data
+    int selected_net_id_ = -1;     // Renamed from m_selectedNetId
+    mutable std::mutex net_mutex_; // Renamed from m_netMutex
 
-    std::vector<BLRgba32> m_layerColors;
-    std::vector<bool> m_layerVisibility;
-    NetIdChangeCallback m_netIdChangeCallback;
-    SettingsChangeCallback m_settingsChangeCallback;
-    LayerVisibilityChangeCallback m_layerVisibilityChangeCallback;
+    std::vector<BLRgba32> layer_colors_;                             // Renamed from m_layerColors
+    std::vector<bool> layer_visibility_;                             // Renamed from m_layerVisibility
+    NetIdChangeCallback net_id_change_callback_;                     // Renamed from m_netIdChangeCallback
+    SettingsChangeCallback settings_change_callback_;                // Renamed from m_settingsChangeCallback
+    LayerVisibilityChangeCallback layer_visibility_change_callback_; // Renamed from m_layerVisibilityChangeCallback
 
     BLRgba32 GetColorUnlocked(ColorType type) const;
 };

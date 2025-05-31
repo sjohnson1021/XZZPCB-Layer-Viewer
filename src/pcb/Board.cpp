@@ -79,7 +79,7 @@ void Board::addStandaloneTextLabel(const TextLabel &label)
 }
 void Board::addComponent(const Component &component)
 {
-    m_components.push_back(component); // Components stored directly
+    m_elementsByLayer[Board::kCompLayer].emplace_back(std::make_unique<Component>(component));
 }
 void Board::addNet(const Net &net)
 {
@@ -87,11 +87,13 @@ void Board::addNet(const Net &net)
 }
 void Board::addLayer(const LayerInfo &layer)
 {
-    layers.push_back(layer);
+    LayerInfo l = layer;
+    l.is_visible = true;
+    layers.push_back(l);
 }
 
 // --- Layer Access Methods ---
-std::vector<LayerInfo> Board::GetLayers() const
+std::vector<Board::LayerInfo> Board::GetLayers() const
 {
     return layers;
 }
@@ -154,7 +156,7 @@ std::string Board::GetFilePath() const
     return file_path;
 }
 
-const LayerInfo *Board::GetLayerById(int layerId) const
+const Board::LayerInfo *Board::GetLayerById(int layerId) const
 {
     for (const auto &layer : layers)
     {
@@ -271,10 +273,13 @@ BoardPoint2D Board::NormalizeCoordinatesAndGetCenterOffset(const BLRect &origina
 
     // Normalize Components and their sub-elements (pins, component graphics, component text labels)
     // The Component::translate method should handle its children.
-    for (auto &comp : m_components)
-    {
-        comp.translate(-offset_x, -offset_y);
-    }
+    // for (auto &comp_ptr : m_elementsByLayer[Board::kCompLayer])
+    // {
+    //     if (comp_ptr)
+    //     {
+    //         comp_ptr->translate(-offset_x, -offset_y);
+    //     }
+    // }
 
     // Update the board's own origin_offset to store this normalization offset
     this->origin_offset = {offset_x, offset_y};
@@ -321,48 +326,53 @@ std::vector<ElementInteractionInfo> Board::GetAllVisibleElementsForInteraction()
     }
 
     // 2. Iterate through components and their elements (Pins, component-specific TextLabels)
-    for (const auto &comp : m_components) // comp is const Component&
+    auto comp_layer_it = m_elementsByLayer.find(Board::kCompLayer);
+    if (comp_layer_it != m_elementsByLayer.end())
     {
-        const LayerInfo *comp_layer_info = GetLayerById(comp.layer); // Component's primary layer
-
-        if (comp_layer_info && comp_layer_info->IsVisible())
+        for (const auto &element_ptr : comp_layer_it->second)
         {
-            // Add Pins of the component
-            for (const auto &pin_ptr : comp.pins) // pin_ptr is std::unique_ptr<Pin>
+            if (!element_ptr)
+                continue;
+            // Try to cast to Component
+            const Component *comp = dynamic_cast<const Component *>(element_ptr.get());
+            if (!comp)
+                continue;
+
+            const LayerInfo *comp_layer_info = GetLayerById(comp->layer); // Component's primary layer
+
+            if (comp_layer_info && comp_layer_info->IsVisible())
             {
-                if (!pin_ptr)
-                    continue;
-                const LayerInfo *pin_layer_info = GetLayerById(pin_ptr->getLayerId());
-                // Assuming Pin has isVisible() and getLayerId()
-                if (pin_ptr->isVisible() && pin_layer_info && pin_layer_info->IsVisible())
+                // Add Pins of the component
+                for (const auto &pin_ptr : comp->pins)
                 {
-                    result.push_back({pin_ptr.get(), &comp}); // Use .get() for unique_ptr
+                    if (!pin_ptr)
+                        continue;
+                    const LayerInfo *pin_layer_info = GetLayerById(pin_ptr->getLayerId());
+                    if (pin_ptr->isVisible() && pin_layer_info && pin_layer_info->IsVisible())
+                    {
+                        result.push_back({pin_ptr.get(), comp});
+                    }
                 }
-                else
+                // Add TextLabels of the component
+                for (const auto &label_ptr : comp->text_labels)
                 {
+                    if (!label_ptr)
+                        continue;
+                    const LayerInfo *label_layer_info = GetLayerById(label_ptr->getLayerId());
+                    if (label_ptr->isVisible() && label_layer_info && label_layer_info->IsVisible())
+                    {
+                        result.push_back({label_ptr.get(), comp});
+                    }
+                    else
+                    {
+                        std::cout << "Board: TextLabel on layer " << label_ptr->getLayerId() << " is not visible or layer not found" << std::endl;
+                    }
                 }
             }
-
-            // Add TextLabels of the component
-            for (const auto &label_ptr : comp.text_labels) // label_ptr is std::unique_ptr<TextLabel>
+            else
             {
-                if (!label_ptr)
-                    continue;
-                const LayerInfo *label_layer_info = GetLayerById(label_ptr->getLayerId());
-                // Assuming TextLabel has isVisible() and getLayerId()
-                if (label_ptr->isVisible() && label_layer_info && label_layer_info->IsVisible())
-                {
-                    result.push_back({label_ptr.get(), &comp}); // Use .get() for unique_ptr
-                }
-                else
-                {
-                    std::cout << "Board: TextLabel on layer " << label_ptr->getLayerId() << " is not visible or layer not found" << std::endl;
-                }
+                std::cout << "Board: Component layer is not visible or not found" << std::endl;
             }
-        }
-        else
-        {
-            std::cout << "Board: Component layer is not visible or not found" << std::endl;
         }
     }
     return result;

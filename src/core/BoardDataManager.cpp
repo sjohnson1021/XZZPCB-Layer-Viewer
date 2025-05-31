@@ -5,7 +5,7 @@
 #include <iostream>
 
 BoardDataManager::BoardDataManager()
-    : m_layerHueStep(30.0f) // Default hue step in degrees
+    : layer_hue_step_(30.0f) // Default hue step in degrees
 {
 }
 
@@ -17,36 +17,27 @@ BoardDataManager::~BoardDataManager()
 
 std::shared_ptr<const Board> BoardDataManager::getBoard() const
 {
-    std::cout << "[BoardDataManager] TMP-DEBUG: Locking m_boardMutex in getBoard" << std::endl;
-    std::lock_guard<std::mutex> lock(m_boardMutex);
-    std::cout << "[BoardDataManager] TMP-DEBUG: Acquired m_boardMutex in getBoard" << std::endl;
-    return m_currentBoard;
+    std::lock_guard<std::mutex> lock(board_mutex_);
+    return current_board_;
 }
 
 void BoardDataManager::setBoard(std::shared_ptr<Board> board)
 {
-    std::cout << "[BoardDataManager] TMP-DEBUG: Locking m_boardMutex in setBoard" << std::endl;
-    std::lock_guard<std::mutex> lock(m_boardMutex);
-    std::cout << "[BoardDataManager] TMP-DEBUG: Acquired m_boardMutex in setBoard" << std::endl;
-    m_currentBoard = board;
+    std::lock_guard<std::mutex> lock(board_mutex_);
+    current_board_ = board;
 }
 
 void BoardDataManager::clearBoard()
 {
-    std::cout << "[BoardDataManager] TMP-DEBUG: Locking m_boardMutex in clearBoard" << std::endl;
-    std::lock_guard<std::mutex> lock(m_boardMutex);
-    std::cout << "[BoardDataManager] TMP-DEBUG: Acquired m_boardMutex in clearBoard" << std::endl;
-    m_currentBoard.reset(); // Or m_currentBoard = nullptr;
+    std::lock_guard<std::mutex> lock(board_mutex_);
+    current_board_.reset();
 }
 
 void BoardDataManager::SetLayerHueStep(float hueStep)
 {
-    std::cout << "[BoardDataManager] TMP-DEBUG: Locking m_netMutex in SetLayerHueStep" << std::endl;
-    std::lock_guard<std::mutex> lock(m_netMutex);
-    std::cout << "[BoardDataManager] TMP-DEBUG: Acquired m_netMutex in SetLayerHueStep" << std::endl;
-    m_layerHueStep = hueStep;
-    auto cb = m_settingsChangeCallback;
-    // Release lock before callback
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    layer_hue_step_ = hueStep;
+    auto cb = settings_change_callback_;
     lock.~lock_guard();
     if (cb)
     {
@@ -56,10 +47,8 @@ void BoardDataManager::SetLayerHueStep(float hueStep)
 
 float BoardDataManager::GetLayerHueStep() const
 {
-    std::cout << "[BoardDataManager] TMP-DEBUG: Locking m_boardMutex in GetLayerHueStep" << std::endl;
-    std::lock_guard<std::mutex> lock(m_boardMutex);
-    std::cout << "[BoardDataManager] TMP-DEBUG: Acquired m_boardMutex in GetLayerHueStep" << std::endl;
-    return m_layerHueStep;
+    std::lock_guard<std::mutex> lock(board_mutex_);
+    return layer_hue_step_;
 }
 
 BLRgba32 BoardDataManager::GetColorUnlocked(ColorType type) const
@@ -71,16 +60,17 @@ BLRgba32 BoardDataManager::GetColorUnlocked(ColorType type) const
     }
     switch (type)
     {
+        // 0x // AA // RR // GG // BB
     case ColorType::kNetHighlight:
         return BLRgba32(0xFFFFFFFF); // Default to white
     case ColorType::kSilkscreen:
-        return BLRgba32(0x80DDDDDD); // Default to translucent light gray
+        return BLRgba32(0xC0DDDDDD); // Default to translucent light gray
     case ColorType::kComponent:
-        return BLRgba32(0x800000FF); // Default to translucent blue
+        return BLRgba32(0xAA0000FF); // Default to translucent blue
     case ColorType::kPin:
-        return BLRgba32(0x80999999); // Default to medium grey
+        return BLRgba32(0xC0999999); // Default to medium grey
     case ColorType::kBaseLayer:
-        return BLRgba32(0x80007BFF); // Default to translucent blue
+        return BLRgba32(0xC0007BFF); // Default to translucent blue
     case ColorType::kBoardEdges:
         return BLRgba32(0xFF00FF00); // Default to green
     default:
@@ -90,9 +80,7 @@ BLRgba32 BoardDataManager::GetColorUnlocked(ColorType type) const
 
 BLRgba32 BoardDataManager::GetColor(ColorType type) const
 {
-    std::cout << "[BoardDataManager] Locking m_netMutex in GetColor for type " << static_cast<int>(type) << std::endl;
-    std::lock_guard<std::mutex> lock(m_netMutex);
-    std::cout << "[BoardDataManager] Acquired m_netMutex in GetColor for type " << static_cast<int>(type) << std::endl;
+    std::lock_guard<std::mutex> lock(net_mutex_);
     return GetColorUnlocked(type);
 }
 
@@ -105,9 +93,7 @@ void BoardDataManager::LoadColorsFromConfig(const Config &config)
         ColorType::kPin,
         ColorType::kBaseLayer,
         ColorType::kBoardEdges};
-    std::cout << "[BoardDataManager] Locking m_netMutex in LoadColorsFromConfig" << std::endl;
-    std::lock_guard<std::mutex> lock(m_netMutex);
-    std::cout << "[BoardDataManager] Acquired m_netMutex in LoadColorsFromConfig" << std::endl;
+    std::lock_guard<std::mutex> lock(net_mutex_);
     for (ColorType type : all_types)
     {
         std::string key = "color." + std::string(::ColorTypeToString(type));
@@ -132,9 +118,7 @@ void BoardDataManager::SaveColorsToConfig(Config &config) const
         ColorType::kPin,
         ColorType::kBaseLayer,
         ColorType::kBoardEdges};
-    std::cout << "[BoardDataManager] Locking m_netMutex in SaveColorsToConfig" << std::endl;
-    std::lock_guard<std::mutex> lock(m_netMutex);
-    std::cout << "[BoardDataManager] Acquired m_netMutex in SaveColorsToConfig" << std::endl;
+    std::lock_guard<std::mutex> lock(net_mutex_);
     for (ColorType type : all_types)
     {
         std::string key = "color." + std::string(::ColorTypeToString(type));
@@ -146,17 +130,15 @@ void BoardDataManager::SaveColorsToConfig(Config &config) const
 
 void BoardDataManager::RegenerateLayerColors(const std::shared_ptr<Board> &board)
 {
-    std::cout << "[BoardDataManager] TMP-DEBUG: Locking m_netMutex in RegenerateLayerColors" << std::endl;
-    std::lock_guard<std::mutex> lock(m_netMutex);
-    std::cout << "[BoardDataManager] TMP-DEBUG: Acquired m_netMutex in RegenerateLayerColors" << std::endl;
+    std::lock_guard<std::mutex> lock(net_mutex_);
     if (!board)
         return;
 
     int layerCount = board->GetLayerCount();
-    m_layerColors.resize(layerCount);
+    layer_colors_.resize(layerCount);
 
     BLRgba32 baseColor = color_map_.count(ColorType::kBaseLayer) ? color_map_.at(ColorType::kBaseLayer) : GetColorUnlocked(ColorType::kBaseLayer);
-    float hueStep = m_layerHueStep;
+    float hueStep = layer_hue_step_;
 
     for (int i = 0; i < layerCount; ++i)
     {
@@ -165,10 +147,10 @@ void BoardDataManager::RegenerateLayerColors(const std::shared_ptr<Board> &board
             layerCount,
             baseColor,
             hueStep);
-        m_layerColors[i] = layerColor;
+        layer_colors_[i] = layerColor;
         board->SetLayerColor(i, layerColor);
     }
-    auto cb = m_settingsChangeCallback;
+    auto cb = settings_change_callback_;
     lock.~lock_guard();
     if (cb)
     {
@@ -178,13 +160,11 @@ void BoardDataManager::RegenerateLayerColors(const std::shared_ptr<Board> &board
 
 void BoardDataManager::SetSelectedNetId(int netId)
 {
-    std::cout << "[BoardDataManager] TMP-DEBUG: Locking m_netMutex in SetSelectedNetId" << std::endl;
-    std::lock_guard<std::mutex> lock(m_netMutex);
-    std::cout << "[BoardDataManager] TMP-DEBUG: Acquired m_netMutex in SetSelectedNetId" << std::endl;
-    if (m_selectedNetId != netId)
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    if (selected_net_id_ != netId)
     {
-        m_selectedNetId = netId;
-        auto cb = m_netIdChangeCallback;
+        selected_net_id_ = netId;
+        auto cb = net_id_change_callback_;
         lock.~lock_guard();
         if (cb)
         {
@@ -195,86 +175,70 @@ void BoardDataManager::SetSelectedNetId(int netId)
 
 int BoardDataManager::GetSelectedNetId() const
 {
-    std::lock_guard<std::mutex> lock(m_netMutex);
-    return m_selectedNetId;
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    return selected_net_id_;
 }
 
 void BoardDataManager::RegisterNetIdChangeCallback(NetIdChangeCallback callback)
 {
-    std::cout << "[BoardDataManager] TMP-DEBUG: Locking m_netMutex in RegisterNetIdChangeCallback" << std::endl;
-    std::lock_guard<std::mutex> lock(m_netMutex);
-    std::cout << "[BoardDataManager] TMP-DEBUG: Acquired m_netMutex in RegisterNetIdChangeCallback" << std::endl;
-    m_netIdChangeCallback = callback;
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    net_id_change_callback_ = callback;
 }
 
 void BoardDataManager::UnregisterNetIdChangeCallback()
 {
-    std::cout << "[BoardDataManager] TMP-DEBUG: Locking m_netMutex in UnregisterNetIdChangeCallback" << std::endl;
-    std::lock_guard<std::mutex> lock(m_netMutex);
-    std::cout << "[BoardDataManager] TMP-DEBUG: Acquired m_netMutex in UnregisterNetIdChangeCallback" << std::endl;
-    m_netIdChangeCallback = nullptr;
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    net_id_change_callback_ = nullptr;
 }
 
 void BoardDataManager::RegisterSettingsChangeCallback(SettingsChangeCallback callback)
 {
-    std::cout << "[BoardDataManager] TMP-DEBUG: Locking m_netMutex in RegisterSettingsChangeCallback" << std::endl;
-    std::lock_guard<std::mutex> lock(m_netMutex);
-    std::cout << "[BoardDataManager] TMP-DEBUG: Acquired m_netMutex in RegisterSettingsChangeCallback" << std::endl;
-    m_settingsChangeCallback = callback;
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    settings_change_callback_ = callback;
 }
 
 void BoardDataManager::UnregisterSettingsChangeCallback()
 {
-    std::cout << "[BoardDataManager] TMP-DEBUG: Locking m_netMutex in UnregisterSettingsChangeCallback" << std::endl;
-    std::lock_guard<std::mutex> lock(m_netMutex);
-    std::cout << "[BoardDataManager] TMP-DEBUG: Acquired m_netMutex in UnregisterSettingsChangeCallback" << std::endl;
-    m_settingsChangeCallback = nullptr;
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    settings_change_callback_ = nullptr;
 }
 
 void BoardDataManager::RegisterLayerVisibilityChangeCallback(LayerVisibilityChangeCallback callback)
 {
-    std::cout << "[BoardDataManager] TMP-DEBUG: Locking m_netMutex in RegisterLayerVisibilityChangeCallback" << std::endl;
-    std::lock_guard<std::mutex> lock(m_netMutex);
-    std::cout << "[BoardDataManager] TMP-DEBUG: Acquired m_netMutex in RegisterLayerVisibilityChangeCallback" << std::endl;
-    m_layerVisibilityChangeCallback = callback;
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    layer_visibility_change_callback_ = callback;
 }
 
 void BoardDataManager::UnregisterLayerVisibilityChangeCallback()
 {
-    std::cout << "[BoardDataManager] TMP-DEBUG: Locking m_netMutex in UnregisterLayerVisibilityChangeCallback" << std::endl;
-    std::lock_guard<std::mutex> lock(m_netMutex);
-    std::cout << "[BoardDataManager] TMP-DEBUG: Acquired m_netMutex in UnregisterLayerVisibilityChangeCallback" << std::endl;
-    m_layerVisibilityChangeCallback = nullptr;
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    layer_visibility_change_callback_ = nullptr;
 }
 
 void BoardDataManager::SetLayerVisible(int layerId, bool visible)
 {
-    std::cout << "[BoardDataManager] TMP-DEBUG: Locking m_netMutex in SetLayerVisible" << std::endl;
-    std::lock_guard<std::mutex> lock(m_netMutex);
-    std::cout << "[BoardDataManager] TMP-DEBUG: Acquired m_netMutex in SetLayerVisible" << std::endl;
-    if (layerId >= 0 && layerId < static_cast<int>(m_layerVisibility.size()))
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    if (layerId >= 0 && layerId < static_cast<int>(layer_visibility_.size()))
     {
-        m_layerVisibility[layerId] = visible;
-        auto cb = m_layerVisibilityChangeCallback;
+        layer_visibility_[layerId] = visible;
+        auto cb = layer_visibility_change_callback_;
         lock.~lock_guard();
         if (cb)
         {
             cb(layerId, visible);
         }
-        if (m_settingsChangeCallback)
+        if (settings_change_callback_)
         {
-            m_settingsChangeCallback();
+            settings_change_callback_();
         }
     }
 }
 
 void BoardDataManager::SetColor(ColorType type, BLRgba32 color)
 {
-    std::cout << "[BoardDataManager] TMP-DEBUG: Locking m_netMutex in SetColor" << std::endl;
-    std::lock_guard<std::mutex> lock(m_netMutex);
-    std::cout << "[BoardDataManager] TMP-DEBUG: Acquired m_netMutex in SetColor" << std::endl;
+    std::lock_guard<std::mutex> lock(net_mutex_);
     color_map_[type] = color;
-    auto cb = m_settingsChangeCallback;
+    auto cb = settings_change_callback_;
     lock.~lock_guard();
     if (cb)
     {
@@ -288,7 +252,7 @@ BLRgba32 BoardDataManager::GetLayerColor(int layer_id) const
     if (layer_id >= 1 && layer_id <= 16)
     {
         BLRgba32 base_color = color_map_.count(ColorType::kBaseLayer) ? color_map_.at(ColorType::kBaseLayer) : GetColorUnlocked(ColorType::kBaseLayer);
-        float hue_step = m_layerHueStep;
+        float hue_step = layer_hue_step_;
         return ColorUtils::GenerateLayerColor(layer_id - 1, 16, base_color, hue_step);
     }
     // 17: silkscreen
@@ -300,7 +264,7 @@ BLRgba32 BoardDataManager::GetLayerColor(int layer_id) const
     if (layer_id >= 18 && layer_id <= 27)
     {
         BLRgba32 base_color = color_map_.count(ColorType::kBaseLayer) ? color_map_.at(ColorType::kBaseLayer) : GetColorUnlocked(ColorType::kBaseLayer);
-        float hue_step = m_layerHueStep;
+        float hue_step = layer_hue_step_;
         return ColorUtils::GenerateLayerColor(layer_id - 1, 16, base_color, hue_step);
     }
     // 28: board edges

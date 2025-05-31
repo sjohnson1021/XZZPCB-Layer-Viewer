@@ -53,46 +53,71 @@ public:
             return false;
 
         ComponentBounds bounds(component);
-        std::vector<PinCollision> collisions;
-        std::set<size_t> problematic_pins;
+        bool overall_resolved = false;
+        // Max iterations to prevent potential infinite loops if logic doesn't converge.
+        // This can happen if rotations oscillate (fix one, break another, then reverse).
+        int max_iterations = component->pins.size() * 1; // Heuristic: allow couple of attempts per pin
 
-        // Initial collision detection
-        detectCollisions(component->pins, collisions);
-        detectOutOfBounds(component->pins, bounds, problematic_pins);
-
-        // Collect all problematic pins
-        for (const auto &collision : collisions)
+        for (int iter = 0; iter < max_iterations; ++iter)
         {
-            problematic_pins.insert(collision.pin1_idx);
-            problematic_pins.insert(collision.pin2_idx);
-        }
+            std::vector<PinCollision> collisions;
+            std::set<size_t> out_of_bounds_pins_indices; // Store indices
 
-        if (problematic_pins.empty())
-            return true; // Already good
+            detectCollisions(component->pins, collisions);
+            detectOutOfBounds(component->pins, bounds, out_of_bounds_pins_indices);
 
-        // Try to resolve by rotating problematic pins
-        bool resolved = false;
-        std::vector<size_t> pins_to_rotate(problematic_pins.begin(), problematic_pins.end());
-
-        // Sort by potential impact (larger pins first)
-        std::sort(pins_to_rotate.begin(), pins_to_rotate.end(),
-                  [&component](size_t a, size_t b)
-                  {
-                      auto [wa, ha] = component->pins[a]->getDimensions();
-                      auto [wb, hb] = component->pins[b]->getDimensions();
-                      return (wa * ha) > (wb * hb);
-                  });
-
-        // Try rotating pins one by one
-        for (size_t pin_idx : pins_to_rotate)
-        {
-            if (tryRotatePin(component, pin_idx, bounds))
+            std::set<size_t> problematic_pin_indices;
+            for (const auto &collision : collisions)
             {
-                resolved = true;
+                problematic_pin_indices.insert(collision.pin1_idx);
+                problematic_pin_indices.insert(collision.pin2_idx);
+            }
+            for (size_t oob_pin_idx : out_of_bounds_pins_indices)
+            {
+                problematic_pin_indices.insert(oob_pin_idx);
+            }
+
+            if (problematic_pin_indices.empty())
+            {
+                overall_resolved = true;
+                break; // All issues resolved
+            }
+
+            std::vector<size_t> pins_to_try_rotating(problematic_pin_indices.begin(), problematic_pin_indices.end());
+            // Sort by potential impact (larger pins first) - current heuristic
+            std::sort(pins_to_try_rotating.begin(), pins_to_try_rotating.end(),
+                      [&component](size_t a, size_t b)
+                      {
+                          // Ensure indices are valid before accessing pins
+                          if (a >= component->pins.size() || b >= component->pins.size())
+                              return false; // Should not happen
+                          auto [wa, ha] = component->pins[a]->getDimensions();
+                          auto [wb, hb] = component->pins[b]->getDimensions();
+                          return (wa * ha) > (wb * hb);
+                      });
+
+            bool rotation_made_in_this_iteration = false;
+            for (size_t pin_idx_to_rotate : pins_to_try_rotating)
+            {
+                // Pass component directly to tryRotatePin, it can access component->pins
+                if (tryRotatePin(component, pin_idx_to_rotate, bounds))
+                {
+                    rotation_made_in_this_iteration = true;
+                    // After a successful rotation, we should re-evaluate everything.
+                    // Breaking here will cause the outer loop to re-detect problems and re-sort.
+                    break;
+                }
+            }
+
+            if (!rotation_made_in_this_iteration)
+            {
+                // If no rotation in this iteration helped, and there are still problematic pins,
+                // further iterations with the same logic are unlikely to resolve them.
+                overall_resolved = problematic_pin_indices.empty();
+                break;
             }
         }
-
-        return resolved;
+        return overall_resolved;
     }
 
 private:
@@ -162,9 +187,9 @@ private:
 
     // Detect pins that extend outside component bounds
     static void detectOutOfBounds(const std::vector<std::unique_ptr<Pin>> &pins, const ComponentBounds &bounds,
-                                  std::set<size_t> &oob_pins)
+                                  std::set<size_t> &oob_pin_indices) // Changed to oob_pin_indices
     {
-        oob_pins.clear();
+        oob_pin_indices.clear();
 
         for (size_t i = 0; i < pins.size(); ++i)
         {
@@ -173,72 +198,181 @@ private:
 
             if (!bounds.contains(pin.x_coord, pin.y_coord, w, h))
             {
-                oob_pins.insert(i);
+                oob_pin_indices.insert(i); // Store index
             }
         }
     }
 
     // Try rotating a specific pin to resolve conflicts
-    static bool tryRotatePin(Component *component, size_t pin_idx, const ComponentBounds &bounds)
+    static bool tryRotatePin(Component *component, size_t pin_idx_to_rotate, const ComponentBounds &bounds)
     {
-        if (pin_idx >= component->pins.size())
+        if (pin_idx_to_rotate >= component->pins.size())
             return false;
 
-        Pin &pin = *component->pins[pin_idx];
+        Pin &pin = *component->pins[pin_idx_to_rotate];
         auto [orig_w, orig_h] = pin.getDimensions();
 
-        // Skip if pin is square (rotation won't help)
+        // Skip if pin is square (rotation won't change its AABB significantly for this check)
+        // or if pin is not rotatable (e.g. certain pad shapes if we add that logic)
         if (std::abs(orig_w - orig_h) < 1e-6)
             return false;
 
         // Store original state
         PadShape original_shape = pin.pad_shape;
         PinOrientation original_orientation = pin.orientation;
+        // Cache original dimensions as they are stored in the PadShape variant
+        double cached_original_width = orig_w;
+        double cached_original_height = orig_h;
 
-        // Try swapping dimensions
-        swapPinDimensions(pin);
+        // --- Assess current state of the pin_idx_to_rotate ---
+        bool was_oob_before = false;
+        bool was_colliding_before = false;
 
-        // Check if this rotation resolves conflicts
-        bool improved = true;
+        // Check OOB before rotation
+        if (!bounds.contains(pin.x_coord, pin.y_coord, cached_original_width, cached_original_height))
+        {
+            printf("Pin %zu is out of bounds before rotation\n", pin_idx_to_rotate);
+            was_oob_before = true;
+        }
 
-        // Check collisions with other pins
+        // Check collisions before rotation for this specific pin
         for (size_t i = 0; i < component->pins.size(); ++i)
         {
-            if (i == pin_idx)
+            if (i == pin_idx_to_rotate)
+                continue;
+            const Pin &other_pin = *component->pins[i];
+            if (other_pin.getLayerId() != pin.getLayerId())
                 continue;
 
-            if (component->pins[i]->getLayerId() != pin.getLayerId())
-                continue;
-
-            auto [w1, h1] = pin.getDimensions();
-            auto [w2, h2] = component->pins[i]->getDimensions();
-
-            if (rectanglesOverlap(pin.x_coord, pin.y_coord, w1, h1,
-                                  component->pins[i]->x_coord, component->pins[i]->y_coord, w2, h2))
+            auto [other_w, other_h] = other_pin.getDimensions();
+            if (rectanglesOverlap(pin.x_coord, pin.y_coord, cached_original_width, cached_original_height,
+                                  other_pin.x_coord, other_pin.y_coord, other_w, other_h))
             {
-                improved = false;
+                printf("Pin %zu is colliding with pin %zu before rotation\n", pin_idx_to_rotate, i);
+                was_colliding_before = true;
                 break;
             }
         }
 
-        // Check bounds
-        if (improved)
+        // If the pin is not problematic (neither OOB nor colliding with anything),
+        // we generally shouldn't rotate it unless we have a global scoring system.
+        // This function is typically called for problematic pins.
+        if (!was_oob_before && !was_colliding_before)
         {
-            auto [w, h] = pin.getDimensions();
-            if (!bounds.contains(pin.x_coord, pin.y_coord, w, h))
+            // It can happen if another pin's rotation made this one non-problematic
+            // but it was still in the pins_to_try_rotating list from the start of the iteration.
+            // Or, if a pin is part of a collision pair, but isn't itself OOB.
+            // For now, proceed to see if rotation makes it *even better* or maintains non-problematic state.
+        }
+
+        // --- Perform Rotation ---
+        swapPinDimensions(pin); // This updates pin.width, pin.height internally via getDimensions()
+        // --- End Rotation ---
+
+        // --- Check new state of the pin_idx_to_rotate ---
+        bool is_now_oob = false;
+        bool is_now_colliding = false;
+        auto [rotated_w, rotated_h] = pin.getDimensions(); // Get dimensions after swap
+
+        // 1. Check Out-of-Bounds for the rotated pin
+        if (!bounds.contains(pin.x_coord, pin.y_coord, rotated_w, rotated_h))
+        {
+            printf("Pin %zu will be out of bounds after rotation\n", pin_idx_to_rotate);
+            is_now_oob = true;
+        }
+
+        // 2. Check Collisions for the rotated pin with all other pins
+        // Make sure not to cause new collisions or worsen existing ones for *this* pin.
+        for (size_t i = 0; i < component->pins.size(); ++i)
+        {
+            if (i == pin_idx_to_rotate)
+                continue;
+            const Pin &other_pin = *component->pins[i];
+            if (other_pin.getLayerId() != pin.getLayerId())
+                continue;
+
+            auto [other_w, other_h] = other_pin.getDimensions();
+            if (rectanglesOverlap(pin.x_coord, pin.y_coord, rotated_w, rotated_h,
+                                  other_pin.x_coord, other_pin.y_coord, other_w, other_h))
             {
-                improved = false;
+                printf("Pin %zu will be colliding with pin %zu after rotation\n", pin_idx_to_rotate, i);
+                is_now_colliding = true;
+                break;
             }
         }
 
-        if (!improved)
+        // --- Decision Logic ---
+        // A rotation is considered beneficial if it resolves an issue (OOB or collision)
+        // for the current pin without introducing a new issue for this same pin.
+        bool accept_rotation = false;
+
+        if (was_oob_before && !is_now_oob && !is_now_colliding)
+        { // Fixed OOB, and no new collision for this pin
+            printf("Pin %zu was out of bounds and colliding before rotation and is now in bounds and not colliding after rotation\n", pin_idx_to_rotate);
+            accept_rotation = true;
+        }
+        else if (was_colliding_before && !is_now_colliding && !is_now_oob)
+        { // Fixed collision, and no new OOB for this pin
+            printf("Pin %zu was colliding before rotation and is now not out of bounds and not colliding after rotation\n", pin_idx_to_rotate);
+            accept_rotation = true;
+        }
+        else if (was_oob_before && was_colliding_before && !is_now_oob && !is_now_colliding)
+        { // Fixed both
+            printf("Pin %zu was out of bounds and colliding before rotation and is now in bounds and not colliding after rotation\n", pin_idx_to_rotate);
+            accept_rotation = true;
+        }
+        else if (!was_oob_before && !was_colliding_before && !is_now_oob && !is_now_colliding)
         {
-            // Restore original state
-            pin.pad_shape = original_shape;
+            // Pin was fine, and is still fine after rotation. This path might be taken if a pin
+            // was part of an earlier collision pair but the other pin was moved/rotated first.
+            // Or if it was simply not square and got selected.
+            // Allowing this rotation is fine, as it doesn't worsen the state.
+            // Could be debated if this "exploratory" rotation is needed if pin is not problematic.
+            // For now, let's say if it doesn't hurt, it's okay.
+            printf("Pin %zu was not out of bounds and not colliding before rotation and is now not out of bounds and not colliding after rotation\n", pin_idx_to_rotate);
+            accept_rotation = true;
+        }
+        else if (was_oob_before && !is_now_oob && is_now_colliding)
+        {
+            printf("Pin %zu was out of bounds before rotation and is now in bounds but colliding after rotation\n", pin_idx_to_rotate);
+            // This is a special case where we allow a rotation that fixes OOB but introduces a new collision.
+            // This tells us that this pin is correctly oriented, but the other pin is not.
+            // We should not rotate this pin, but we should rotate the other pin.
+            accept_rotation = true;
+        }
+        else if (was_colliding_before && !is_now_colliding && is_now_oob)
+        {
+            printf("Pin %zu was colliding before rotation and is now out of bounds after rotation\n", pin_idx_to_rotate);
+            // This is means we have changed the orientation of the wrong pin.
+            // We should not accept this rotation. and instead rotate the other pin.
+            accept_rotation = false;
+        }
+        else if (was_oob_before && !is_now_oob && is_now_colliding)
+        {
+            printf("Pin %zu was out of bounds before rotation and is now colliding after rotation\n", pin_idx_to_rotate);
+            // This is means we have changed the orientation of the wrong pin.
+            // We should not accept this rotation. and instead rotate the other pin.
+            accept_rotation = false;
+        }
+        // More complex: if it fixed one problem but introduced another (e.g. fixed OOB but now collides).
+        // For now, we prefer rotations that lead to a strictly non-problematic state for the rotated pin.
+
+        if (!accept_rotation)
+        {
+            // Rotation was not beneficial or made things worse for this pin. Restore.
+            pin.pad_shape = original_shape; // Restores original dimensions within the variant
             pin.orientation = original_orientation;
+            printf("Pin %zu was not accepted and is now in original state\n", pin_idx_to_rotate);
+            // Explicitly update cached width/height members if swapPinDimensions modified them directly
+            // and they are not solely derived from pad_shape on demand.
+            // The current swapPinDimensions updates pin.width/height/long_side/short_side.
+            std::tie(pin.width, pin.height) = pin.getDimensions(); // Re-cache from restored shape
+            pin.long_side = std::max(pin.width, pin.height);
+            pin.short_side = std::min(pin.width, pin.height);
             return false;
         }
 
+        // Rotation accepted for this pin
         return true;
     }
 

@@ -11,6 +11,7 @@
 #include "../utils/ColorUtils.hpp" // Added for layer color generation
 #include <iostream>                // Added for logging
 #include <variant>                 // Required for std::visit or index() on PadShape
+#include "Board.hpp"
 #include "processing/PinResolver.hpp"
 
 // Define this to enable verbose logging for PcbLoader
@@ -26,9 +27,7 @@ static const unsigned char hexconv[256] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static const std::vector<uint16_t> des_key_byte_list = {0xE0, 0xCF, 0x2E, 0x9F, 0x3C, 0x33, 0x3C, 0x33};
-static const int VIAS_LAYER = 29;
-static const int COMP_LAYER = 30;
-static const int PINS_LAYER = 31;
+
 // This is the scale factor for the XZZ files.
 static const int xyscale = 100000;
 // Implementation of DefineStandardLayers
@@ -38,20 +37,20 @@ void PcbLoader::DefineStandardLayers(Board &board)
     board.layers.clear();
 
     // Define layer for pins
-    board.addLayer(LayerInfo(COMP_LAYER, "Components", LayerInfo::LayerType::Signal));
-    board.addLayer(LayerInfo(PINS_LAYER, "Pins", LayerInfo::LayerType::Signal));
-    board.addLayer(LayerInfo(VIAS_LAYER, "Vias", LayerInfo::LayerType::Signal));
+    board.addLayer(Board::LayerInfo(Board::kCompLayer, "Components", Board::LayerInfo::LayerType::Signal));
+    board.addLayer(Board::LayerInfo(Board::kPinsLayer, "Pins", Board::LayerInfo::LayerType::Signal));
+    board.addLayer(Board::LayerInfo(Board::kViasLayer, "Vias", Board::LayerInfo::LayerType::Signal));
     // Define Trace Layers (1-16)
     for (int i = 1; i <= 16; ++i)
     {
         std::string name = "Trace Layer " + std::to_string(i);
         // Layer 16 is often special (e.g., last layer in a sequence)
         // For now, all are Signal type. Specific XZZ usage might refine this.
-        board.addLayer(LayerInfo(i, name, LayerInfo::LayerType::Signal));
+        board.addLayer(Board::LayerInfo(i, name, Board::LayerInfo::LayerType::Signal));
     }
 
     // Silkscreen (17)
-    board.addLayer(LayerInfo(17, "Silkscreen", LayerInfo::LayerType::Silkscreen));
+    board.addLayer(Board::LayerInfo(Board::kSilkscreenLayer, "Silkscreen", Board::LayerInfo::LayerType::Silkscreen));
 
     // Unknown Layers (18-27) - treat as generic 'Other' or 'Comment' type for now
     for (int i = 18; i <= 27; ++i)
@@ -59,11 +58,11 @@ void PcbLoader::DefineStandardLayers(Board &board)
         std::string name = "Unknown Layer " + std::to_string(i);
         // These might be used for internal notes, mechanical details, or additional silkscreen
         // Defaulting to 'Other' type. Users can inspect content.
-        board.addLayer(LayerInfo(i, name, LayerInfo::LayerType::Other));
+        board.addLayer(Board::LayerInfo(i, name, Board::LayerInfo::LayerType::Other));
     }
 
     // Board Edges (28)
-    board.addLayer(LayerInfo(28, "Board Edges", LayerInfo::LayerType::BoardOutline));
+    board.addLayer(Board::LayerInfo(Board::kBoardEdgesLayer, "Board Edges", Board::LayerInfo::LayerType::BoardOutline));
 
     // After adding all layers, if your Board class has a function to assign unique colors:
     // board.RegenerateLayerColors(); // Or similar, if it exists in Board.hpp
@@ -151,9 +150,12 @@ std::unique_ptr<Board> PcbLoader::loadFromFile(const std::string &filePath)
 
     // Process pin orientations
     // PCBProcessing::OrientationProcessor::processBoard(*board);
-    for (auto &component : board->m_components)
+    for (auto &component : board->m_elementsByLayer[Board::kCompLayer])
     {
-        PinResolver::resolveComponentPinOrientations(&component);
+        if (auto *comp = dynamic_cast<Component *>(component.get()))
+        {
+            PinResolver::resolveComponentPinOrientations(comp);
+        }
     }
     return board;
 }
@@ -1048,7 +1050,7 @@ void PcbLoader::parseComponent(const char *rawComponentData, uint32_t componentB
             CirclePad default_circle_pad_shape_obj;    // x_offset and y_offset default to 0.0
             default_circle_pad_shape_obj.radius = 0.1; // Set the radius
             PadShape default_pad_shape = default_circle_pad_shape_obj;
-            auto current_pin_object_ptr = std::make_unique<Pin>(pin_x, pin_y, pin_name_str, default_pad_shape, PINS_LAYER); // Renamed pin_ptr to current_pin_object_ptr
+            auto current_pin_object_ptr = std::make_unique<Pin>(pin_x, pin_y, pin_name_str, default_pad_shape, Board::kPinsLayer); // Renamed pin_ptr to current_pin_object_ptr
 
 #ifdef ENABLE_PCB_LOADER_LOGGING
             std::cout << "[PcbLoader LOG]         Starting Pin Outline parsing. pin_offset_iterator=" << pin_offset_iterator << std::endl;
@@ -1297,7 +1299,7 @@ void PcbLoader::parseComponent(const char *rawComponentData, uint32_t componentB
     }
     // If graphical_elements is empty, comp.width and comp.height retain any values they had from earlier parsing stages.
     // ARBITRARY: Set all layers to one layer for now.
-    comp.layer = COMP_LAYER; // TODO: Will need to handle top and bottom sides once we have the board 'folded'.
+    comp.layer = Board::kCompLayer; // TODO: Will need to handle top and bottom sides once we have the board 'folded'.
     board.addComponent(comp);
 }
 

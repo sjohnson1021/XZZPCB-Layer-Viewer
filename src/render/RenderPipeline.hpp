@@ -49,9 +49,11 @@ public:
         const Camera &camera,
         const Viewport &viewport,
         const Grid &grid, // Pass Grid by const reference
-        bool renderGrid,  // New: flag to control grid rendering
-        bool renderBoard  // New: flag to control board rendering
+        bool render_grid, // New: flag to control grid rendering
+        bool render_board // New: flag to control board rendering
     );
+
+    BLMatrix2D ViewMatrix(BLContext &bl_ctx, const Camera &camera, const Viewport &viewport);
     // Process a single renderable item (or this could be a list)
     // void Process(RenderContext& context, IRenderable* renderable);
     // Or, the pipeline might manage a list of renderables itself
@@ -71,25 +73,25 @@ public:
     );
 
     // Helper methods for rendering specific PCB elements
-    void RenderTrace(BLContext &bl_ctx, const Trace &trace, const BLRect &worldViewRect);
-    void RenderVia(BLContext &bl_ctx, const Via &via, const Board &board, const BLRect &worldViewRect, const BLRgba32 &color_from, const BLRgba32 &color_to);
-    void RenderArc(BLContext &bl_ctx, const Arc &arc, const BLRect &worldViewRect);
+    void RenderTrace(BLContext &bl_ctx, const Trace &trace, const BLRect &world_view_rect, BLStrokeCap start_cap, BLStrokeCap end_cap);
+    void RenderVia(BLContext &bl_ctx, const Via &via, const Board &board, const BLRect &world_view_rect, const BLRgba32 &color_from, const BLRgba32 &color_to);
+    void RenderArc(BLContext &bl_ctx, const Arc &arc, const BLRect &world_view_rect);
     void RenderComponent(
         BLContext &bl_ctx,
         const Component &component,
         const Board &board,
-        const BLRect &worldViewRect,
-        const BLRgba32 &componentBaseColor,
+        const BLRect &world_view_rect,
+        const BLRgba32 &component_base_color,
         const std::unordered_map<BoardDataManager::ColorType, BLRgba32> &theme_color_cache,
-        const std::unordered_map<int, BLRgba32> &layer_id_color_cache);
-    void RenderTextLabel(BLContext &bl_ctx, const TextLabel &textLabel, const BLRgba32 &color);
+        int selected_net_id);
+    void RenderTextLabel(BLContext &bl_ctx, const TextLabel &text_label, const BLRgba32 &color);
     // TODO: Consider passing layer_properties_map to RenderTextLabel if it needs more than just color
     // void RenderPin(BLContext &bl_ctx, const Pin &pin, const Component &component, const Board &board, const BLRgba32 &highlightColor);
-    void RenderPin(BLContext &ctx, const Pin &pin, const Component *parentComponent, const BLRgba32 &highlightColor);
+    void RenderPin(BLContext &ctx, const Pin &pin, const Component *parent_component, const BLRgba32 &highlight_color);
 
 private:
     // Helper to get a cached font face or load it if not found
-    BLResult GetOrCreateFontFace(const std::string &fontFamilyPath, BLFontFace &outFace);
+    BLResult GetOrCreateFontFace(const std::string &font_family_path, BLFontFace &out_face);
 
     // Helper function to get the visible area in world coordinates
     BLRect GetVisibleWorldBounds(const Camera &camera, const Viewport &viewport) const;
@@ -107,7 +109,7 @@ private:
         const Board &board,
         const Camera &camera,
         const Viewport &viewport,
-        const BLRect &worldViewRect);
+        const BLRect &world_view_rect);
 
     RenderContext *m_renderContext = nullptr; // Store a pointer to the context if needed by multiple methods
     bool m_initialized = false;

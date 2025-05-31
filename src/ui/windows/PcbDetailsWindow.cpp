@@ -154,36 +154,46 @@ void PcbDetailsWindow::displayComponents(const Board *boardData)
 {
     if (ImGui::TreeNodeEx("Components", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        for (const auto &comp : boardData->GetComponents())
+        auto comp_layer_it = boardData->m_elementsByLayer.find(Board::kCompLayer);
+        if (comp_layer_it != boardData->m_elementsByLayer.end())
         {
-            std::string compNodeName = comp.reference_designator + " (" + comp.value + ") - " + comp.footprint_name;
-            if (ImGui::TreeNode(compNodeName.c_str()))
+            for (const auto &element_ptr : comp_layer_it->second)
             {
-                ImGui::Text("Pos: (%.2f, %.2f), Layer: %d, Rot: %.1f deg", comp.center_x, comp.center_y, comp.layer, comp.rotation);
-                ImGui::Text("Type: %d, Side: %d", static_cast<int>(comp.type), static_cast<int>(comp.side));
+                if (!element_ptr)
+                    continue;
+                const Component *comp = dynamic_cast<const Component *>(element_ptr.get());
+                if (!comp)
+                    continue;
 
-                if (ImGui::TreeNodeEx("Pins", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed))
+                std::string compNodeName = comp->reference_designator + " (" + comp->value + ") - " + comp->footprint_name;
+                if (ImGui::TreeNode(compNodeName.c_str()))
                 {
-                    displayPins(boardData, comp.pins);
-                    ImGui::TreePop();
-                }
-                if (ImGui::TreeNodeEx("Labels", ImGuiTreeNodeFlags_Framed))
-                {
-                    for (const auto &lbl_ptr : comp.text_labels)
+                    ImGui::Text("Pos: (%.2f, %.2f), Layer: %d, Rot: %.1f deg", comp->center_x, comp->center_y, comp->layer, comp->rotation);
+                    ImGui::Text("Type: %d, Side: %d", static_cast<int>(comp->type), static_cast<int>(comp->side));
+
+                    if (ImGui::TreeNodeEx("Pins", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed))
                     {
-                        if (!lbl_ptr)
-                            continue;
-                        const TextLabel &lbl = *lbl_ptr;
-                        ImGui::Text("L%d (%.1f,%.1f) S%.1f: %s", lbl.getLayerId(), lbl.x, lbl.y, lbl.font_size, lbl.text_content.c_str());
+                        displayPins(boardData, comp->pins);
+                        ImGui::TreePop();
+                    }
+                    if (ImGui::TreeNodeEx("Labels", ImGuiTreeNodeFlags_Framed))
+                    {
+                        for (const auto &lbl_ptr : comp->text_labels)
+                        {
+                            if (!lbl_ptr)
+                                continue;
+                            const TextLabel &lbl = *lbl_ptr;
+                            ImGui::Text("L%d (%.1f,%.1f) S%.1f: %s", lbl.getLayerId(), lbl.x, lbl.y, lbl.font_size, lbl.text_content.c_str());
+                        }
+                        ImGui::TreePop();
+                    }
+                    if (ImGui::TreeNodeEx("Graphical Elements", ImGuiTreeNodeFlags_Framed))
+                    {
+                        displayGraphicalElements(comp->graphical_elements);
+                        ImGui::TreePop();
                     }
                     ImGui::TreePop();
                 }
-                if (ImGui::TreeNodeEx("Graphical Elements", ImGuiTreeNodeFlags_Framed))
-                {
-                    displayGraphicalElements(comp.graphical_elements);
-                    ImGui::TreePop();
-                }
-                ImGui::TreePop();
             }
         }
         ImGui::TreePop();

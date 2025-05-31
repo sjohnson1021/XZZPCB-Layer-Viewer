@@ -19,41 +19,6 @@ class Trace;
 class TextLabel;
 // Component is already included
 
-// Structure to define a layer
-struct LayerInfo
-{
-    enum class LayerType
-    {
-        Signal,
-        PowerPlane, // Could be positive or negative plane
-        Silkscreen,
-        SolderMask,
-        SolderPaste,
-        Drill,
-        Mechanical,
-        BoardOutline,
-        Comment,
-        Other
-    };
-
-    int id = 0;       // Original ID from file if applicable, or internal ID
-    std::string name; // e.g., "TopLayer", "BottomLayer", "SilkscreenTop"
-    LayerType type = LayerType::Other;
-    bool is_visible = true;
-    // Removed color field
-    // double thickness; // Optional: physical thickness of the layer
-
-    LayerInfo(int i, const std::string &n, LayerType t)
-        : id(i), name(n), type(t), is_visible(true) {}
-    LayerInfo() : id(-1), name("Unknown"), type(LayerType::Other), is_visible(true) {}
-
-    bool IsVisible() const { return is_visible; }
-    void SetVisible(bool visible) { is_visible = visible; }
-    int GetId() const { return id; }
-    const std::string &GetName() const { return name; }
-    LayerType GetType() const { return type; }
-    // Removed GetColor()
-};
 struct BoardPoint2D
 {
     double x = 0.0;
@@ -90,14 +55,57 @@ public:
     // Point2D origin_offset = {0.0, 0.0}; // If coordinates need global adjustment. Requires Point2D to be defined or included.
     // For now, let's assume Point2D from Component.hpp is not directly used here or define a simple one.
     BoardPoint2D origin_offset = {0.0, 0.0};
+    // Structure to define a layer
+    struct LayerInfo
+    {
+        enum class LayerType
+        {
+            Signal,
+            PowerPlane, // Could be positive or negative plane
+            Silkscreen,
+            SolderMask,
+            SolderPaste,
+            Drill,
+            Mechanical,
+            BoardOutline,
+            Comment,
+            Other
+        };
 
+        int id = 0;       // Original ID from file if applicable, or internal ID
+        std::string name; // e.g., "TopLayer", "BottomLayer", "SilkscreenTop"
+        LayerType type = LayerType::Other;
+        bool is_visible = true;
+        // Removed color field
+        // double thickness; // Optional: physical thickness of the layer
+
+        LayerInfo(int i, const std::string &n, LayerType t)
+            : id(i), name(n), type(t), is_visible(true) {}
+        LayerInfo() : id(-1), name("Unknown"), type(LayerType::Other), is_visible(true) {}
+
+        bool IsVisible() const { return is_visible; }
+        void SetVisible(bool visible) { is_visible = visible; }
+        int GetId() const { return id; }
+        const std::string &GetName() const { return name; }
+        LayerType GetType() const { return type; }
+        // Removed GetColor()
+    };
+    // Layer ID constants for PCB board structure
+    static constexpr int kTraceLayersStart = 1;
+    static constexpr int kTraceLayersEnd = 16;
+    static constexpr int kSilkscreenLayer = 17;
+    static constexpr int kUnknownLayersStart = 18;
+    static constexpr int kUnknownLayersEnd = 27;
+    static constexpr int kBoardEdgesLayer = 28;
+    static constexpr int kViasLayer = 29;
+    static constexpr int kCompLayer = 30;
+    static constexpr int kPinsLayer = 31;
     std::vector<LayerInfo> layers;
 
-    // --- NEW PCB Element Storage ---
+        // --- NEW PCB Element Storage ---
     // Elements are grouped by layer ID for efficient layer-based operations.
     // Components are stored separately as they are containers of other elements (pins, specific text).
     std::map<int, std::vector<std::unique_ptr<Element>>> m_elementsByLayer;
-    std::vector<Component> m_components; // Keep storing components as before
     std::unordered_map<int, Net> m_nets; // Keep storing nets as before
 
     // --- Methods to add elements (modified) ---
@@ -111,7 +119,6 @@ public:
     void addLayer(const LayerInfo &layer);               // Will store in layers
 
     // --- Methods to retrieve elements (modified/new) ---
-    const std::vector<Component> &GetComponents() const { return m_components; }
     // Old GetTraces, GetVias, etc. are removed. Use GetAllVisibleElementsForInteraction or iterate m_elementsByLayer if needed.
 
     const Net *getNetById(int net_id) const;
@@ -120,7 +127,7 @@ public:
     std::vector<ElementInteractionInfo> GetAllVisibleElementsForInteraction() const;
 
     // --- Layer Access Methods ---
-    std::vector<LayerInfo> GetLayers() const;
+    std::vector<Board::LayerInfo> GetLayers() const;
     int GetLayerCount() const;
     std::string GetLayerName(int layerIndex) const; // Consider returning const&
     bool IsLayerVisible(int layerIndex) const;
