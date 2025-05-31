@@ -11,7 +11,7 @@
 #include "../utils/ColorUtils.hpp" // Added for layer color generation
 #include <iostream>                // Added for logging
 #include <variant>                 // Required for std::visit or index() on PadShape
-#include "processing/OrientationProcessor.hpp"
+#include "processing/PinResolver.hpp"
 
 // Define this to enable verbose logging for PcbLoader
 // #define ENABLE_PCB_LOADER_LOGGING
@@ -150,8 +150,11 @@ std::unique_ptr<Board> PcbLoader::loadFromFile(const std::string &filePath)
     // in terms of reading and parsing data into the board structure.
 
     // Process pin orientations
-    PCBProcessing::OrientationProcessor::processBoard(*board);
-
+    // PCBProcessing::OrientationProcessor::processBoard(*board);
+    for (auto &component : board->m_components)
+    {
+        PinResolver::resolveComponentPinOrientations(&component);
+    }
     return board;
 }
 
@@ -1193,9 +1196,11 @@ void PcbLoader::parseComponent(const char *rawComponentData, uint32_t componentB
 
             // Update initial_width, initial_height, long_side, short_side from the final pad_shape
             // This also needs to use current_pin_object_ptr:
-            std::tie(current_pin_object_ptr->initial_width, current_pin_object_ptr->initial_height) = Pin::getDimensionsFromShape(current_pin_object_ptr->pad_shape);
-            current_pin_object_ptr->long_side = std::max(current_pin_object_ptr->initial_width, current_pin_object_ptr->initial_height);
-            current_pin_object_ptr->short_side = std::min(current_pin_object_ptr->initial_width, current_pin_object_ptr->initial_height);
+            std::tie(current_pin_object_ptr->width, current_pin_object_ptr->height) = Pin::getDimensionsFromShape(current_pin_object_ptr->pad_shape);
+            current_pin_object_ptr->long_side = std::max(current_pin_object_ptr->width, current_pin_object_ptr->height);
+            current_pin_object_ptr->short_side = std::min(current_pin_object_ptr->width, current_pin_object_ptr->height);
+            current_pin_object_ptr->x_coord = pin_x;
+            current_pin_object_ptr->y_coord = pin_y;
             comp.pins.push_back(std::move(current_pin_object_ptr)); // Changed pin_ptr to current_pin_object_ptr
 #ifdef ENABLE_PCB_LOADER_LOGGING
             std::cout << "[PcbLoader LOG]         Added pin. Total pins for \"" << comp.reference_designator << "\": " << comp.pins.size() << std::endl;

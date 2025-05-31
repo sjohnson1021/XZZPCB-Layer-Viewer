@@ -18,7 +18,7 @@
 #include "pcb/XZZPCBLoader.hpp"
 #include "utils/StringUtils.hpp"
 #include "imgui.h"
-#include "ImGuiFileDialog.h"
+#include "../../external/ImGuiFileDialog/ImGuiFileDialog.h"
 #include <SDL3/SDL_filesystem.h>
 #include <filesystem>
 #include <iostream>

@@ -135,10 +135,7 @@ void Board::SetLayerVisible(int layerIndex, bool visible)
 
 void Board::SetLayerColor(int layerIndex, BLRgba32 color)
 {
-    if (layerIndex >= 0 && layerIndex < static_cast<int>(layers.size()))
-    {
-        layers[layerIndex].color = color;
-    }
+    // No-op: color is now managed by BoardDataManager
 }
 
 // --- Loading Status Methods ---

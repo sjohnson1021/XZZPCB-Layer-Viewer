@@ -13,7 +13,7 @@ set(SOURCE_FILES
 
     # PCB components
     ../pcb/XZZPCBLoader.cpp
-    ../pcb/processing/OrientationProcessor.cpp
+    # ../pcb/processing/OrientationProcessor.cpp
     ../pcb/Board.cpp
     ../pcb/BoardLoaderFactory.cpp
     ../pcb/elements/Arc.cpp
@@ -54,7 +54,6 @@ target_link_libraries(${LIBRARY_NAME}
     blend2d
     render_lib
     view_lib
-    ImGuiFileDialog
     PUBLIC
     # ui_lib # This creates a circular dependency
 ) 

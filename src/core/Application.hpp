@@ -2,6 +2,7 @@
 
 #include <string>
 #include <memory>
+#include "../../external/ImGuiFileDialog/ImGuiFileDialog.h" // Better to forward declare if only pointer/reference is stored
 // #include <imgui.h> // Forward declare ImVec2 if needed, or include if Application directly uses ImGui types beyond ImVec2
 // #include <core/ControlSettings.hpp> // Included by PcbViewerWindow and SettingsWindow
 
@@ -11,7 +12,7 @@ class Events;
 class Renderer;
 class ImGuiManager;
 class ControlSettings; // Now a member
-class PcbRenderer; // Forward declare PcbRenderer
+class PcbRenderer;     // Forward declare PcbRenderer
 // class PcbLoader; // No longer needed here
 class BoardLoaderFactory; // Forward declare BoardLoaderFactory
 
@@ -26,14 +27,13 @@ class Camera;
 class Viewport;
 class Grid;
 class GridSettings;
-class Board; // For currentBoard
+class Board;            // For currentBoard
 class BoardDataManager; // Forward declare BoardDataManager
 
 // For ImGuiFileDialog
-#include "ImGuiFileDialog.h" // Better to forward declare if only pointer/reference is stored
 
-
-class Application {
+class Application
+{
 public:
     Application();
     ~Application();
@@ -42,16 +42,16 @@ public:
     bool Initialize(); // Removed argc, argv as they are not used
     int Run();
     void Shutdown();
-    
+
     // State and control
     bool IsRunning() const;
     void Quit();
 
     // Accessors for core subsystems (consider if all are needed publicly)
-    Config* GetConfig() const;
-    Events* GetEvents() const;
-    Renderer* GetRenderer() const;
-    ImGuiManager* GetImGuiManager() const;
+    Config *GetConfig() const;
+    Events *GetEvents() const;
+    Renderer *GetRenderer() const;
+    ImGuiManager *GetImGuiManager() const;
     // ControlSettings* GetControlSettings() const; // If needed by UI outside constructor
 
     // Menu action request setters
@@ -76,7 +76,7 @@ private:
     void RenderUI(); // New method to group UI rendering calls
 
     // PCB File Handling
-    void OpenPcbFile(const std::string& filePath);
+    void OpenPcbFile(const std::string &filePath);
 
     // Core Subsystems
     std::unique_ptr<Config> m_config;
@@ -84,7 +84,7 @@ private:
     std::unique_ptr<Renderer> m_renderer;
     std::unique_ptr<ImGuiManager> m_imguiManager;
     std::unique_ptr<PcbRenderer> m_pcbRenderer; // For Blend2D PCB rendering
-    
+
     // Application State
     bool m_isRunning;
     std::string m_appName;

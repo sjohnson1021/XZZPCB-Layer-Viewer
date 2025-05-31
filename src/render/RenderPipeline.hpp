@@ -75,7 +75,8 @@ public:
     void RenderComponent(BLContext &bl_ctx, const Component &component, const Board &board, const BLRect &worldViewRect, const BLRgba32 &highlightColor);
     void RenderTextLabel(BLContext &bl_ctx, const TextLabel &textLabel, const BLRgba32 &color);
     // TODO: Consider passing layer_properties_map to RenderTextLabel if it needs more than just color
-    void RenderPin(BLContext &bl_ctx, const Pin &pin, const Component &component, const Board &board, const BLRgba32 &highlightColor);
+    // void RenderPin(BLContext &bl_ctx, const Pin &pin, const Component &component, const Board &board, const BLRgba32 &highlightColor);
+    void RenderPin(BLContext &ctx, const Pin &pin, const Component *parentComponent, const BLRgba32 &highlightColor);
 
 private:
     // Helper to get a cached font face or load it if not found

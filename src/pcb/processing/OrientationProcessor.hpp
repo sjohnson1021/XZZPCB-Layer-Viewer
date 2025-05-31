@@ -32,9 +32,6 @@ namespace PCBProcessing
         static void secondPass_CheckOverlapsAndBoundaries(Component &component, double component_rotation_radians);
         static void thirdPass_FinalBoundaryCheck(Component &component, double component_rotation_radians);
 
-        // Utility to get pin dimensions based on current orientation
-        static void getOrientedPinDimensions(const Pin &pin, double &width, double &height);
-
         // Helper to determine component's body rotation
         static double calculateComponentRotation(const Component &component);
     };

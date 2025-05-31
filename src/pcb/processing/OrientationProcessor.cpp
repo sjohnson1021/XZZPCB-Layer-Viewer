@@ -58,33 +58,15 @@ namespace PCBProcessing
         return {x * cos_a - y * sin_a, x * sin_a + y * cos_a};
     }
 
-    // Helper to get oriented dimensions
-    void OrientationProcessor::getOrientedPinDimensions(const Pin &pin, double &width, double &height)
-    {
-        if (pin.orientation == PinOrientation::Horizontal)
-        {
-            width = pin.long_side;
-            height = pin.short_side;
-        }
-        else if (pin.orientation == PinOrientation::Vertical)
-        {
-            width = pin.short_side;
-            height = pin.long_side;
-        }
-        else
-        { // Natural
-            width = pin.initial_width;
-            height = pin.initial_height;
-        }
-    }
-
     void OrientationProcessor::processBoard(Board &board)
     {
         // Define tolerance for various floating point comparisons
         constexpr double epsilon = 1e-4; // General small number for floating point comparisons
         // constexpr double pin_alignment_tolerance = 0.5; // Max distance for pins to be considered aligned (mm or current units)
         // constexpr double edge_proximity_tolerance = 0.1; // How close a pin needs to be to an edge (mm)
-
+        for (auto &component : board.m_components)
+        {
+        }
         // First Pass: Analyze individual components
         if (board.m_components.empty())
         {
@@ -161,29 +143,30 @@ namespace PCBProcessing
 
     void OrientationProcessor::calculateInitialPinDimensions(Pin &pin)
     {
-        // Initialize pin.initialWidth and pin.initialHeight based on pin.pad_shape
+        // Initialize pin.width and pin.height based on pin.pad_shape
+
         std::visit([&](const auto &shape)
                    {
         using T = std::decay_t<decltype(shape)>;
         if constexpr (std::is_same_v<T, CirclePad>) {
-            pin.initial_width = shape.radius * 2.0;
-            pin.initial_height = shape.radius * 2.0;
+            pin.width = shape.radius * 2.0;
+            pin.height = shape.radius * 2.0;
         } else if constexpr (std::is_same_v<T, RectanglePad>) {
-            pin.initial_width = shape.width;
-            pin.initial_height = shape.height;
+            pin.width = shape.width;
+            pin.height = shape.height;
         // } else if constexpr (std::is_same_v<T, SquarePad>) { // Assuming SquarePad is distinct or handled by RectanglePad
-        //     pin.initial_width = shape.side_length;
-        //     pin.initial_height = shape.side_length;
+        //     pin.width = shape.side_length;
+        //     pin.height = shape.side_length;
         } else if constexpr (std::is_same_v<T, CapsulePad>) {
-            pin.initial_width = shape.width;   // Total width of capsule
-            pin.initial_height = shape.height; // Diameter / height part
+            pin.width = shape.width;   // Total width of capsule
+            pin.height = shape.height; // Diameter / height part
         } }, pin.pad_shape);
-        pin.short_side = std::min(pin.initial_width, pin.initial_height);
-        pin.long_side = std::max(pin.initial_width, pin.initial_height);
+        pin.short_side = std::min(pin.width, pin.height);
+        pin.long_side = std::max(pin.width, pin.height);
         // Ensure natural orientation starts with width > height if applicable (e.g. for rectangles)
         // The rendering logic might swap them based on PinOrientation, this sets the baseline.
-        // if (pin.initial_width < pin.initial_height) {
-        //     std::swap(pin.initial_width, pin.initial_height);
+        // if (pin.width < pin.height) {
+        //     std::swap(pin.width, pin.height);
         // }
     }
 
@@ -209,6 +192,35 @@ namespace PCBProcessing
             printf("  Pin %s (single): Set to Natural.\\n", pin.pin_name.c_str());
 #endif
             return; // Nothing more to do for single pin components
+        }
+
+        if (component.is_two_pad && !component.pins.empty())
+        {
+            Pin &p0 = *component.pins[0];
+            Pin &p1 = *component.pins[1];
+            double dx = p1.x_coord - p0.x_coord;
+            double dy = p1.y_coord - p0.y_coord;
+            if (std::abs(dx) > std::abs(dy) * 1.1)
+            {
+                p0.orientation = PinOrientation::Vertical;
+                p1.orientation = PinOrientation::Vertical;
+                p0.SetDimensionsForOrientation();
+                p1.SetDimensionsForOrientation();
+            }
+            else if (std::abs(dy) > std::abs(dx) * 1.1)
+            {
+                p0.orientation = PinOrientation::Horizontal;
+                p1.orientation = PinOrientation::Horizontal;
+                p0.SetDimensionsForOrientation();
+                p1.SetDimensionsForOrientation();
+            }
+            else
+            {
+                p0.orientation = PinOrientation::Natural;
+                p1.orientation = PinOrientation::Natural;
+                p0.SetDimensionsForOrientation();
+                p1.SetDimensionsForOrientation();
+            }
         }
 
         // Further analysis for multi-pin components
@@ -258,7 +270,7 @@ namespace PCBProcessing
 
         // Example of edge classification (needs to be completed and refined)
         // Tolerance for being "on" an edge, could be related to avg_pin_short_side
-        double edge_tolerance = avg_pin_short_side * 0.6;
+        double edge_tolerance = avg_pin_short_side * 1.2;
 
         for (size_t i = 0; i < component.pins.size(); ++i)
         {
@@ -270,10 +282,10 @@ namespace PCBProcessing
             Vec2 local_pos = local_pin_positions[i];
 
             // Calculate component-local boundaries (relative to component center 0,0)
-            double local_left_edge = -pin_bbox_width / 2.0;
-            double local_right_edge = pin_bbox_width / 2.0;
-            double local_top_edge = -pin_bbox_height / 2.0;   // Top is often min Y in local graphics
-            double local_bottom_edge = pin_bbox_height / 2.0; // Bottom is often max Y
+            double local_left_edge = -pin_bbox_width / 2.5;
+            double local_right_edge = pin_bbox_width / 2.5;
+            double local_top_edge = -pin_bbox_height / 2.5;   // Top is often min Y in local graphics
+            double local_bottom_edge = pin_bbox_height / 2.5; // Bottom is often max Y
 
             if (std::abs(local_pos.x - local_left_edge) < edge_tolerance)
             {
@@ -318,20 +330,31 @@ namespace PCBProcessing
             if (pin.local_edge == LocalEdge::LEFT || pin.local_edge == LocalEdge::RIGHT)
             {
                 pin.orientation = PinOrientation::Horizontal;
+                pin.SetDimensionsForOrientation();
             }
             else if (pin.local_edge == LocalEdge::TOP || pin.local_edge == LocalEdge::BOTTOM)
             {
                 pin.orientation = PinOrientation::Vertical;
+                pin.SetDimensionsForOrientation();
             }
             else
             { // Interior or unclassified
                 // If component is distinctly wide or tall, orient pins along the shorter dimension of the component
                 if (component.is_wide_component)
+                {
                     pin.orientation = PinOrientation::Vertical; // Pins run vertically on a wide component
+                    pin.SetDimensionsForOrientation();
+                }
                 else if (component.is_tall_component)
+                {
                     pin.orientation = PinOrientation::Horizontal; // Pins run horizontally on a tall component
+                    pin.SetDimensionsForOrientation();
+                }
                 else
+                {
                     pin.orientation = PinOrientation::Natural; // Default for square-ish or interior
+                    pin.SetDimensionsForOrientation();
+                }
             }
         }
 
@@ -351,11 +374,15 @@ namespace PCBProcessing
             {
                 p0.orientation = PinOrientation::Horizontal;
                 p1.orientation = PinOrientation::Horizontal;
+                p0.SetDimensionsForOrientation();
+                p1.SetDimensionsForOrientation();
             }
             else if (std::abs(dy) > std::abs(dx) * 1.2) // More vertical than horizontal
             {
                 p0.orientation = PinOrientation::Vertical;
                 p1.orientation = PinOrientation::Vertical;
+                p0.SetDimensionsForOrientation();
+                p1.SetDimensionsForOrientation();
             }
             else
             { // Roughly diagonal or same point, default based on component shape or keep Natural
@@ -366,6 +393,8 @@ namespace PCBProcessing
                     default_orientation = PinOrientation::Horizontal;
                 p0.orientation = default_orientation;
                 p1.orientation = default_orientation;
+                p0.SetDimensionsForOrientation();
+                p1.SetDimensionsForOrientation();
             }
 #ifdef ENABLE_ORIENTATION_DEBUG_PRINTF
             auto pinOrientationToString = [](PinOrientation o)
@@ -430,8 +459,8 @@ namespace PCBProcessing
             Pin &current_pin = *component.pins[pin_idx]; // Dereference
 
             // Calculate current pin's bounding box (simplified, assuming centered rectangle)
-            double current_w, current_h;
-            getOrientedPinDimensions(current_pin, current_w, current_h);
+            double current_w = current_pin.width;
+            double current_h = current_pin.height;
             BLRect current_pin_bbox = BLRect(current_pin.x_coord - current_w / 2.0, current_pin.y_coord - current_h / 2.0, current_w, current_h);
 
             // Check against other pins in the same component
@@ -442,8 +471,8 @@ namespace PCBProcessing
 
                 const Pin &other_pin_const = *component.pins[other_idx]; // Dereference
 
-                double other_w, other_h;
-                getOrientedPinDimensions(other_pin_const, other_w, other_h);
+                double other_w = other_pin_const.width;
+                double other_h = other_pin_const.height;
                 BLRect other_pin_bbox = BLRect(other_pin_const.x_coord - other_w / 2.0, other_pin_const.y_coord - other_h / 2.0, other_w, other_h);
 
                 if (areRectsIntersecting(current_pin_bbox, other_pin_bbox, tolerance))
@@ -471,8 +500,8 @@ namespace PCBProcessing
                     current_pin.x_coord, current_pin.y_coord, current_pin.pin_name,
                     current_pin.pad_shape, current_pin.getLayerId(), current_pin.getNetId(),
                     current_pin.orientation);
-                test_pin_for_opposite.initial_width = current_pin.initial_width; // copy these as well
-                test_pin_for_opposite.initial_height = current_pin.initial_height;
+                test_pin_for_opposite.width = current_pin.width; // copy these as well
+                test_pin_for_opposite.height = current_pin.height;
                 // Also copy long_side and short_side as getOrientedPinDimensions relies on them
                 test_pin_for_opposite.long_side = current_pin.long_side;
                 test_pin_for_opposite.short_side = current_pin.short_side;
@@ -480,8 +509,8 @@ namespace PCBProcessing
                 PinOrientation opposite_orientation = (current_pin.orientation == PinOrientation::Vertical) ? PinOrientation::Horizontal : PinOrientation::Vertical;
                 test_pin_for_opposite.orientation = opposite_orientation;
 
-                double opposite_w, opposite_h;
-                getOrientedPinDimensions(test_pin_for_opposite, opposite_w, opposite_h);
+                double opposite_w = test_pin_for_opposite.width;
+                double opposite_h = test_pin_for_opposite.height;
                 BLRect opposite_pin_bbox = BLRect(test_pin_for_opposite.x_coord - opposite_w / 2.0, test_pin_for_opposite.y_coord - opposite_h / 2.0, opposite_w, opposite_h);
 
                 bool current_overlaps_any = false;
@@ -493,8 +522,8 @@ namespace PCBProcessing
                         continue;
                     const Pin &other_pin_const_check = *component.pins[other_idx_check]; // Dereference
 
-                    double other_w_check, other_h_check;
-                    getOrientedPinDimensions(other_pin_const_check, other_w_check, other_h_check);
+                    double other_w_check = other_pin_const_check.width;
+                    double other_h_check = other_pin_const_check.height;
                     BLRect other_pin_bbox_check = BLRect(other_pin_const_check.x_coord - other_w_check / 2.0, other_pin_const_check.y_coord - other_h_check / 2.0, other_w_check, other_h_check);
 
                     if (areRectsIntersecting(current_pin_bbox, other_pin_bbox_check, 0.0)) // Stricter check for this test
@@ -512,6 +541,7 @@ namespace PCBProcessing
                            pinOrientationToString(opposite_orientation));
 #endif
                     current_pin.orientation = opposite_orientation;
+                    current_pin.SetDimensionsForOrientation();
                 }
                 else if (!current_overlaps_any && !opposite_overlaps_any)
                 {
@@ -561,7 +591,7 @@ namespace PCBProcessing
 
         // Transform component boundaries to global space or pin to local unrotated component space.
         // Let's transform pin to local unrotated component space.
-        double comp_rot_rad_inv = -component.rotation * (M_PI / 180.0);
+        double comp_rot_rad_inv = component.rotation * (M_PI / 180.0);
 
         for (auto &pin_ptr : component.pins) // Iterate unique_ptr
         {
@@ -580,8 +610,8 @@ namespace PCBProcessing
             // Rotate this relative vector to align with component's unrotated axes:
             Vec2 local_unrotated_pin_center = rotatePoint(rel_pin_x, rel_pin_y, comp_rot_rad_inv);
 
-            double pin_w, pin_h;
-            getOrientedPinDimensions(pin, pin_w, pin_h);
+            double pin_w = pin.width;
+            double pin_h = pin.height;
 
             // Local unrotated component half-dimensions
             double comp_half_w = component.width / 2.0;
@@ -621,14 +651,14 @@ namespace PCBProcessing
                 Pin test_pin_opposite(
                     pin.x_coord, pin.y_coord, pin.pin_name, pin.pad_shape,
                     pin.getLayerId(), pin.getNetId(), opposite_orientation);
-                test_pin_opposite.initial_width = pin.initial_width;
-                test_pin_opposite.initial_height = pin.initial_height;
+                test_pin_opposite.width = pin.width;
+                test_pin_opposite.height = pin.height;
                 // Also copy long_side and short_side as getOrientedPinDimensions relies on them
                 test_pin_opposite.long_side = pin.long_side;
                 test_pin_opposite.short_side = pin.short_side;
 
-                double opp_pin_w, opp_pin_h;
-                getOrientedPinDimensions(test_pin_opposite, opp_pin_w, opp_pin_h);
+                double opp_pin_w = test_pin_opposite.width;
+                double opp_pin_h = test_pin_opposite.height;
 
                 bool opposite_extends_beyond = false;
                 if (test_pin_opposite.orientation == PinOrientation::Horizontal)
@@ -658,6 +688,7 @@ namespace PCBProcessing
                     printf("  Pin %s: Flipped to %s, which fits within boundaries.\\n", pin.pin_name.c_str(), pinOrientationToString(opposite_orientation));
 #endif
                     pin.orientation = opposite_orientation;
+                    pin.SetDimensionsForOrientation();
                 }
                 else
                 {
@@ -691,8 +722,8 @@ namespace PCBProcessing
             // Consider the pin's own bounding box, not just its center point
             // For simplicity, using pin coordinates + some extent if available, or just coordinates
             // This needs to be more robust by using the pin's actual shape and dimensions
-            double half_width = pin.initial_width / 2.0;   // Assuming initial_width is relevant
-            double half_height = pin.initial_height / 2.0; // Assuming initial_height is relevant
+            double half_width = pin.width / 2.0;   // Assuming width is relevant
+            double half_height = pin.height / 2.0; // Assuming height is relevant
 
             component.pin_bbox_min_x = std::min(component.pin_bbox_min_x, pin.x_coord - half_width);
             component.pin_bbox_max_x = std::max(component.pin_bbox_max_x, pin.x_coord + half_width);

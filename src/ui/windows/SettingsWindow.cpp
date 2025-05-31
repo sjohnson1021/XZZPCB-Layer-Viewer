@@ -435,16 +435,19 @@ void SettingsWindow::ShowAppearanceSettings(const std::shared_ptr<Board> &curren
         ImGui::Spacing();
     }
 
-    ImGui::SeparatorText("Net Highlighting");
-    BLRgba32 highlightColor = m_boardDataManager->GetNetHighlightColor();
-    float colorArr[4] = {highlightColor.r() / 255.0f, highlightColor.g() / 255.0f, highlightColor.b() / 255.0f, highlightColor.a() / 255.0f};
-    if (ImGui::ColorEdit4("Net Highlight Color", colorArr, ImGuiColorEditFlags_Float))
+    // TODO: Move these to their own sections
+
+    ImGui::SeparatorText("Board Colors");
+    // Net Highlighting
+    BLRgba32 highlightColor = m_boardDataManager->GetColor(BoardDataManager::ColorType::kNetHighlight);
+    float colorArr_NetHighlightColor[4] = {highlightColor.r() / 255.0f, highlightColor.g() / 255.0f, highlightColor.b() / 255.0f, highlightColor.a() / 255.0f};
+    if (ImGui::ColorEdit4("Net Highlight Color", colorArr_NetHighlightColor, ImGuiColorEditFlags_Float))
     {
-        m_boardDataManager->SetNetHighlightColor(BLRgba32(
-            static_cast<uint32_t>(colorArr[0] * 255),
-            static_cast<uint32_t>(colorArr[1] * 255),
-            static_cast<uint32_t>(colorArr[2] * 255),
-            static_cast<uint32_t>(colorArr[3] * 255)));
+        m_boardDataManager->SetColor(BoardDataManager::ColorType::kNetHighlight, BLRgba32(
+                                                                                     static_cast<uint32_t>(colorArr_NetHighlightColor[0] * 255),
+                                                                                     static_cast<uint32_t>(colorArr_NetHighlightColor[1] * 255),
+                                                                                     static_cast<uint32_t>(colorArr_NetHighlightColor[2] * 255),
+                                                                                     static_cast<uint32_t>(colorArr_NetHighlightColor[3] * 255)));
     }
     if (ImGui::IsItemHovered())
     {
@@ -452,17 +455,86 @@ void SettingsWindow::ShowAppearanceSettings(const std::shared_ptr<Board> &curren
     }
     ImGui::Spacing();
 
-    ImGui::SeparatorText("Layer Styling");
+    // Silkscreen Colors
+    BLRgba32 silkscreenColor = m_boardDataManager->GetColor(BoardDataManager::ColorType::kSilkscreen);
+    float colorArr_SilkscreenColor[4] = {silkscreenColor.r() / 255.0f, silkscreenColor.g() / 255.0f, silkscreenColor.b() / 255.0f, silkscreenColor.a() / 255.0f};
+    if (ImGui::ColorEdit4("Silkscreen Color", colorArr_SilkscreenColor, ImGuiColorEditFlags_Float))
+    {
+        m_boardDataManager->SetColor(BoardDataManager::ColorType::kSilkscreen, BLRgba32(
+                                                                                   static_cast<uint32_t>(colorArr_SilkscreenColor[0] * 255),
+                                                                                   static_cast<uint32_t>(colorArr_SilkscreenColor[1] * 255),
+                                                                                   static_cast<uint32_t>(colorArr_SilkscreenColor[2] * 255),
+                                                                                   static_cast<uint32_t>(colorArr_SilkscreenColor[3] * 255)));
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Color used to render silkscreen elements.");
+    }
+    ImGui::Spacing();
+
+    // Component Colors
+    BLRgba32 componentColor = m_boardDataManager->GetColor(BoardDataManager::ColorType::kComponent);
+    float colorArr_ComponentColor[4] = {componentColor.r() / 255.0f, componentColor.g() / 255.0f, componentColor.b() / 255.0f, componentColor.a() / 255.0f};
+    if (ImGui::ColorEdit4("Component Color", colorArr_ComponentColor, ImGuiColorEditFlags_Float))
+    {
+        m_boardDataManager->SetColor(BoardDataManager::ColorType::kComponent, BLRgba32(
+                                                                                  static_cast<uint32_t>(colorArr_ComponentColor[0] * 255),
+                                                                                  static_cast<uint32_t>(colorArr_ComponentColor[1] * 255),
+                                                                                  static_cast<uint32_t>(colorArr_ComponentColor[2] * 255),
+                                                                                  static_cast<uint32_t>(colorArr_ComponentColor[3] * 255)));
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Color used to render components.");
+    }
+
+    ImGui::Spacing();
+
+    // Pin Colors
+    BLRgba32 pinColor = m_boardDataManager->GetColor(BoardDataManager::ColorType::kPin);
+    float colorArr_PinColor[4] = {pinColor.r() / 255.0f, pinColor.g() / 255.0f, pinColor.b() / 255.0f, pinColor.a() / 255.0f};
+    if (ImGui::ColorEdit4("Pin Color", colorArr_PinColor, ImGuiColorEditFlags_Float))
+    {
+        m_boardDataManager->SetColor(BoardDataManager::ColorType::kPin, BLRgba32(
+                                                                            static_cast<uint32_t>(colorArr_PinColor[0] * 255),
+                                                                            static_cast<uint32_t>(colorArr_PinColor[1] * 255),
+                                                                            static_cast<uint32_t>(colorArr_PinColor[2] * 255),
+                                                                            static_cast<uint32_t>(colorArr_PinColor[3] * 255)));
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Color used to render pins.");
+    }
+
+    ImGui::Spacing();
+
+    // Board Edges Colors
+
+    BLRgba32 boardEdgesColor = m_boardDataManager->GetColor(BoardDataManager::ColorType::kBoardEdges);
+    float colorArr_BoardEdgesColor[4] = {boardEdgesColor.r() / 255.0f, boardEdgesColor.g() / 255.0f, boardEdgesColor.b() / 255.0f, boardEdgesColor.a() / 255.0f};
+    if (ImGui::ColorEdit4("Board Edges Color", colorArr_BoardEdgesColor, ImGuiColorEditFlags_Float))
+    {
+        m_boardDataManager->SetColor(BoardDataManager::ColorType::kBoardEdges, BLRgba32(static_cast<uint32_t>(colorArr_BoardEdgesColor[0] * 255),
+                                                                                        static_cast<uint32_t>(colorArr_BoardEdgesColor[1] * 255),
+                                                                                        static_cast<uint32_t>(colorArr_BoardEdgesColor[2] * 255),
+                                                                                        static_cast<uint32_t>(colorArr_BoardEdgesColor[3] * 255)));
+    }
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Color used to render board edges.");
+    }
+
+    ImGui::Spacing();
 
     // Base Layer Color
-    BLRgba32 baseColor = m_boardDataManager->GetBaseLayerColor();
-    float colorArr2[4] = {baseColor.r() / 255.0f, baseColor.g() / 255.0f, baseColor.b() / 255.0f, baseColor.a() / 255.0f};
-    if (ImGui::ColorEdit4("Base Layer Color", colorArr2, ImGuiColorEditFlags_Float))
+    BLRgba32 baseColor = m_boardDataManager->GetColor(BoardDataManager::ColorType::kBaseLayer);
+    float colorArr_BaseColor[4] = {baseColor.r() / 255.0f, baseColor.g() / 255.0f, baseColor.b() / 255.0f, baseColor.a() / 255.0f};
+    if (ImGui::ColorEdit4("Base Layer Color", colorArr_BaseColor, ImGuiColorEditFlags_Float))
     {
-        m_boardDataManager->SetBaseLayerColor(BLRgba32(static_cast<uint32_t>(colorArr2[0] * 255),
-                                                       static_cast<uint32_t>(colorArr2[1] * 255),
-                                                       static_cast<uint32_t>(colorArr2[2] * 255),
-                                                       static_cast<uint32_t>(colorArr2[3] * 255)));
+        m_boardDataManager->SetColor(BoardDataManager::ColorType::kBaseLayer, BLRgba32(static_cast<uint32_t>(colorArr_BaseColor[0] * 255),
+                                                                                       static_cast<uint32_t>(colorArr_BaseColor[1] * 255),
+                                                                                       static_cast<uint32_t>(colorArr_BaseColor[2] * 255),
+                                                                                       static_cast<uint32_t>(colorArr_BaseColor[3] * 255)));
         m_boardDataManager->RegenerateLayerColors(currentBoard);
     }
     if (ImGui::IsItemHovered())

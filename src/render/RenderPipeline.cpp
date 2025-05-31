@@ -191,8 +191,8 @@ void RenderPipeline::RenderBoard(
     if (m_renderContext && m_renderContext->GetBoardDataManager())
     {
         selectedNetId = m_renderContext->GetBoardDataManager()->GetSelectedNetId();
-        highlightColor = m_renderContext->GetBoardDataManager()->GetNetHighlightColor();
-        baseColor = m_renderContext->GetBoardDataManager()->GetBaseLayerColor();
+        highlightColor = m_renderContext->GetBoardDataManager()->GetColor(BoardDataManager::ColorType::kNetHighlight);
+        baseColor = m_renderContext->GetBoardDataManager()->GetColor(BoardDataManager::ColorType::kBaseLayer);
     }
 
     // Iterate through defined layers to maintain drawing order and visibility
@@ -211,58 +211,50 @@ void RenderPipeline::RenderBoard(
                 if (!element_ptr || !element_ptr->isVisible())
                     continue;
 
-                // Optional: Broad-phase culling against worldViewRect
-                // BLRect elementBounds = element_ptr->getBoundingBox(nullptr);
-                // if (!AreRectsIntersecting(elementBounds, worldViewRect))
-                //     continue;
-
-                // Check if this element belongs to the selected net
                 bool isSelectedNet = (selectedNetId != -1 && element_ptr->getNetId() == selectedNetId);
+                BLRgba32 current_element_color;
 
-                // Set color based on whether this element is part of the selected net
+                ElementType type = element_ptr->getElementType();
+
                 if (isSelectedNet)
                 {
-                    bl_ctx.setStrokeStyle(highlightColor);
-                    bl_ctx.setFillStyle(highlightColor);
+                    current_element_color = highlightColor;
+                }
+                else if (type == ElementType::COMPONENT)
+                {
+                    current_element_color = m_renderContext->GetBoardDataManager()->GetColor(BoardDataManager::ColorType::kComponent);
+                }
+                else if (type == ElementType::PIN)
+                {
+                    current_element_color = m_renderContext->GetBoardDataManager()->GetColor(BoardDataManager::ColorType::kPin);
                 }
                 else
                 {
-                    bl_ctx.setStrokeStyle(layerInfo.GetColor());
-                    bl_ctx.setFillStyle(layerInfo.GetColor());
+                    current_element_color = m_renderContext->GetBoardDataManager()->GetLayerColor(layerInfo.GetId());
                 }
 
-                switch (element_ptr->getElementType())
+                bl_ctx.setStrokeStyle(current_element_color);
+                bl_ctx.setFillStyle(current_element_color);
+
+                switch (type)
                 {
                 case ElementType::COMPONENT:
                     if (auto component = dynamic_cast<const Component *>(element_ptr.get()))
                     {
-                        const LayerInfo *layerInfo = board.GetLayerById(component->getLayerId());
-                        if (layerInfo && layerInfo->IsVisible())
-                        {
-                            RenderComponent(bl_ctx, *component, board, worldViewRect, isSelectedNet ? highlightColor : layerInfo->GetColor());
-                        }
+                        // Color already set above by current_element_color
+                        RenderComponent(bl_ctx, *component, board, worldViewRect, current_element_color);
                     }
                     break;
 
                 case ElementType::PIN:
                     if (auto pin = dynamic_cast<const Pin *>(element_ptr.get()))
                     {
-                        const LayerInfo *layerInfo = board.GetLayerById(pin->getLayerId());
-                        if (layerInfo && layerInfo->IsVisible())
-                        {
-                            // Find the parent component for this pin
-                            for (const auto &component : board.GetComponents())
-                            {
-                                for (const auto &component_pin : component.pins)
-                                {
-                                    if (component_pin.get() == pin)
-                                    {
-                                        RenderPin(bl_ctx, *pin, component, board, isSelectedNet ? highlightColor : layerInfo->GetColor());
-                                        break;
-                                    }
-                                }
-                            }
-                        }
+                        // This case is for standalone pins not part of a component from m_elementsByLayer.
+                        // If pins are ALWAYS part of components and not in m_elementsByLayer, this might not be hit.
+                        // Color already set above by current_element_color.
+                        // We need to determine if this pin is part of any component to pass to RenderPin if its API strictly requires it.
+                        // For now, assuming RenderPin can handle a nullptr for component if it's a standalone pin.
+                        RenderPin(bl_ctx, *pin, nullptr, current_element_color);
                     }
                     break;
 
@@ -287,7 +279,7 @@ void RenderPipeline::RenderBoard(
                 case ElementType::TEXT_LABEL:
                     if (auto textLabel = dynamic_cast<const TextLabel *>(element_ptr.get()))
                     {
-                        RenderTextLabel(bl_ctx, *textLabel, isSelectedNet ? highlightColor : layerInfo.GetColor());
+                        RenderTextLabel(bl_ctx, *textLabel, current_element_color);
                     }
                     break;
                 default:
@@ -298,14 +290,11 @@ void RenderPipeline::RenderBoard(
     }
 
     // Render Components separately.
-    // Components internally manage rendering their pins and text labels,
-    // which should respect their own layer properties or the component's primary layer.
     for (const auto &component : board.GetComponents())
     {
         const LayerInfo *componentLayerInfo = board.GetLayerById(component.layer);
         if (componentLayerInfo && componentLayerInfo->IsVisible())
         {
-            // Check if any pins in this component belong to the selected net
             bool componentHasSelectedNet = false;
             if (selectedNetId != -1)
             {
@@ -319,9 +308,9 @@ void RenderPipeline::RenderBoard(
                 }
             }
 
-            // Pass the highlight color to RenderComponent if needed
-            RenderComponent(bl_ctx, component, board, worldViewRect,
-                            componentHasSelectedNet ? highlightColor : componentLayerInfo->GetColor());
+            BLRgba32 component_draw_color = componentHasSelectedNet ? highlightColor
+                                                                    : m_renderContext->GetBoardDataManager()->GetColor(BoardDataManager::ColorType::kComponent);
+            RenderComponent(bl_ctx, component, board, worldViewRect, component_draw_color);
         }
     }
 
@@ -413,7 +402,7 @@ void RenderPipeline::RenderVia(BLContext &bl_ctx, const Via &via, const Board &b
                              2 * via.GetPadRadiusFrom(), 2 * via.GetPadRadiusFrom());
         if (AreRectsIntersecting(pad_from_aabb, worldViewRect))
         {
-            bl_ctx.setFillStyle(layer_from_props->GetColor());
+            bl_ctx.setFillStyle(m_renderContext->GetBoardDataManager()->GetLayerColor(layer_from_props->GetId()));
             bl_ctx.fillCircle(via.GetX(), via.GetY(), via.GetPadRadiusFrom());
         }
     }
@@ -431,7 +420,7 @@ void RenderPipeline::RenderVia(BLContext &bl_ctx, const Via &via, const Board &b
             // For simple overlay, this is fine. For true concentric with different colors visible:
             // if (via.GetLayerTo() != via.GetLayerFrom() || via.GetPadRadiusTo() < via.GetPadRadiusFrom()) {
             // }
-            bl_ctx.setFillStyle(layer_to_props->GetColor());
+            bl_ctx.setFillStyle(m_renderContext->GetBoardDataManager()->GetLayerColor(layer_to_props->GetId()));
             bl_ctx.fillCircle(via.GetX(), via.GetY(), via.GetPadRadiusTo());
             // }
         }
@@ -481,7 +470,7 @@ void RenderPipeline::RenderArc(BLContext &bl_ctx, const Arc &arc, const BLRect &
     bl_ctx.strokePath(path);
 }
 
-void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &component, const Board &board, const BLRect &worldViewRect, const BLRgba32 &highlightColor)
+void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &component, const Board &board, const BLRect &worldViewRect, const BLRgba32 &componentBaseColor)
 {
     // Calculate component's world AABB accounting for rotation
     double comp_w = component.width;
@@ -531,7 +520,7 @@ void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &compone
 
     // Get the component's layer color
     const LayerInfo *componentLayerInfo = board.GetLayerById(component.layer);
-    BLRgba32 componentColor = componentLayerInfo ? componentLayerInfo->GetColor() : BLRgba32(0, 0, 0, 255);
+    BLRgba32 componentColor = componentLayerInfo ? m_renderContext->GetBoardDataManager()->GetLayerColor(componentLayerInfo->GetId()) : BLRgba32(0, 0, 0, 255);
 
     // Draw component outline using Blend2D path
     BLPath outline;
@@ -542,44 +531,35 @@ void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &compone
     outline.close();
 
     // Set fill and stroke styles for the component
-    // Use component's layer color for fill, but use highlight color for outline if component has highlighted pins
-    bl_ctx.setFillStyle(BLRgba32(componentColor.r(), componentColor.g(), componentColor.b(), 32)); // Semi-transparent fill
-    bl_ctx.setStrokeStyle(highlightColor);                                                         // Use highlight color for outline to show it contains highlighted pins
-    bl_ctx.setStrokeWidth(0.1);                                                                    // Thin outline
+    // Use component's layer color for fill, but use componentBaseColor for outline
+    bl_ctx.setFillStyle(BLRgba32(componentBaseColor.r(), componentBaseColor.g(), componentBaseColor.b(), 32)); // Semi-transparent fill based on componentBaseColor
+    bl_ctx.setStrokeStyle(componentBaseColor);                                                                 // Use componentBaseColor for outline
+    bl_ctx.setStrokeWidth(0.1);                                                                                // Thin outline
 
     // Fill and stroke the component outline
     bl_ctx.fillPath(outline);
     bl_ctx.strokePath(outline);
 
-    // // Render Graphical Elements (silkscreen, courtyard, etc.)
-    // for (const auto &segment : component.graphical_elements)
-    // {
-    //     const LayerInfo *element_layer = board.GetLayerById(segment.layer);
-    //     if (element_layer && element_layer->IsVisible())
-    //     {
-    //         bl_ctx.setStrokeStyle(element_layer->GetColor()); // Use layer color for graphical elements
-    //         double thickness = segment.thickness > 0 ? segment.thickness : 0.1;
-    //         bl_ctx.setStrokeWidth(thickness);
-    //         bl_ctx.strokeLine(segment.start.x, segment.start.y, segment.end.x, segment.end.y);
-    //     }
-    // }
-
     // Render Component Pins
+    BLRgba32 pin_net_highlight_color = componentBaseColor; // Default to component's color, override if highlighted
+    BLRgba32 pin_standard_color = componentBaseColor;      // Default to component's color, override for standard pin
+    int selected_net_id = -1;
+
+    if (m_renderContext && m_renderContext->GetBoardDataManager())
+    {
+        pin_net_highlight_color = m_renderContext->GetBoardDataManager()->GetColor(BoardDataManager::ColorType::kNetHighlight);
+        pin_standard_color = m_renderContext->GetBoardDataManager()->GetColor(BoardDataManager::ColorType::kPin);
+        selected_net_id = m_renderContext->GetBoardDataManager()->GetSelectedNetId();
+    }
+
     for (const auto &pin_ptr : component.pins)
     {
         if (pin_ptr && pin_ptr->isVisible())
         {
-            // Get the pin's layer color
-            const LayerInfo *pinLayerInfo = board.GetLayerById(pin_ptr->getLayerId());
-            BLRgba32 pinColor = pinLayerInfo ? pinLayerInfo->GetColor() : BLRgba32(0, 0, 0, 255);
+            bool is_pin_selected_net = (selected_net_id != -1 &&
+                                        pin_ptr->getNetId() == selected_net_id);
 
-            // Check if this pin belongs to the selected net
-            bool isSelectedNet = (m_renderContext && m_renderContext->GetBoardDataManager() &&
-                                  m_renderContext->GetBoardDataManager()->GetSelectedNetId() != -1 &&
-                                  pin_ptr->getNetId() == m_renderContext->GetBoardDataManager()->GetSelectedNetId());
-
-            // Use highlight color only for pins that belong to the selected net
-            RenderPin(bl_ctx, *pin_ptr, component, board, isSelectedNet ? highlightColor : pinColor);
+            RenderPin(bl_ctx, *pin_ptr, &component, is_pin_selected_net ? pin_net_highlight_color : pin_standard_color);
         }
     }
 
@@ -591,7 +571,7 @@ void RenderPipeline::RenderComponent(BLContext &bl_ctx, const Component &compone
             const LayerInfo *element_layer = board.GetLayerById(label_ptr->getLayerId());
             if (element_layer && element_layer->IsVisible())
             {
-                RenderTextLabel(bl_ctx, *label_ptr, element_layer->GetColor()); // Use layer color for text labels
+                RenderTextLabel(bl_ctx, *label_ptr, m_renderContext->GetBoardDataManager()->GetLayerColor(element_layer->GetId()));
             }
         }
     }
@@ -700,120 +680,157 @@ void RenderPipeline::RenderTextLabel(BLContext &bl_ctx, const TextLabel &textLab
 //     EndPipeline(context);
 // }
 
-// ***** BEGIN ADDED CODE *****
-void RenderPipeline::RenderPin(BLContext &bl_ctx, const Pin &pin, const Component &component, const Board &board, const BLRgba32 &highlightColor)
+// ***** Reworking Pin rendering *****
+// void RenderPipeline::RenderPin(BLContext &bl_ctx, const Pin &pin, const Component &component, const Board &board, const BLRgba32 &highlightColor)
+// {
+//     const LayerInfo *layer_info = board.GetLayerById(pin.getLayerId()); // Ensure getLayerId() is used
+//     if (!layer_info || !layer_info->IsVisible())
+//     {
+//         return;
+//     }
+//     // We use a ternary operator in Component::Render to determine if the pin is on the selected net, and use highlight color if it is, otherwise use layer_info->GetColor
+//     bl_ctx.setFillStyle(highlightColor);
+//     // DEBUG: If pin.debug_color is set, use it instead of layer_info->GetColor
+//     // if (pin.debug_color != BLRgba32(0, 0, 0, 0))
+//     // {
+//     //     bl_ctx.setFillStyle(pin.debug_color);
+//     //     printf("[RenderPin]: Pin %s: Using debug color %d\n", pin.pin_name.c_str(), pin.debug_color);
+//     // }
+//     // NOTE: The component's main transformation (center_x, center_y, rotation)
+//     // is ALREADY APPLIED to bl_ctx by the calling RenderComponent method.
+//     // So, pin.x_coord, pin.y_coord, and shape.x_offset/y_offset are treated as local
+//     // to the component's origin.
+
+//     std::visit([&](auto &&shape) // Note: auto&& shape is important here for perfect forwarding
+//                {
+//         using T = std::decay_t<decltype(shape)>;
+//         // Pin coordinates are now global, no need for offsets
+//         double pin_center_x = pin.x_coord;
+//         double pin_center_y = pin.y_coord;
+
+//         if constexpr (std::is_same_v<T, CirclePad>) {
+//             bl_ctx.fillCircle(pin_center_x, pin_center_y, shape.radius);
+//         } else if constexpr (std::is_same_v<T, RectanglePad>) {
+//             double width = pin.width;
+//             double height = pin.height;
+
+//             if (pin.orientation == PinOrientation::Vertical) {
+//                 // width = pin.initial_width; // Already set
+//                 // height = pin.initial_height; // Already set
+//             } else if (pin.orientation == PinOrientation::Horizontal) {
+//                 width = pin.height; // Swap for horizontal
+//                 height = pin.width;
+//             } // Else, natural orientation uses initial_width and initial_height as is
+
+//             // Adjust if interior and component aspect ratio suggests a swap
+//             if (pin.local_edge == LocalEdge::INTERIOR) {
+//                 bool component_taller = component.height > component.width;
+//                 bool pin_wider_than_tall = pin.width > pin.height; // Based on initial dimensions
+
+//                 if (component_taller && pin_wider_than_tall) {
+//                     // Tall component, but pin is initially wide. Make pin tall.
+//                     width = pin.height;
+//                     height = pin.width;
+//                 } else if (!component_taller && !pin_wider_than_tall) {
+//                     // Wide component, but pin is initially tall. Make pin wide.
+//                     // This case might be tricky: if pin is initially square, it remains square.
+//                     // If pin is (10w, 20h) and component is (100w, 50h), should it become (20w,10h)?
+//                     // The original logic implies this swap.
+//                     width = pin.height;
+//                     height = pin.width;
+//                 }
+//                 // If component_taller && !pin_wider_than_tall (tall comp, tall pin) -> no change from initial
+//                 // If !component_taller && pin_wider_than_tall (wide comp, wide pin) -> no change from initial
+//             }
+
+//             // Draw centered rectangle at pin_center_x, pin_center_y
+//             bl_ctx.fillRect(BLRect(pin_center_x - width / 2.0, pin_center_y - height / 2.0, width, height));
+
+//         } else if constexpr (std::is_same_v<T, CapsulePad>) {
+//             // Effective pad center is pin_center_x, pin_center_y
+
+//             double cap_axis_len; // Length along the capsule's main axis (e.g., height if vertical)
+//             double cap_cross_len; // Length across the capsule's main axis (e.g., width if vertical)
+//             bool is_vertical;
+
+//             if (pin.orientation == PinOrientation::Natural) {
+//                 is_vertical = shape.height > shape.width;
+//                 cap_axis_len = is_vertical ? shape.height : shape.width;
+//                 cap_cross_len = is_vertical ? shape.width : shape.height;
+//             } else if (pin.orientation == PinOrientation::Vertical) {
+//                 is_vertical = true;
+//                 // If pin is meant to be vertical, its 'height' is shape.height, 'width' is shape.width
+//                 // unless shape itself is wider than tall, then we use shape.width as effective height.
+//                 cap_axis_len = shape.height >= shape.width ? shape.height : shape.width;
+//                 cap_cross_len = shape.height >= shape.width ? shape.width : shape.height;
+//             } else { // PinOrientation::Horizontal
+//                 is_vertical = false;
+//                 // If pin is meant to be horizontal, its 'width' is shape.width, 'height' is shape.height
+//                 // unless shape itself is taller than wide, then we use shape.height as effective width.
+//                 cap_axis_len = shape.width >= shape.height ? shape.width : shape.height;
+//                 cap_cross_len = shape.width >= shape.height ? shape.height : shape.width;
+//             }
+
+//             BLPath path;
+//             if (is_vertical) {
+//                 double radius = cap_cross_len / 2.0;
+//                 double rect_height = cap_axis_len - cap_cross_len; // cap_axis_len is total height
+//                 if (rect_height < 0) rect_height = 0;
+
+//                 path.moveTo(pin_center_x - radius, pin_center_y - rect_height / 2.0);
+//                 path.arcTo(pin_center_x, pin_center_y - rect_height / 2.0, radius, radius, BL_M_PI, BL_M_PI); // Top cap
+//                 path.lineTo(pin_center_x + radius, pin_center_y + rect_height / 2.0);
+//                 path.arcTo(pin_center_x, pin_center_y + rect_height / 2.0, radius, radius, 0.0, BL_M_PI); // Bottom cap
+//                 path.close();
+//             } else { // Horizontal Capsule
+//                 double radius = cap_cross_len / 2.0;
+//                 double rect_width = cap_axis_len - cap_cross_len; // cap_axis_len is total width
+//                 if (rect_width < 0) rect_width = 0;
+
+//                 path.moveTo(pin_center_x - rect_width / 2.0, pin_center_y - radius);
+//                 path.lineTo(pin_center_x + rect_width / 2.0, pin_center_y - radius);
+//                 path.arcTo(pin_center_x + rect_width / 2.0, pin_center_y, radius, radius, -BL_M_PI / 2.0, BL_M_PI); // Right cap
+//                 path.lineTo(pin_center_x - rect_width / 2.0, pin_center_y + radius);
+//                 path.arcTo(pin_center_x - rect_width / 2.0, pin_center_y, radius, radius, BL_M_PI / 2.0, BL_M_PI); // Left cap
+//                 path.close();
+//             }
+//             bl_ctx.fillPath(path);
+//         } }, pin.pad_shape);
+// }
+// Render a pin using Blend2D, automatically handling all shape types
+void RenderPipeline::RenderPin(BLContext &ctx, const Pin &pin, const Component *parentComponent, const BLRgba32 &highlightColor)
 {
-    const LayerInfo *layer_info = board.GetLayerById(pin.getLayerId()); // Ensure getLayerId() is used
-    if (!layer_info || !layer_info->IsVisible())
-    {
-        return;
-    }
+    auto [world_center, world_rotation] = Pin::GetPinWorldTransform(pin, parentComponent);
+    auto [width, height] = pin.getDimensions();
+    double x_coord = pin.x_coord;
+    double y_coord = pin.y_coord;
+    PinOrientation orientation = pin.orientation;
 
-    bl_ctx.setFillStyle(highlightColor);
-    // DEBUG: If pin.debug_color is set, use it instead of layer_info->GetColor
-    // if (pin.debug_color != BLRgba32(0, 0, 0, 0))
-    // {
-    //     bl_ctx.setFillStyle(pin.debug_color);
-    //     printf("[RenderPin]: Pin %s: Using debug color %d\n", pin.pin_name.c_str(), pin.debug_color);
-    // }
-    // NOTE: The component's main transformation (center_x, center_y, rotation)
-    // is ALREADY APPLIED to bl_ctx by the calling RenderComponent method.
-    // So, pin.x_coord, pin.y_coord, and shape.x_offset/y_offset are treated as local
-    // to the component's origin.
-
-    std::visit([&](auto &&shape) // Note: auto&& shape is important here for perfect forwarding
+    // Move to pin center and apply rotation if needed
+    ctx.setFillStyle(highlightColor);
+    // Render based on shape type
+    std::visit([&ctx, width, height, x_coord, y_coord, orientation](const auto &shape)
                {
-        using T = std::decay_t<decltype(shape)>;
-        // Pin coordinates are now global, no need for offsets
-        double pin_center_x = pin.x_coord;
-        double pin_center_y = pin.y_coord;
-
-        if constexpr (std::is_same_v<T, CirclePad>) {
-            bl_ctx.fillCircle(pin_center_x, pin_center_y, shape.radius);
-        } else if constexpr (std::is_same_v<T, RectanglePad>) {
-            double width = pin.initial_width;
-            double height = pin.initial_height;
-
-            if (pin.orientation == PinOrientation::Vertical) {
-                // width = pin.initial_width; // Already set
-                // height = pin.initial_height; // Already set
-            } else if (pin.orientation == PinOrientation::Horizontal) {
-                width = pin.initial_height; // Swap for horizontal
-                height = pin.initial_width;
-            } // Else, natural orientation uses initial_width and initial_height as is
-
-            // Adjust if interior and component aspect ratio suggests a swap
-            if (pin.local_edge == LocalEdge::INTERIOR) {
-                bool component_taller = component.height > component.width;
-                bool pin_wider_than_tall = pin.initial_width > pin.initial_height; // Based on initial dimensions
-
-                if (component_taller && pin_wider_than_tall) {
-                    // Tall component, but pin is initially wide. Make pin tall.
-                    width = pin.initial_height;
-                    height = pin.initial_width;
-                } else if (!component_taller && !pin_wider_than_tall) {
-                    // Wide component, but pin is initially tall. Make pin wide.
-                    // This case might be tricky: if pin is initially square, it remains square.
-                    // If pin is (10w, 20h) and component is (100w, 50h), should it become (20w,10h)?
-                    // The original logic implies this swap.
-                    width = pin.initial_height;
-                    height = pin.initial_width;
-                }
-                // If component_taller && !pin_wider_than_tall (tall comp, tall pin) -> no change from initial
-                // If !component_taller && pin_wider_than_tall (wide comp, wide pin) -> no change from initial
-            }
+            using T = std::decay_t<decltype(shape)>;
             
-            // Draw centered rectangle at pin_center_x, pin_center_y
-            bl_ctx.fillRect(BLRect(pin_center_x - width / 2.0, pin_center_y - height / 2.0, width, height));
-
-        } else if constexpr (std::is_same_v<T, CapsulePad>) {
-            // Effective pad center is pin_center_x, pin_center_y
-
-            double cap_axis_len; // Length along the capsule's main axis (e.g., height if vertical)
-            double cap_cross_len; // Length across the capsule's main axis (e.g., width if vertical)
-            bool is_vertical;
-
-            if (pin.orientation == PinOrientation::Natural) {
-                is_vertical = shape.height > shape.width;
-                cap_axis_len = is_vertical ? shape.height : shape.width;
-                cap_cross_len = is_vertical ? shape.width : shape.height;
-            } else if (pin.orientation == PinOrientation::Vertical) {
-                is_vertical = true;
-                // If pin is meant to be vertical, its 'height' is shape.height, 'width' is shape.width
-                // unless shape itself is wider than tall, then we use shape.width as effective height.
-                cap_axis_len = shape.height >= shape.width ? shape.height : shape.width;
-                cap_cross_len = shape.height >= shape.width ? shape.width : shape.height;
-            } else { // PinOrientation::Horizontal
-                is_vertical = false;
-                // If pin is meant to be horizontal, its 'width' is shape.width, 'height' is shape.height
-                // unless shape itself is taller than wide, then we use shape.height as effective width.
-                cap_axis_len = shape.width >= shape.height ? shape.width : shape.height;
-                cap_cross_len = shape.width >= shape.height ? shape.height : shape.width;
+            if constexpr (std::is_same_v<T, CirclePad>) {
+                BLCircle circle(x_coord, y_coord, shape.radius);
+                ctx.fillCircle(circle);
             }
-
-            BLPath path;
-            if (is_vertical) {
-                double radius = cap_cross_len / 2.0;
-                double rect_height = cap_axis_len - cap_cross_len; // cap_axis_len is total height
-                if (rect_height < 0) rect_height = 0;
-
-                path.moveTo(pin_center_x - radius, pin_center_y - rect_height / 2.0);
-                path.arcTo(pin_center_x, pin_center_y - rect_height / 2.0, radius, radius, BL_M_PI, BL_M_PI); // Top cap
-                path.lineTo(pin_center_x + radius, pin_center_y + rect_height / 2.0);
-                path.arcTo(pin_center_x, pin_center_y + rect_height / 2.0, radius, radius, 0.0, BL_M_PI); // Bottom cap
-                path.close();
-            } else { // Horizontal Capsule
-                double radius = cap_cross_len / 2.0;
-                double rect_width = cap_axis_len - cap_cross_len; // cap_axis_len is total width
-                if (rect_width < 0) rect_width = 0;
-
-                path.moveTo(pin_center_x - rect_width / 2.0, pin_center_y - radius);
-                path.lineTo(pin_center_x + rect_width / 2.0, pin_center_y - radius);
-                path.arcTo(pin_center_x + rect_width / 2.0, pin_center_y, radius, radius, -BL_M_PI / 2.0, BL_M_PI); // Right cap
-                path.lineTo(pin_center_x - rect_width / 2.0, pin_center_y + radius);
-                path.arcTo(pin_center_x - rect_width / 2.0, pin_center_y, radius, radius, BL_M_PI / 2.0, BL_M_PI); // Left cap
-                path.close();
+            else if constexpr (std::is_same_v<T, RectanglePad>) {
+                BLRect rect(x_coord - width/2.0, y_coord - height/2.0, width, height);
+                ctx.fillRect(rect);
             }
-            bl_ctx.fillPath(path);
-        } }, pin.pad_shape);
+            else if constexpr (std::is_same_v<T, CapsulePad>) {
+                    renderCapsule(ctx, shape.width, shape.height, x_coord, y_coord);
+                } }, pin.pad_shape);
+}
+
+static void renderCapsule(BLContext &ctx, double width, double height, double x_coord, double y_coord)
+{
+    double radius = std::min(width, height) / 2.0; // Radius is half the smaller dimension
+
+    // Create a rounded rectangle centered at x_coord, y_coord
+    BLRoundRect capsule(x_coord - width / 2.0, y_coord - height / 2.0, width, height, radius);
+    ctx.fillRoundRect(capsule);
 }

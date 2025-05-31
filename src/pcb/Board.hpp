@@ -40,20 +40,19 @@ struct LayerInfo
     std::string name; // e.g., "TopLayer", "BottomLayer", "SilkscreenTop"
     LayerType type = LayerType::Other;
     bool is_visible = true;
-    BLRgba32 color = BLRgba32(0xFFFFFFFF); // Default to white, ensure BLRgba32 is known (include Blend2D headers if not already via other includes)
+    // Removed color field
     // double thickness; // Optional: physical thickness of the layer
 
-    LayerInfo(int i, const std::string &n, LayerType t, BLRgba32 c = BLRgba32(0xFFFFFFFF))
-        : id(i), name(n), type(t), is_visible(true), color(c) {}
-    // Default constructor for LayerInfo if needed by containers, ensure it initializes color.
-    LayerInfo() : id(-1), name("Unknown"), type(LayerType::Other), is_visible(true), color(0xFF000000) {} // Default to black for uninitialized
+    LayerInfo(int i, const std::string &n, LayerType t)
+        : id(i), name(n), type(t), is_visible(true) {}
+    LayerInfo() : id(-1), name("Unknown"), type(LayerType::Other), is_visible(true) {}
 
     bool IsVisible() const { return is_visible; }
     void SetVisible(bool visible) { is_visible = visible; }
     int GetId() const { return id; }
     const std::string &GetName() const { return name; }
     LayerType GetType() const { return type; }
-    BLRgba32 GetColor() const { return color; }
+    // Removed GetColor()
 };
 struct BoardPoint2D
 {

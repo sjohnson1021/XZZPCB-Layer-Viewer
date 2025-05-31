@@ -60,10 +60,10 @@ public:
           x_coord(x), y_coord(y), pin_name(name), pad_shape(shape),
           orientation(orientation), side(side)
     {
-        // Initialize initial_width, initial_height, long_side, short_side from pad_shape
-        std::tie(initial_width, initial_height) = getDimensionsFromShape(pad_shape);
-        long_side = std::max(initial_width, initial_height);
-        short_side = std::min(initial_width, initial_height);
+        // Initialize width, height, long_side, short_side from pad_shape
+        std::tie(width, height) = getDimensionsFromShape(pad_shape);
+        long_side = std::max(width, height);
+        short_side = std::min(width, height);
     }
 
     // Copy constructor
@@ -78,8 +78,8 @@ public:
           diode_reading(other.diode_reading),
           orientation(other.orientation),
           rotation(other.rotation),
-          initial_width(other.initial_width),
-          initial_height(other.initial_height),
+          width(other.width),
+          height(other.height),
           long_side(other.long_side),
           short_side(other.short_side),
           debug_color(other.debug_color)
@@ -97,6 +97,8 @@ public:
     void translate(double dx, double dy) override;
 
     // --- Pin-specific Member Data ---
+    // get world transform
+    static std::pair<Vec2, double> GetPinWorldTransform(const Pin &pin, const Component *parentComponent);
     double x_coord; // Local to component center
     double y_coord; // Local to component center
     std::string pin_name;
@@ -108,8 +110,8 @@ public:
     PinOrientation orientation = PinOrientation::Natural;
     double rotation = 0.0; // Degrees, if individual pins can rotate relative to component (unlikely for most uses)
 
-    double initial_width = 0.0;
-    double initial_height = 0.0;
+    double width = 0.0;
+    double height = 0.0;
     double long_side = 0.0;
     double short_side = 0.0;
     // layer and net_id are in Element
@@ -223,4 +225,40 @@ public:
     }
 
     BLRgba32 debug_color = BLRgba32(0, 0, 0, 0);
+
+    void SetDimensionsForOrientation()
+    {
+        // Ensure long_side is width, short_side is height
+        long_side = std::max(width, height);
+        short_side = std::min(width, height);
+        if (orientation == PinOrientation::Horizontal)
+        {
+            if (std::holds_alternative<RectanglePad>(pad_shape))
+            {
+                pad_shape = RectanglePad{long_side, short_side};
+            }
+            else if (std::holds_alternative<CapsulePad>(pad_shape))
+            {
+                pad_shape = CapsulePad{long_side, short_side};
+            }
+        }
+        else if (orientation == PinOrientation::Vertical)
+        {
+            if (std::holds_alternative<RectanglePad>(pad_shape))
+            {
+                pad_shape = RectanglePad{short_side, long_side};
+            }
+            else if (std::holds_alternative<CapsulePad>(pad_shape))
+            {
+                pad_shape = CapsulePad{short_side, long_side};
+            }
+        }
+        else
+        {
+            // Natural: use pad_shape
+            std::tie(width, height) = getDimensionsFromShape(pad_shape);
+            long_side = std::max(width, height);
+            short_side = std::min(width, height);
+        }
+    }
 };

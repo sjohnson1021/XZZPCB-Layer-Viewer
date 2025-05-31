@@ -13,7 +13,7 @@
 #endif
 
 // Helper to get world coordinates of pin center and its world rotation
-std::pair<Vec2, double> GetPinWorldTransform(const Pin &pin, const Component *parentComponent)
+std::pair<Vec2, double> Pin::GetPinWorldTransform(const Pin &pin, const Component *parentComponent)
 {
     if (!parentComponent)
     {
@@ -39,7 +39,7 @@ std::pair<Vec2, double> GetPinWorldTransform(const Pin &pin, const Component *pa
 
 BLRect Pin::getBoundingBox(const Component *parentComponent) const
 {
-    auto [world_pin_center, pin_world_rotation_deg] = GetPinWorldTransform(*this, parentComponent);
+    auto [world_pin_center, pin_world_rotation_deg] = Pin::GetPinWorldTransform(*this, parentComponent);
 
     double w_pin, h_pin;
     std::tie(w_pin, h_pin) = Pin::getDimensionsFromShape(pad_shape); // Use static helper for base dimensions
@@ -169,7 +169,7 @@ std::string Pin::getInfo(const Component *parentComponent) const
 {
     std::ostringstream oss;
     oss << "Pin: " << pin_name << "\n";
-    auto [world_pos, world_rot] = GetPinWorldTransform(*this, parentComponent);
+    auto [world_pos, world_rot] = Pin::GetPinWorldTransform(*this, parentComponent);
 
     if (parentComponent)
     {
