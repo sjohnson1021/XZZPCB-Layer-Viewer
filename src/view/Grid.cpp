@@ -1,888 +1,728 @@
-#include "view/Grid.hpp"
-#include "view/GridSettings.hpp"
-#include "view/Camera.hpp"
-#include "view/Viewport.hpp"
-#include <blend2d.h> // Include for BLContext and BLRgba32 etc.
-#include <cmath>     // For std::floor, std::ceil, std::abs, std::fmod, std::min, std::max
-#include <algorithm> // For std::min/max with initializer list
-#include <vector>
+#include "Grid.hpp"
+
+#include <algorithm>
+#include <cassert>
+#include <cmath>
+#include <cstddef>
+#include <exception>
+#include <iomanip>
 #include <iostream>
-#include <limits>  // For std::numeric_limits
-#include <string>  // For string formatting in measurement readout
-#include <sstream> // For string streams
-#include <iomanip> // For output formatting
+#include <limits>
+#include <memory>
+#include <sstream>
+#include <string>
 
-// Define PI if not already available from Camera.cpp or a common math header
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
+#include <blend2d.h>  // Include for BLContext and BLRgba32 etc.
 
-Grid::Grid(std::shared_ptr<GridSettings> settings)
-    : m_settings(settings),
-      m_fontInitialized(false),
-      m_fontLoadFailed(false) {}
+#include "GridSettings.hpp"
 
-Grid::~Grid() {}
+#include "view/Camera.hpp"
+#include "view/GridSettings.hpp"
+#include "view/Viewport.hpp"
 
-void Grid::GetNiceUnitFactors(std::vector<float> &outFactors) const
+Grid::Grid(std::shared_ptr<GridSettings> settings) : m_settings_(settings), m_font_initialized_(false), m_font_load_failed_(false) {}
+
+Grid::~Grid() = default;
+
+void Grid::GetNiceUnitFactors(std::vector<float>& out_factors) const
 {
-    if (m_settings->m_unitSystem == GridUnitSystem::METRIC)
-    {
+    if (m_settings_->m_unit_system == GridUnitSystem::kMetric) {
         // Metric: 1, 2, 5, 10 series
-        outFactors = {1.0f, 2.0f, 5.0f};
-    }
-    else
-    {
+        out_factors = {1.0F, 2.0F, 5.0F};
+    } else {
         // Imperial: Handle both decimal inches and fractions
         // For decimal: 0.1, 0.25, 0.5, 1.0
         // For fractions: 1/16, 1/8, 1/4, 1/2, 1
-        outFactors = {0.0625f, 0.125f, 0.25f, 0.5f, 1.0f};
+        out_factors = {0.0625F, 0.125F, 0.25F, 0.5F, 1.0F};
     }
 }
 
-void Grid::GetEffectiveSpacings(
-    const Camera &camera,
-    float &outMajorSpacing_world,
-    float &outMinorSpacing_world,
-    int &outEffectiveSubdivisions) const
+void Grid::GetEffectiveSpacings(const Camera& camera, float& out_major_spacing_world, float& out_minor_spacing_world, int& out_effective_subdivisions) const
 {
     // --- 0. Input Sanitization & Defaults ---
-    float baseMajorSpacing_world = m_settings->m_baseMajorSpacing;
+    float base_major_spacing_world = m_settings_->m_base_major_spacing;
     // Ensure positive base spacing, defaulting to appropriate unit-specific value if too small
-    if (baseMajorSpacing_world <= 1e-6f)
-    {
-        baseMajorSpacing_world = (m_settings->m_unitSystem == GridUnitSystem::METRIC) ? 10.0f : 0.5f;
+    if (base_major_spacing_world <= 1e-6F) {
+        base_major_spacing_world = (m_settings_->m_unit_system == GridUnitSystem::kMetric) ? 10.0F : 0.5F;
     }
 
     // Get appropriate subdivisions based on unit system if none specified
-    int baseSubdivisions = std::max(1, m_settings->m_subdivisions);
-    if (baseSubdivisions <= 1)
-    {
-        baseSubdivisions = (m_settings->m_unitSystem == GridUnitSystem::METRIC) ? 10 : 4;
+    int base_subdivisions = std::max(1, m_settings_->m_subdivisions);
+    if (base_subdivisions <= 1) {
+        base_subdivisions = (m_settings_->m_unit_system == GridUnitSystem::kMetric) ? 10 : 4;
     }
 
-    const float minPxStep = std::max(1.0f, m_settings->m_minPixelStep);
-    const float maxPxStep = std::max(minPxStep * 1.5f, m_settings->m_maxPixelStep);
-    const float zoom = std::max(1e-6f, camera.GetZoom());
+    float min_px_step = std::max(1.0F, m_settings_->m_min_pixel_step);
+    float max_px_step = std::max(min_px_step * 1.5F, m_settings_->m_max_pixel_step);
+    float zoom = std::max(1e-6F, camera.GetZoom());
 
     // Initialize outputs
-    outMajorSpacing_world = baseMajorSpacing_world;
-    outEffectiveSubdivisions = baseSubdivisions;
+    out_major_spacing_world = base_major_spacing_world;
+    out_effective_subdivisions = base_subdivisions;
 
     // --- 1. Dynamic Spacing Mode ---
-    if (m_settings->m_isDynamic)
-    {
+    if (m_settings_->m_is_dynamic) {
         // 1a. Determine Ideal Major Spacing based on zoom and pixel steps
-        float currentMajorScreenPx = outMajorSpacing_world * zoom;
+        float current_major_screen_px = out_major_spacing_world * zoom;
 
-        if (currentMajorScreenPx < minPxStep || currentMajorScreenPx > maxPxStep)
-        {
-            float bestFitMajorSpacing = outMajorSpacing_world;
-            float smallestDiff = std::numeric_limits<float>::max();
-            float targetScreenPx = (minPxStep + maxPxStep) / 2.0f; // Aim for middle of the range
+        if (current_major_screen_px < min_px_step || current_major_screen_px > max_px_step) {
+            float best_fit_major_spacing = out_major_spacing_world;
+            float smallest_diff = std::numeric_limits<float>::max();
+            float target_screen_px = (min_px_step + max_px_step) / 2.0F;  // Aim for middle of the range
 
             // Target world spacing that would make currentMajorScreenPx == targetScreenPx
-            float targetIdealWorldSpacing = targetScreenPx / zoom;
-            if (targetIdealWorldSpacing < 1e-7f)
-                targetIdealWorldSpacing = 1e-7f; // Prevent log10 of zero/negative
-
-            // Determine appropriate base scale using logarithmic approach based on unit system
-            float logBase = 10.0f; // For metric system
-            if (m_settings->m_unitSystem == GridUnitSystem::IMPERIAL)
-            {
-                logBase = 2.0f; // For imperial fractions (powers of 2)
+            float target_ideal_world_spacing = target_screen_px / zoom;
+            if (target_ideal_world_spacing < 1e-7F) {
+                target_ideal_world_spacing = 1e-7F;  // Prevent log10 of zero/negative
             }
 
-            float baseScale = std::pow(10.0f, std::floor(std::log10(targetIdealWorldSpacing)));
+            // Determine appropriate base scale using logarithmic approach based on unit system
+            float log_base = 10.0F;  // For metric system
+            if (m_settings_->m_unit_system == GridUnitSystem::kImperial) {
+                log_base = 2.0F;  // For imperial fractions (powers of 2)
+            }
+
+            float base_scale = std::pow(10.0F, std::floor(std::log10(target_ideal_world_spacing)));
 
             // Get "nice" factors appropriate for the current unit system
-            std::vector<float> niceFactors;
-            GetNiceUnitFactors(niceFactors);
+            std::vector<float> nice_factors;
+            GetNiceUnitFactors(nice_factors);  // TODO: Fix this
 
             // Try different powers around the base scale
-            for (int i = -2; i <= 2; ++i)
-            {
-                float powerOf10 = std::pow(10.0f, i);
-                for (float factor : niceFactors)
-                {
-                    float candidateSpacing_world = baseScale * powerOf10 * factor;
-                    if (candidateSpacing_world < 1e-6f)
-                        continue; // Avoid too small spacing
+            for (int i = -2; i <= 2; ++i) {
+                float power_of10 = std::pow(10.0F, i);
+                for (float factor : nice_factors) {
+                    float candidate_spacing_world = base_scale * power_of10 * factor;
+                    if (candidate_spacing_world < 1e-6F)
+                        continue;  // Avoid too small spacing
 
-                    float candidateScreenPx = candidateSpacing_world * zoom;
-                    if (candidateScreenPx >= minPxStep && candidateScreenPx <= maxPxStep)
-                    {
-                        float diff = std::abs(candidateScreenPx - targetScreenPx);
-                        if (diff < smallestDiff)
-                        {
-                            smallestDiff = diff;
-                            bestFitMajorSpacing = candidateSpacing_world;
+                    float candidate_screen_px = candidate_spacing_world * zoom;
+                    if (candidate_screen_px >= min_px_step && candidate_screen_px <= max_px_step) {
+                        float diff = std::abs(candidate_screen_px - target_screen_px);
+                        if (diff < smallest_diff) {
+                            smallest_diff = diff;
+                            best_fit_major_spacing = candidate_spacing_world;
                         }
                     }
                 }
             }
 
             // If no "nice number" fit was found, use power-of-2 scaling as fallback
-            if (smallestDiff == std::numeric_limits<float>::max())
-            {
-                if (currentMajorScreenPx < minPxStep)
-                {
-                    float scale = minPxStep / currentMajorScreenPx;
-                    bestFitMajorSpacing = outMajorSpacing_world * std::pow(2.0f, std::ceil(std::log2(scale)));
-                }
-                else
-                { // currentMajorScreenPx > maxPxStep
-                    float scale = maxPxStep / currentMajorScreenPx;
-                    if (scale > 0)
-                    {
-                        bestFitMajorSpacing = outMajorSpacing_world * std::pow(2.0f, std::floor(std::log2(scale)));
+            if (smallest_diff == std::numeric_limits<float>::max()) {
+                if (current_major_screen_px < min_px_step) {
+                    float const kScale = min_px_step / current_major_screen_px;
+                    best_fit_major_spacing = out_major_spacing_world * std::pow(2.0F, std::ceil(std::log2(kScale)));
+                } else {  // currentMajorScreenPx > maxPxStep
+                    float const kScale = max_px_step / current_major_screen_px;
+                    if (kScale > 0) {
+                        best_fit_major_spacing = out_major_spacing_world * std::pow(2.0F, std::floor(std::log2(kScale)));
                     }
                 }
             }
-            outMajorSpacing_world = bestFitMajorSpacing;
+            out_major_spacing_world = best_fit_major_spacing;
         }
 
         // Clamp to reasonable world unit bounds
-        outMajorSpacing_world = std::max(1e-7f, std::min(1e7f, outMajorSpacing_world));
+        out_major_spacing_world = std::max(1e-7F, std::min(1e7F, out_major_spacing_world));
 
         // 1b. Determine Effective Subdivisions based on the new outMajorSpacing_world
-        if (baseSubdivisions > 1)
-        {
-            float potentialMinorWorldSpacing = outMajorSpacing_world / baseSubdivisions;
-            float potentialMinorScreenPx = potentialMinorWorldSpacing * zoom;
+        if (base_subdivisions > 1) {
+            float potential_minor_world_spacing = out_major_spacing_world / base_subdivisions;
+            float potential_minor_screen_px = potential_minor_world_spacing * zoom;
 
-            if (potentialMinorScreenPx < minPxStep)
-            {
+            if (potential_minor_screen_px < min_px_step) {
                 // Try to find appropriate subdivision count based on unit system
-                int newSubdivisions = baseSubdivisions;
+                int new_subdivisions = base_subdivisions;
 
-                if (m_settings->m_unitSystem == GridUnitSystem::METRIC)
-                {
+                if (m_settings_->m_unit_system == GridUnitSystem::kMetric) {
                     // For metric, prefer 10, 5, 2, 1
-                    while (newSubdivisions > 1 && (outMajorSpacing_world / newSubdivisions) * zoom < minPxStep)
-                    {
-                        if (newSubdivisions == 10)
-                            newSubdivisions = 5;
-                        else if (newSubdivisions == 5)
-                            newSubdivisions = 2;
-                        else if (newSubdivisions == 2)
-                            newSubdivisions = 1;
-                        else
-                            newSubdivisions = 1; // Fallback
+                    while (new_subdivisions > 1 && (out_major_spacing_world / new_subdivisions) * zoom < min_px_step) {
+                        if (new_subdivisions == 10) {
+                            new_subdivisions = 5;
+                        } else if (new_subdivisions == 5) {
+                            new_subdivisions = 2;
+                        } else if (new_subdivisions == 2) {
+                            new_subdivisions = 1;
+                        } else {
+                            new_subdivisions = 1;  // Fallback
+                        }
                     }
-                }
-                else
-                {
+                } else {
                     // For imperial, prefer 8, 4, 2, 1 (power of 2 divisions)
-                    while (newSubdivisions > 1 && (outMajorSpacing_world / newSubdivisions) * zoom < minPxStep)
-                    {
-                        if (newSubdivisions == 16)
-                            newSubdivisions = 8;
-                        else if (newSubdivisions == 8)
-                            newSubdivisions = 4;
-                        else if (newSubdivisions == 4)
-                            newSubdivisions = 2;
-                        else if (newSubdivisions == 2)
-                            newSubdivisions = 1;
-                        else
-                            newSubdivisions = 1; // Fallback
+                    while (new_subdivisions > 1 && (out_major_spacing_world / new_subdivisions) * zoom < min_px_step) {
+                        if (new_subdivisions == 16) {
+                            new_subdivisions = 8;
+                        } else if (new_subdivisions == 8) {
+                            new_subdivisions = 4;
+                        } else if (new_subdivisions == 4) {
+                            new_subdivisions = 2;
+                        } else if (new_subdivisions == 2) {
+                            new_subdivisions = 1;
+                        } else {
+                            new_subdivisions = 1;  // Fallback
+                        }
                     }
                 }
 
-                outEffectiveSubdivisions = std::max(1, newSubdivisions);
+                out_effective_subdivisions = std::max(1, new_subdivisions);
+            } else {
+                out_effective_subdivisions = base_subdivisions;
             }
-            else
-            {
-                outEffectiveSubdivisions = baseSubdivisions;
-            }
-        }
-        else
-        {
-            outEffectiveSubdivisions = 1;
+        } else {
+            out_effective_subdivisions = 1;
         }
     }
     // --- 2. Static Spacing Mode ---
-    else
-    {
-        outMajorSpacing_world = baseMajorSpacing_world;
-        outEffectiveSubdivisions = baseSubdivisions;
+    else {
+        out_major_spacing_world = base_major_spacing_world;
+        out_effective_subdivisions = base_subdivisions;
     }
 
     // --- 3. Final Minor Spacing Calculation ---
-    outMinorSpacing_world = outMajorSpacing_world / outEffectiveSubdivisions;
+    out_minor_spacing_world = out_major_spacing_world / out_effective_subdivisions;
 }
 
-void Grid::GetVisibleWorldBounds(const Camera &camera, const Viewport &viewport, Vec2 &outMinWorld, Vec2 &outMaxWorld) const
+void Grid::GetVisibleWorldBounds(const Camera& camera, const Viewport& viewport, Vec2& out_min_world, Vec2& out_max_world)
 {
-    Vec2 screenCorners[4] = {
-        {static_cast<float>(viewport.GetX()), static_cast<float>(viewport.GetY())},
-        {static_cast<float>(viewport.GetX() + viewport.GetWidth()), static_cast<float>(viewport.GetY())},
-        {static_cast<float>(viewport.GetX()), static_cast<float>(viewport.GetY() + viewport.GetHeight())},
-        {static_cast<float>(viewport.GetX() + viewport.GetWidth()), static_cast<float>(viewport.GetY() + viewport.GetHeight())}};
-    Vec2 worldCorners[4];
-    for (int i = 0; i < 4; ++i)
-    {
-        worldCorners[i] = viewport.ScreenToWorld(screenCorners[i], camera);
+    Vec2 screen_corners[4] = {{static_cast<float>(viewport.GetX()), static_cast<float>(viewport.GetY())},
+                              {static_cast<float>(viewport.GetX() + viewport.GetWidth()), static_cast<float>(viewport.GetY())},
+                              {static_cast<float>(viewport.GetX()), static_cast<float>(viewport.GetY() + viewport.GetHeight())},
+                              {static_cast<float>(viewport.GetX() + viewport.GetWidth()), static_cast<float>(viewport.GetY() + viewport.GetHeight())}};
+    Vec2 world_corners[4];
+    for (int i = 0; i < 4; ++i) {
+        world_corners[i] = viewport.ScreenToWorld(screen_corners[i], camera);
     }
-    outMinWorld = worldCorners[0];
-    outMaxWorld = worldCorners[0];
-    for (int i = 1; i < 4; ++i)
-    {
-        outMinWorld.x = std::min(outMinWorld.x, worldCorners[i].x);
-        outMinWorld.y = std::min(outMinWorld.y, worldCorners[i].y);
-        outMaxWorld.x = std::max(outMaxWorld.x, worldCorners[i].x);
-        outMaxWorld.y = std::max(outMaxWorld.y, worldCorners[i].y);
+    out_min_world = world_corners[0];
+    out_max_world = world_corners[0];
+    for (int i = 1; i < 4; ++i) {
+        out_min_world.x = std::min(out_min_world.x, world_corners[i].x);
+        out_min_world.y = std::min(out_min_world.y, world_corners[i].y);
+        out_max_world.x = std::max(out_max_world.x, world_corners[i].x);
+        out_max_world.y = std::max(out_max_world.y, world_corners[i].y);
     }
 }
 
 void Grid::EnforceRenderingLimits(
-    const Camera &camera, const Viewport &viewport,
-    float spacing, const Vec2 &worldMin, const Vec2 &worldMax,
-    int &outEstimatedLineCount, bool &outShouldRender) const
+    const Camera& /*camera*/, const Viewport& /*viewport*/, float spacing, const Vec2& world_min, const Vec2& world_max, int& out_estimated_line_count, bool& out_should_render) const
 {
-    if (spacing <= 1e-6f)
-    {
-        outEstimatedLineCount = 0;
-        outShouldRender = false;
+    if (spacing <= 1e-6F) {
+        out_estimated_line_count = 0;
+        out_should_render = false;
         return;
     }
 
     // Calculate how many horizontal and vertical lines would be drawn
-    long long i_start_x = static_cast<long long>(std::ceil(worldMin.x / spacing));
-    long long i_end_x = static_cast<long long>(std::floor(worldMax.x / spacing));
-    int numHorizontalLines = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
+    long long i_start_x = static_cast<long long>(std::ceil(world_min.x / spacing));
+    long long i_end_x = static_cast<long long>(std::floor(world_max.x / spacing));
+    int kNumHorizontalLines = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
 
-    long long i_start_y = static_cast<long long>(std::ceil(worldMin.y / spacing));
-    long long i_end_y = static_cast<long long>(std::floor(worldMax.y / spacing));
-    int numVerticalLines = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
+    long long i_start_y = static_cast<long long>(std::ceil(world_min.y / spacing));
+    long long i_end_y = static_cast<long long>(std::floor(world_max.y / spacing));
+    int kNumVerticalLines = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
 
     // Total number of lines
-    outEstimatedLineCount = numHorizontalLines + numVerticalLines;
+    out_estimated_line_count = kNumHorizontalLines + kNumVerticalLines;
 
     // For dots, the estimate would be numHorizontalLines * numVerticalLines
     // We'll use the same mechanism for both since dots also require two nested loops
-    int dotEstimate = numHorizontalLines * numVerticalLines;
+    int kDotEstimate = kNumHorizontalLines * kNumVerticalLines;
 
     // Determine if we should render based on limits
-    int maxRenderableItems;
-    if (m_settings->m_style == GridStyle::LINES)
-    {
-        maxRenderableItems = m_settings->MAX_RENDERABLE_LINES;
-        outShouldRender = (outEstimatedLineCount <= maxRenderableItems);
-    }
-    else
-    { // DOTS
-        maxRenderableItems = m_settings->MAX_RENDERABLE_DOTS;
-        outShouldRender = (dotEstimate <= maxRenderableItems);
+    int max_renderable_items = 0;
+    if (m_settings_->m_style == GridStyle::kLines) {
+        max_renderable_items = GridSettings::kMaxRenderableLines;
+        out_should_render = (out_estimated_line_count <= max_renderable_items);
+    } else {  // DOTS
+        max_renderable_items = GridSettings::kMaxRenderableDots;
+        out_should_render = (kDotEstimate <= max_renderable_items);
     }
 }
 
-Grid::GridMeasurementInfo Grid::GetMeasurementInfo(const Camera &camera, const Viewport &viewport) const
+Grid::GridMeasurementInfo Grid::GetMeasurementInfo(const Camera& camera, const Viewport& /*viewport*/) const
 {
     GridMeasurementInfo info;
 
     // Get current effective spacings
-    GetEffectiveSpacings(camera, info.majorSpacing, info.minorSpacing, info.subdivisions);
+    GetEffectiveSpacings(camera, info.major_spacing, info.minor_spacing, info.subdivisions);
 
     // Determine visibility based on screen pixel step
-    const float currentZoom = camera.GetZoom();
-    const float minPxStep = std::max(1.0f, m_settings->m_minPixelStep);
+    float current_zoom = camera.GetZoom();
+    float min_px_step = std::max(1.0F, m_settings_->m_min_pixel_step);
 
-    float majorScreenPx = info.majorSpacing * currentZoom;
-    info.majorLinesVisible = (majorScreenPx >= minPxStep);
+    float major_screen_px = info.major_spacing * current_zoom;
+    info.major_lines_visible = (major_screen_px >= min_px_step);
 
-    float minorScreenPx = info.minorSpacing * currentZoom;
-    info.minorLinesVisible = info.majorLinesVisible &&
-                             info.subdivisions > 1 &&
-                             (minorScreenPx >= minPxStep) &&
-                             (std::abs(info.majorSpacing - info.minorSpacing) > 1e-6f) &&
-                             (info.minorSpacing > 1e-6f);
+    float minor_screen_px = info.minor_spacing * current_zoom;
+    info.minor_lines_visible =
+        info.major_lines_visible && info.subdivisions > 1 && (minor_screen_px >= min_px_step) && (std::abs(info.major_spacing - info.minor_spacing) > 1e-6F) && (info.minor_spacing > 1e-6F);
 
     // Get unit string
-    info.unitString = m_settings->UnitToString();
+    info.unit_string = m_settings_->UnitToString();
 
     return info;
 }
 
-void Grid::RenderMeasurementReadout(BLContext &bl_ctx, const Viewport &viewport, const GridMeasurementInfo &info) const
+void Grid::RenderMeasurementReadout(BLContext& bl_ctx, const Viewport& viewport, const GridMeasurementInfo& info) const
 {
-    if (!m_settings->m_showMeasurementReadout)
-    {
+    if (!m_settings_->m_show_measurement_readout) {
         return;
     }
 
     // Ensure font is initialized
-    InitializeFont();
+    initializeFont();
 
     // Create the measurement text
     std::stringstream ss;
-    ss << std::fixed << std::setprecision(3); // Display up to 3 decimal places
+    ss << std::fixed << std::setprecision(3);  // Display up to 3 decimal places
 
     // Format major spacing
-    if (info.majorLinesVisible)
-    {
-        ss << "Major: " << info.majorSpacing << info.unitString;
-    }
-    else
-    {
+    if (info.major_lines_visible) {
+        ss << "Major: " << info.major_spacing << info.unit_string;
+    } else {
         ss << "Major: Hidden";
     }
 
     // Format minor spacing
     ss << " | ";
-    if (info.minorLinesVisible)
-    {
-        ss << "Minor: " << info.minorSpacing << info.unitString;
-    }
-    else
-    {
+    if (info.minor_lines_visible) {
+        ss << "Minor: " << info.minor_spacing << info.unit_string;
+    } else {
         ss << "Minor: Hidden";
     }
 
-    std::string readoutText = ss.str();
+    std::string readout_text = ss.str();
 
     // Setup text position and size
-    const int padding = 10;
-    const float x = static_cast<float>(viewport.GetX() + padding);
-    const float y = static_cast<float>(viewport.GetY() + viewport.GetHeight() - padding - 20);
+    const int kPadding = 10;
+    const auto kPntX = static_cast<float>(viewport.GetX() + kPadding);
+    const auto kPntY = static_cast<float>(viewport.GetY() + viewport.GetHeight() - kPadding - 20);
 
     // Estimate text dimensions based on character count (rough approximation)
     // Average character width is about 8 pixels in a standard font at ~11px size
-    float charWidth = 8.0f;
-    float textWidth = static_cast<float>(readoutText.length()) * charWidth;
-    float textHeight = 16.0f; // Typical text height with some padding
+    float const kCharWidth = 8.0F;
+    float text_width = static_cast<float>(readout_text.length()) * kCharWidth;
+    float const kTextHeight = 16.0F;  // Typical text height with some padding
 
     // Draw background with semi-transparent black
-    const float boxX = x - 5.0f;
-    const float boxY = y - textHeight + 5.0f;
-    const float boxWidth = textWidth + 10.0f;
-    const float boxHeight = textHeight + 10.0f;
+    const float kBoxX = kPntX - 5.0F;
+    const float kBoxY = kPntY - kTextHeight + 5.0F;
+    const float kBoxWidth = text_width + 10.0F;
+    const float kBoxHeight = kTextHeight + 10.0F;
 
     bl_ctx.setFillStyle(BLRgba32(0, 0, 0, 196));
-    bl_ctx.fillRect(BLRect(boxX, boxY, boxWidth, boxHeight));
+    bl_ctx.fillRect(BLRect(kBoxX, kBoxY, kBoxWidth, kBoxHeight));
 
-    // Font loading is now handled by InitializeFont()
-    // static BLFontFace fontFace;
-    // static bool fontFaceInitialized = false;
-    // static bool fontFaceLoadFailed = false;
-
-    // if (!fontFaceInitialized)
-    // {
-    //     fontFaceInitialized = true;
-    //     BLResult faceResult = fontFace.createFromFile("assets/fonts/Nippo-Light.otf");
-    //     if (faceResult != BL_SUCCESS)
-    //     {
-    //         faceResult = fontFace.createFromFile("/home/seanj/Documents/Code/XZZPCB-Layer-Viewer/assets/fonts/Nippo-Light.otf");
-    //         if (faceResult != BL_SUCCESS)
-    //         {
-    //             fontFaceLoadFailed = true;
-    //             std::cerr << "Failed to load font file for grid measurement readout" << std::endl;
-    //         }
-    //     }
-    // }
-
-    if (!m_fontLoadFailed)
-    {
-        // BLFont font; // m_font is now a member
-        // BLResult fontResult = font.createFromFace(fontFace, 11.0f);
-        // if (fontResult == BL_SUCCESS) // m_font is already created or load failed
-        // {
+    if (!m_font_load_failed_) {
         // Draw text with solid white if font creation succeeded
         bl_ctx.setFillStyle(BLRgba32(255, 255, 255, 255));
-        bl_ctx.fillUtf8Text(BLPoint(x, y), m_font, readoutText.c_str(), readoutText.length());
-        // }
-        // else
-        // {
-        //     // Fallback if font creation failed - draw simple text indicator
-        //     bl_ctx.setFillStyle(BLRgba32(255, 255, 255, 255));
-        //     for (size_t i = 0; i < readoutText.length(); i++)
-        //     {
-        //         bl_ctx.fillRect(BLRect(x + i * charWidth, y - textHeight / 2,
-        //                                (readoutText[i] == ' ') ? charWidth / 4 : charWidth / 2, 1));
-        //     }
-        // }
-    }
-    else
-    {
+        bl_ctx.fillUtf8Text(BLPoint(kPntX, kPntY), m_font_, readout_text.c_str(), readout_text.length());
+    } else {
         // Fallback if font face creation failed - draw simple text indicator
         bl_ctx.setFillStyle(BLRgba32(255, 255, 255, 255));
-        for (size_t i = 0; i < readoutText.length(); i++)
-        {
-            bl_ctx.fillRect(BLRect(x + i * charWidth, y - textHeight / 2,
-                                   (readoutText[i] == ' ') ? charWidth / 4 : charWidth / 2, 1));
+        for (size_t i = 0; i < readout_text.length(); i++) {
+            bl_ctx.fillRect(BLRect(kPntX + (i * kCharWidth), kPntY - (kTextHeight / 2), (readout_text[i] == ' ') ? kCharWidth / 4 : kCharWidth / 2, 1));
         }
     }
 }
 
-void Grid::DrawGridLines(
-    BLContext &bl_ctx, const Camera &camera, const Viewport &viewport,
-    float spacing, const GridColor &color,
-    const Vec2 &worldMin, const Vec2 &worldMax,
-    bool isMajor, float majorSpacingForAxisCheck) const
+void Grid::DrawGridLines(BLContext& bl_ctx,
+                         const Camera& camera,
+                         const Viewport& viewport,
+                         float spacing,
+                         const GridColor& color,
+                         const Vec2& world_min,
+                         const Vec2& world_max,
+                         bool is_major,
+                         float major_spacing_for_axis_check) const
+
 {
-    if (spacing <= 1e-6f)
+    if (spacing <= 1e-6F) {
         return;
+    }
 
     // Check rendering limits
-    int estimatedLineCount;
-    bool shouldRender;
-    EnforceRenderingLimits(camera, viewport, spacing, worldMin, worldMax, estimatedLineCount, shouldRender);
+    int estimated_line_count = 0;
+    bool should_render = false;
+    EnforceRenderingLimits(camera, viewport, spacing, world_min, world_max, estimated_line_count, should_render);
 
-    if (!shouldRender)
-    {
-        return; // Too many lines, skip rendering
+    if (!should_render) {
+        return;  // Too many lines, skip rendering
     }
 
-    try
-    {
-        BLRgba32 lineColor(
-            static_cast<uint32_t>(color.r * 255.0f),
-            static_cast<uint32_t>(color.g * 255.0f),
-            static_cast<uint32_t>(color.b * 255.0f),
-            static_cast<uint32_t>(color.a * 255.0f));
+    try {
+        BLRgba32 line_color(static_cast<uint32_t>(color.r * 255.0F), static_cast<uint32_t>(color.g * 255.0F), static_cast<uint32_t>(color.b * 255.0F), static_cast<uint32_t>(color.a * 255.0F));
 
-        BLPath linesPath;
+        BLPath lines_path;
 
-        long long i_start_x = static_cast<long long>(std::ceil(worldMin.x / spacing));
-        long long i_end_x = static_cast<long long>(std::floor(worldMax.x / spacing));
-        int reserveHorizLines = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
+        long long i_start_x = static_cast<long long>(std::ceil(world_min.x / spacing));
+        long long i_end_x = static_cast<long long>(std::floor(world_max.x / spacing));
+        int const kReserveHorizLines = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
 
-        long long i_start_y = static_cast<long long>(std::ceil(worldMin.y / spacing));
-        long long i_end_y = static_cast<long long>(std::floor(worldMax.y / spacing));
-        int reserveVertLines = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
+        long long i_start_y = static_cast<long long>(std::ceil(world_min.y / spacing));
+        long long i_end_y = static_cast<long long>(std::floor(world_max.y / spacing));
+        int const kReserveVertLines = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
 
-        const int max_reserve_per_axis = std::min(estimatedLineCount, 10000); // Respect the calculated limit
-        linesPath.reserve((std::min(reserveHorizLines, max_reserve_per_axis) + std::min(reserveVertLines, max_reserve_per_axis)) * 2);
+        const int kMaxReservePerAxis = std::min(estimated_line_count, 10000);  // Respect the calculated limit
+        lines_path.reserve((std::min(kReserveHorizLines, kMaxReservePerAxis) + std::min(kReserveVertLines, kMaxReservePerAxis)) * 2);
 
-        std::vector<Vec2> verticalStartPoints;
-        std::vector<Vec2> verticalEndPoints;
-        verticalStartPoints.reserve(std::min(reserveHorizLines, max_reserve_per_axis));
-        verticalEndPoints.reserve(std::min(reserveHorizLines, max_reserve_per_axis));
+        std::vector<Vec2> vertical_start_points;
+        std::vector<Vec2> vertical_end_points;
+        vertical_start_points.reserve(std::min(kReserveHorizLines, kMaxReservePerAxis));
+        vertical_end_points.reserve(std::min(kReserveHorizLines, kMaxReservePerAxis));
 
-        std::vector<Vec2> horizontalStartPoints;
-        std::vector<Vec2> horizontalEndPoints;
-        horizontalStartPoints.reserve(std::min(reserveVertLines, max_reserve_per_axis));
-        horizontalEndPoints.reserve(std::min(reserveVertLines, max_reserve_per_axis));
+        std::vector<Vec2> horizontal_start_points;
+        std::vector<Vec2> horizontal_end_points;
+        horizontal_start_points.reserve(std::min(kReserveVertLines, kMaxReservePerAxis));
+        horizontal_end_points.reserve(std::min(kReserveVertLines, kMaxReservePerAxis));
 
-        for (long long i = i_start_x; i <= i_end_x; ++i)
-        {
-            float x = static_cast<float>(i) * spacing;
-            if (isMajor && m_settings->m_showAxisLines && std::abs(x) < majorSpacingForAxisCheck * 0.1f)
-            {
+        for (long long i = i_start_x; i <= i_end_x; ++i) {
+            float const x = static_cast<float>(i) * spacing;
+            if (is_major && m_settings_->m_show_axis_lines && std::abs(x) < major_spacing_for_axis_check * 0.1F) {
                 continue;
             }
-            Vec2 screenP1 = viewport.WorldToScreen({x, worldMin.y}, camera);
-            Vec2 screenP2 = viewport.WorldToScreen({x, worldMax.y}, camera);
-            if (std::isfinite(screenP1.x) && std::isfinite(screenP1.y) &&
-                std::isfinite(screenP2.x) && std::isfinite(screenP2.y))
-            {
-                verticalStartPoints.push_back(screenP1);
-                verticalEndPoints.push_back(screenP2);
+            Vec2 screen_p1 = viewport.WorldToScreen({x, world_min.y}, camera);
+            Vec2 screen_p2 = viewport.WorldToScreen({x, world_max.y}, camera);
+            if (std::isfinite(screen_p1.x) && std::isfinite(screen_p1.y) && std::isfinite(screen_p2.x) && std::isfinite(screen_p2.y)) {
+                vertical_start_points.push_back(screen_p1);
+                vertical_end_points.push_back(screen_p2);
             }
         }
 
-        for (long long i = i_start_y; i <= i_end_y; ++i)
-        {
-            float y = static_cast<float>(i) * spacing;
-            if (isMajor && m_settings->m_showAxisLines && std::abs(y) < majorSpacingForAxisCheck * 0.1f)
-            {
+        for (long long i = i_start_y; i <= i_end_y; ++i) {
+            float const y = static_cast<float>(i) * spacing;
+            if (is_major && m_settings_->m_show_axis_lines && std::abs(y) < major_spacing_for_axis_check * 0.1F) {
                 continue;
             }
-            Vec2 screenP1 = viewport.WorldToScreen({worldMin.x, y}, camera);
-            Vec2 screenP2 = viewport.WorldToScreen({worldMax.x, y}, camera);
-            if (std::isfinite(screenP1.x) && std::isfinite(screenP1.y) &&
-                std::isfinite(screenP2.x) && std::isfinite(screenP2.y))
-            {
-                horizontalStartPoints.push_back(screenP1);
-                horizontalEndPoints.push_back(screenP2);
+            Vec2 screen_p1 = viewport.WorldToScreen({world_min.x, y}, camera);
+            Vec2 screen_p2 = viewport.WorldToScreen({world_max.x, y}, camera);
+            if (std::isfinite(screen_p1.x) && std::isfinite(screen_p1.y) && std::isfinite(screen_p2.x) && std::isfinite(screen_p2.y)) {
+                horizontal_start_points.push_back(screen_p1);
+                horizontal_end_points.push_back(screen_p2);
             }
         }
 
-        for (size_t i = 0; i < verticalStartPoints.size(); i++)
-        {
-            linesPath.moveTo(verticalStartPoints[i].x, verticalStartPoints[i].y);
-            linesPath.lineTo(verticalEndPoints[i].x, verticalEndPoints[i].y);
+        for (size_t i = 0; i < vertical_start_points.size(); i++) {
+            lines_path.moveTo(vertical_start_points[i].x, vertical_start_points[i].y);
+            lines_path.lineTo(vertical_end_points[i].x, vertical_end_points[i].y);
         }
 
-        for (size_t i = 0; i < horizontalStartPoints.size(); i++)
-        {
-            linesPath.moveTo(horizontalStartPoints[i].x, horizontalStartPoints[i].y);
-            linesPath.lineTo(horizontalEndPoints[i].x, horizontalEndPoints[i].y);
+        for (size_t i = 0; i < horizontal_start_points.size(); i++) {
+            lines_path.moveTo(horizontal_start_points[i].x, horizontal_start_points[i].y);
+            lines_path.lineTo(horizontal_end_points[i].x, horizontal_end_points[i].y);
         }
 
-        if (!linesPath.empty())
-        {
-            bl_ctx.setStrokeStyle(lineColor);
-            bl_ctx.setStrokeWidth(m_settings->m_lineThickness);
-            BLCompOp savedCompOp = bl_ctx.compOp();
-            if (lineColor.a() == 255)
-            {
+        if (!lines_path.empty()) {
+            bl_ctx.setStrokeStyle(line_color);
+            bl_ctx.setStrokeWidth(m_settings_->m_line_thickness);
+            BLCompOp saved_comp_op = bl_ctx.compOp();
+            if (line_color.a() == 255) {
                 bl_ctx.setCompOp(BL_COMP_OP_SRC_OVER);
             }
-            bl_ctx.strokePath(linesPath);
-            if (lineColor.a() == 255)
-            {
-                bl_ctx.setCompOp(savedCompOp);
+            bl_ctx.strokePath(lines_path);
+            if (line_color.a() == 255) {
+                bl_ctx.setCompOp(saved_comp_op);
             }
         }
-    }
-    catch (const std::exception &e)
-    {
+    } catch (const std::exception& e) {
         std::cerr << "Grid::DrawGridLines Exception: " << e.what() << std::endl;
-    }
-    catch (...)
-    {
+    } catch (...) {
         std::cerr << "Grid::DrawGridLines: Unknown exception" << std::endl;
     }
 }
 
-void Grid::DrawGridDots(
-    BLContext &bl_ctx, const Camera &camera, const Viewport &viewport,
-    float spacing, const GridColor &color,
-    const Vec2 &worldMin, const Vec2 &worldMax,
-    bool isMajor, float majorSpacingForAxisCheck) const
+void Grid::DrawGridDots(BLContext& bl_ctx,
+                        const Camera& camera,
+                        const Viewport& viewport,
+                        float spacing,
+                        const GridColor& color,
+                        const Vec2& world_min,
+                        const Vec2& world_max,
+                        bool is_major,
+                        float major_spacing_for_axis_check) const
+
 {
-    if (spacing <= 1e-6f)
+    if (spacing <= 1e-6F) {
         return;
-
-    // Check rendering limits
-    int estimatedLineCount; // Used as an approximation for estimating dot count
-    bool shouldRender;
-    EnforceRenderingLimits(camera, viewport, spacing, worldMin, worldMax, estimatedLineCount, shouldRender);
-
-    if (!shouldRender)
-    {
-        return; // Too many dots, skip rendering
     }
 
-    try
-    {
-        BLRgba32 dotColor(
-            static_cast<uint32_t>(color.r * 255.0f),
-            static_cast<uint32_t>(color.g * 255.0f),
-            static_cast<uint32_t>(color.b * 255.0f),
-            static_cast<uint32_t>(color.a * 255.0f));
+    // Check rendering limits
+    int estimated_line_count = 0;  // Used as an approximation for estimating dot count
+    bool should_render = false;
+    EnforceRenderingLimits(camera, viewport, spacing, world_min, world_max, estimated_line_count, should_render);
 
-        const float dotRadius = m_settings->m_dotRadius;
-        BLPath dotsPath;
-        int dotsCount = 0;
+    if (!should_render) {
+        return;  // Too many dots, skip rendering
+    }
 
-        long long i_start_x = static_cast<long long>(std::ceil(worldMin.x / spacing));
-        long long i_end_x = static_cast<long long>(std::floor(worldMax.x / spacing));
-        long long i_start_y = static_cast<long long>(std::ceil(worldMin.y / spacing));
-        long long i_end_y = static_cast<long long>(std::floor(worldMax.y / spacing));
+    try {
+        BLRgba32 dot_color(static_cast<uint32_t>(color.r * 255.0F), static_cast<uint32_t>(color.g * 255.0F), static_cast<uint32_t>(color.b * 255.0F), static_cast<uint32_t>(color.a * 255.0F));
+
+        float dot_radius = m_settings_->m_dot_radius;
+        BLPath dots_path;
+        int dots_count = 0;
+
+        long long i_start_x = static_cast<long long>(std::ceil(world_min.x / spacing));
+        long long i_end_x = static_cast<long long>(std::floor(world_max.x / spacing));
+        long long i_start_y = static_cast<long long>(std::ceil(world_min.y / spacing));
+        long long i_end_y = static_cast<long long>(std::floor(world_max.y / spacing));
 
         int num_potential_dots_x = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
         int num_potential_dots_y = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
 
         // Use MAX_RENDERABLE_DOTS as the cap for dot reservation
-        const int max_reserve_total_dots = m_settings->MAX_RENDERABLE_DOTS;
-        if (num_potential_dots_x > 0 && num_potential_dots_y > 0)
-        {
-            if (static_cast<long long>(num_potential_dots_x) * num_potential_dots_y < max_reserve_total_dots)
-            {
-                dotsPath.reserve(num_potential_dots_x * num_potential_dots_y);
-            }
-            else
-            {
-                dotsPath.reserve(max_reserve_total_dots); // Cap reservation
+        constexpr int kMaxReserveTotalDots = GridSettings::kMaxRenderableDots;
+        if (num_potential_dots_x > 0 && num_potential_dots_y > 0) {
+            if (static_cast<long long>(num_potential_dots_x) * num_potential_dots_y < kMaxReserveTotalDots) {
+                dots_path.reserve(num_potential_dots_x * num_potential_dots_y);
+            } else {
+                dots_path.reserve(kMaxReserveTotalDots);  // Cap reservation
             }
         }
 
-        for (long long i_x = i_start_x; i_x <= i_end_x; ++i_x)
-        {
+        for (long long i_x = i_start_x; i_x <= i_end_x; ++i_x) {
             float x = static_cast<float>(i_x) * spacing;
-            for (long long i_y = i_start_y; i_y <= i_end_y; ++i_y)
-            {
+            for (long long i_y = i_start_y; i_y <= i_end_y; ++i_y) {
                 float y = static_cast<float>(i_y) * spacing;
 
-                if (isMajor && m_settings->m_showAxisLines &&
-                    (std::abs(x) < majorSpacingForAxisCheck * 0.1f || std::abs(y) < majorSpacingForAxisCheck * 0.1f))
-                {
+                if (is_major && m_settings_->m_show_axis_lines && (std::abs(x) < major_spacing_for_axis_check * 0.1f || std::abs(y) < major_spacing_for_axis_check * 0.1f)) {
                     continue;
                 }
 
-                Vec2 screenP = viewport.WorldToScreen({x, y}, camera);
+                Vec2 screen_p = viewport.WorldToScreen({x, y}, camera);
 
-                if (std::isfinite(screenP.x) && std::isfinite(screenP.y))
-                {
-                    if (screenP.x >= -dotRadius && screenP.x <= viewport.GetWidth() + dotRadius &&
-                        screenP.y >= -dotRadius && screenP.y <= viewport.GetHeight() + dotRadius)
-                    {
-                        if (dotsCount < max_reserve_total_dots)
-                        {
-                            dotsPath.addCircle(BLCircle(screenP.x, screenP.y, dotRadius));
-                            dotsCount++;
-                        }
-                        else
-                        {
+                if (std::isfinite(screen_p.x) && std::isfinite(screen_p.y)) {
+                    if (screen_p.x >= -dot_radius && screen_p.x <= viewport.GetWidth() + dot_radius && screen_p.y >= -dot_radius && screen_p.y <= viewport.GetHeight() + dot_radius) {
+                        if (dots_count < kMaxReserveTotalDots) {
+                            dots_path.addCircle(BLCircle(screen_p.x, screen_p.y, dot_radius));
+                            dots_count++;
+                        } else {
                             // Reached limit, stop adding
                             break;
                         }
                     }
                 }
             }
-            if (dotsCount >= max_reserve_total_dots)
-            {
-                break; // Reached limit, stop adding
+            if (dots_count >= kMaxReserveTotalDots) {
+                break;  // Reached limit, stop adding
             }
         }
 
-        if (dotsCount > 0)
-        {
-            bl_ctx.setFillStyle(dotColor);
-            bl_ctx.fillPath(dotsPath);
+        if (dots_count > 0) {
+            bl_ctx.setFillStyle(dot_color);
+            bl_ctx.fillPath(dots_path);
         }
-    }
-    catch (const std::exception &e)
-    {
+    } catch (const std::exception& e) {
         std::cerr << "Grid::DrawGridDots Exception: " << e.what() << std::endl;
-    }
-    catch (...)
-    {
+    } catch (...) {
         std::cerr << "Grid::DrawGridDots: Unknown exception" << std::endl;
     }
 }
 
-void Grid::DrawLinesStyle(
-    BLContext &bl_ctx, const Camera &camera, const Viewport &viewport,
-    float majorSpacing, float minorSpacing,
-    const Vec2 &worldMin, const Vec2 &worldMax,
-    bool actuallyDrawMajorLines,
-    bool actuallyDrawMinorLines) const
+void Grid::DrawLinesStyle(BLContext& bl_ctx,
+                          const Camera& camera,
+                          const Viewport& viewport,
+                          float major_spacing,
+                          float minor_spacing,
+                          const Vec2& world_min,
+                          const Vec2& world_max,
+                          bool actually_draw_major_lines,
+                          bool actually_draw_minor_lines) const
 {
     // All spacing validity checks are already done in Render method
-    if (actuallyDrawMinorLines)
-    {
-        DrawGridLines(bl_ctx, camera, viewport, minorSpacing, m_settings->m_minorLineColor, worldMin, worldMax, false, majorSpacing);
+    if (actually_draw_minor_lines) {
+        DrawGridLines(bl_ctx, camera, viewport, minor_spacing, m_settings_->m_minor_line_color, world_min, world_max, false, major_spacing);
     }
-    if (actuallyDrawMajorLines)
-    {
-        DrawGridLines(bl_ctx, camera, viewport, majorSpacing, m_settings->m_majorLineColor, worldMin, worldMax, true, majorSpacing);
+    if (actually_draw_major_lines) {
+        DrawGridLines(bl_ctx, camera, viewport, major_spacing, m_settings_->m_major_line_color, world_min, world_max, true, minor_spacing);
     }
 }
 
-void Grid::DrawDotsStyle(
-    BLContext &bl_ctx, const Camera &camera, const Viewport &viewport,
-    float majorSpacing, float minorSpacing,
-    const Vec2 &worldMin, const Vec2 &worldMax,
-    bool actuallyDrawMajorDots,
-    bool actuallyDrawMinorDots) const
+void Grid::DrawDotsStyle(BLContext& bl_ctx,
+                         const Camera& camera,
+                         const Viewport& viewport,
+                         float major_spacing,
+                         float minor_spacing,
+                         const Vec2& world_min,
+                         const Vec2& world_max,
+                         bool actually_draw_major_dots,
+                         bool actually_draw_minor_dots) const
 {
     // All spacing validity checks are already done in Render method
-    if (actuallyDrawMinorDots)
-    {
-        DrawGridDots(bl_ctx, camera, viewport, minorSpacing, m_settings->m_minorLineColor, worldMin, worldMax, false, majorSpacing);
+    if (actually_draw_minor_dots) {
+        DrawGridDots(bl_ctx, camera, viewport, minor_spacing, m_settings_->m_minor_line_color, world_min, world_max, false, major_spacing);
     }
-    if (actuallyDrawMajorDots)
-    {
-        DrawGridDots(bl_ctx, camera, viewport, majorSpacing, m_settings->m_majorLineColor, worldMin, worldMax, true, majorSpacing);
+    if (actually_draw_major_dots) {
+        DrawGridDots(bl_ctx, camera, viewport, major_spacing, m_settings_->m_major_line_color, world_min, world_max, true, major_spacing);
     }
 }
 
-void Grid::DrawAxis(BLContext &bl_ctx, const Camera &camera, const Viewport &viewport, const Vec2 &worldMin, const Vec2 &worldMax) const
+void Grid::DrawAxis(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport, const Vec2& world_min, const Vec2& world_max) const
 {
-    if (!m_settings->m_showAxisLines)
+    if (!m_settings_->m_show_axis_lines) {
         return;
+    }
 
-    try
-    {
-        bl_ctx.setStrokeWidth(m_settings->m_axisLineThickness);
+    try {
+        bl_ctx.setStrokeWidth(m_settings_->m_axis_line_thickness);
 
         // X-Axis (y=0)
-        if (0.0f >= worldMin.y && 0.0f <= worldMax.y)
-        {
-            BLRgba32 xAxisColor(
-                static_cast<uint32_t>(m_settings->m_xAxisColor.r * 255.0f),
-                static_cast<uint32_t>(m_settings->m_xAxisColor.g * 255.0f),
-                static_cast<uint32_t>(m_settings->m_xAxisColor.b * 255.0f),
-                static_cast<uint32_t>(m_settings->m_xAxisColor.a * 255.0f));
-            bl_ctx.setStrokeStyle(xAxisColor);
+        if (0.0F >= world_min.y && 0.0F <= world_max.y) {
+            BLRgba32 x_axis_color(static_cast<uint32_t>(m_settings_->m_x_axis_color.r * 255.0F),
+                                  static_cast<uint32_t>(m_settings_->m_x_axis_color.g * 255.0F),
+                                  static_cast<uint32_t>(m_settings_->m_x_axis_color.b * 255.0F),
+                                  static_cast<uint32_t>(m_settings_->m_x_axis_color.a * 255.0F));
+            bl_ctx.setStrokeStyle(x_axis_color);
 
-            Vec2 screenStart = viewport.WorldToScreen({worldMin.x, 0.0f}, camera);
-            Vec2 screenEnd = viewport.WorldToScreen({worldMax.x, 0.0f}, camera);
+            Vec2 screen_start = viewport.WorldToScreen({world_min.x, 0.0F}, camera);
+            Vec2 screen_end = viewport.WorldToScreen({world_max.x, 0.0F}, camera);
 
-            if (std::isfinite(screenStart.x) && std::isfinite(screenStart.y) &&
-                std::isfinite(screenEnd.x) && std::isfinite(screenEnd.y))
-            {
-                bl_ctx.strokeLine(screenStart.x, screenStart.y, screenEnd.x, screenEnd.y);
+            if (std::isfinite(screen_start.x) && std::isfinite(screen_start.y) && std::isfinite(screen_end.x) && std::isfinite(screen_end.y)) {
+                bl_ctx.strokeLine(screen_start.x, screen_start.y, screen_end.x, screen_end.y);
             }
         }
 
         // Y-Axis (x=0)
-        if (0.0f >= worldMin.x && 0.0f <= worldMax.x)
-        {
-            BLRgba32 yAxisColor(
-                static_cast<uint32_t>(m_settings->m_yAxisColor.r * 255.0f),
-                static_cast<uint32_t>(m_settings->m_yAxisColor.g * 255.0f),
-                static_cast<uint32_t>(m_settings->m_yAxisColor.b * 255.0f),
-                static_cast<uint32_t>(m_settings->m_yAxisColor.a * 255.0f));
-            bl_ctx.setStrokeStyle(yAxisColor);
+        if (0.0F >= world_min.x && 0.0F <= world_max.x) {
+            BLRgba32 y_axis_color(static_cast<uint32_t>(m_settings_->m_y_axis_color.r * 255.0F),
+                                  static_cast<uint32_t>(m_settings_->m_y_axis_color.g * 255.0F),
+                                  static_cast<uint32_t>(m_settings_->m_y_axis_color.b * 255.0F),
+                                  static_cast<uint32_t>(m_settings_->m_y_axis_color.a * 255.0F));
+            bl_ctx.setStrokeStyle(y_axis_color);
 
-            Vec2 screenStart = viewport.WorldToScreen({0.0f, worldMin.y}, camera);
-            Vec2 screenEnd = viewport.WorldToScreen({0.0f, worldMax.y}, camera);
+            Vec2 screen_start = viewport.WorldToScreen({0.0F, world_min.y}, camera);
+            Vec2 screen_end = viewport.WorldToScreen({0.0F, world_max.y}, camera);
 
-            if (std::isfinite(screenStart.x) && std::isfinite(screenStart.y) &&
-                std::isfinite(screenEnd.x) && std::isfinite(screenEnd.y))
-            {
-                bl_ctx.strokeLine(screenStart.x, screenStart.y, screenEnd.x, screenEnd.y);
+            if (std::isfinite(screen_start.x) && std::isfinite(screen_start.y) && std::isfinite(screen_end.x) && std::isfinite(screen_end.y)) {
+                bl_ctx.strokeLine(screen_start.x, screen_start.y, screen_end.x, screen_end.y);
             }
         }
-    }
-    catch (const std::exception &e)
-    {
+    } catch (const std::exception& e) {
         std::cerr << "Grid::DrawAxis Exception: " << e.what() << std::endl;
-    }
-    catch (...)
-    {
+    } catch (...) {
         std::cerr << "Grid::DrawAxis: Unknown exception" << std::endl;
     }
 }
 
-void Grid::Render(BLContext &bl_ctx, const Camera &camera, const Viewport &viewport) const
+void Grid::Render(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport) const
 {
-    if (!m_settings || !m_settings->m_visible)
-    {
+    if (!m_settings_ || !m_settings_->m_visible) {
         return;
     }
 
-    try
-    {
+    try {
         bl_ctx.save();
 
         // Draw background if needed
-        if (m_settings->m_backgroundColor.a > 0.0f)
-        {
-            bl_ctx.setFillStyle(BLRgba32(
-                static_cast<uint32_t>(m_settings->m_backgroundColor.r * 255.0f),
-                static_cast<uint32_t>(m_settings->m_backgroundColor.g * 255.0f),
-                static_cast<uint32_t>(m_settings->m_backgroundColor.b * 255.0f),
-                static_cast<uint32_t>(m_settings->m_backgroundColor.a * 255.0f)));
+        if (m_settings_->m_background_color.a > 0.0f) {
+            bl_ctx.setFillStyle(BLRgba32(static_cast<uint32_t>(m_settings_->m_background_color.r * 255.0F),
+                                         static_cast<uint32_t>(m_settings_->m_background_color.g * 255.0F),
+                                         static_cast<uint32_t>(m_settings_->m_background_color.b * 255.0F),
+                                         static_cast<uint32_t>(m_settings_->m_background_color.a * 255.0F)));
             bl_ctx.fillRect(BLRect(0, 0, viewport.GetWidth(), viewport.GetHeight()));
         }
 
         // Calculate effective grid spacings based on current zoom
-        float effMajorSpacing_world, effMinorSpacing_world;
-        int effectiveSubdivisionsToConsider;
-        GetEffectiveSpacings(camera, effMajorSpacing_world, effMinorSpacing_world, effectiveSubdivisionsToConsider);
+        float eff_major_spacing_world = 0.0F;
+        float eff_minor_spacing_world = 0.0F;
+        int effective_subdivisions_to_consider = 0;
+        GetEffectiveSpacings(camera, eff_major_spacing_world, eff_minor_spacing_world, effective_subdivisions_to_consider);
 
         // Get visible world bounds
-        Vec2 worldMin, worldMax;
-        GetVisibleWorldBounds(camera, viewport, worldMin, worldMax);
+        Vec2 world_min, world_max;
+        GetVisibleWorldBounds(camera, viewport, world_min, world_max);
 
-        const float currentZoom = camera.GetZoom();
-        const float minPxStepSetting = std::max(1.0f, m_settings->m_minPixelStep);
+        const float kCurrentZoom = camera.GetZoom();
+        const float kMinPxStepSetting = std::max(1.0F, m_settings_->m_min_pixel_step);
 
         // --- Culling Decision based on minPixelStep (APPLIES TO BOTH DYNAMIC AND STATIC) ---
-        bool actuallyDrawMajorElements = false;
-        float majorScreenPx = effMajorSpacing_world * currentZoom;
-        if (majorScreenPx >= minPxStepSetting)
-        {
-            actuallyDrawMajorElements = true;
+        bool actually_draw_major_elements = false;
+        float const kMajorScreenPx = eff_major_spacing_world * kCurrentZoom;
+        if (kMajorScreenPx >= kMinPxStepSetting) {
+            actually_draw_major_elements = true;
         }
 
-        bool actuallyDrawMinorElements = false;
-        if (effectiveSubdivisionsToConsider > 1)
-        { // Only consider minors if there are any
-            float minorScreenPx = effMinorSpacing_world * currentZoom;
+        bool actually_draw_minor_elements = false;
+        if (effective_subdivisions_to_consider > 1) {  // Only consider minors if there are any
+            float const kMinorScreenPx = eff_minor_spacing_world * kCurrentZoom;
             // Check that minor spacing is meaningfully different from major,
             // and that minor spacing itself is positive.
-            if (minorScreenPx >= minPxStepSetting &&
-                std::abs(effMajorSpacing_world - effMinorSpacing_world) > 1e-6f &&
-                effMinorSpacing_world > 1e-6f)
-            {
-                actuallyDrawMinorElements = true;
+            if (kMinorScreenPx >= kMinPxStepSetting && std::abs(eff_major_spacing_world - eff_minor_spacing_world) > 1e-6f && eff_minor_spacing_world > 1e-6f) {
+                actually_draw_minor_elements = true;
             }
         }
 
         // If major lines are hidden, it doesn't make sense to show minor lines either
-        if (!actuallyDrawMajorElements)
-        {
-            actuallyDrawMinorElements = false;
+        if (!actually_draw_major_elements) {
+            actually_draw_minor_elements = false;
         }
 
         // Clip to viewport bounds
         bl_ctx.clipToRect(BLRect(0, 0, viewport.GetWidth(), viewport.GetHeight()));
 
         // Draw grid elements
-        if (m_settings->m_style == GridStyle::LINES)
-        {
-            DrawLinesStyle(bl_ctx, camera, viewport, effMajorSpacing_world, effMinorSpacing_world, worldMin, worldMax, actuallyDrawMajorElements, actuallyDrawMinorElements);
-        }
-        else if (m_settings->m_style == GridStyle::DOTS)
-        {
-            DrawDotsStyle(bl_ctx, camera, viewport, effMajorSpacing_world, effMinorSpacing_world, worldMin, worldMax, actuallyDrawMajorElements, actuallyDrawMinorElements);
+        if (m_settings_->m_style == GridStyle::kLines) {
+            DrawLinesStyle(bl_ctx, camera, viewport, eff_major_spacing_world, eff_minor_spacing_world, world_min, world_max, actually_draw_major_elements, actually_draw_minor_elements);
+        } else if (m_settings_->m_style == GridStyle::kDots) {
+            DrawDotsStyle(bl_ctx, camera, viewport, eff_major_spacing_world, eff_minor_spacing_world, world_min, world_max, actually_draw_major_elements, actually_draw_minor_elements);
         }
 
         // Draw axis lines (independent of grid culling)
-        DrawAxis(bl_ctx, camera, viewport, worldMin, worldMax);
+        DrawAxis(bl_ctx, camera, viewport, world_min, world_max);
 
         // Create measurement readout info
         GridMeasurementInfo info;
-        info.majorSpacing = effMajorSpacing_world;
-        info.minorSpacing = effMinorSpacing_world;
-        info.subdivisions = effectiveSubdivisionsToConsider;
-        info.majorLinesVisible = actuallyDrawMajorElements;
-        info.minorLinesVisible = actuallyDrawMinorElements;
-        info.unitString = m_settings->UnitToString();
+        info.major_spacing = eff_major_spacing_world;
+        info.minor_spacing = eff_minor_spacing_world;
+        info.subdivisions = effective_subdivisions_to_consider;
+        info.major_lines_visible = actually_draw_major_elements;
+        info.minor_lines_visible = actually_draw_minor_elements;
+        info.unit_string = m_settings_->UnitToString();
 
         // Draw measurement readout
         RenderMeasurementReadout(bl_ctx, viewport, info);
 
         bl_ctx.restore();
-    }
-    catch (const std::exception &e)
-    {
+    } catch (const std::exception& e) {
         std::cerr << "Grid::Render Exception: " << e.what() << std::endl;
-        try
-        {
+        try {
             bl_ctx.restore();
+        } catch (...) {
         }
-        catch (...)
-        {
-        }
-    }
-    catch (...)
-    {
+    } catch (...) {
         std::cerr << "Grid::Render: Unknown exception" << std::endl;
-        try
-        {
+        try {
             bl_ctx.restore();
-        }
-        catch (...)
-        {
+        } catch (...) {
         }
     }
 }
 
 // InitializeFont method implementation
-void Grid::InitializeFont() const
+void Grid::initializeFont() const
 {
-    if (m_fontInitialized)
+    if (m_font_initialized_) {
         return;
+    }
 
-    m_fontInitialized = true; // Attempt initialization
-    m_fontLoadFailed = false; // Assume success initially
+    m_font_initialized_ = true;   // Attempt initialization
+    m_font_load_failed_ = false;  // Assume success initially
 
     // Use the project's font file
-    BLResult faceResult = m_fontFace.createFromFile("assets/fonts/Nippo-Light.otf");
-    if (faceResult != BL_SUCCESS)
-    {
+    BLResult face_result = m_font_face_.createFromFile("assets/fonts/Nippo-Light.otf");
+    if (face_result != BL_SUCCESS) {
         // Try with full path if relative path fails
         // TODO: Consider making this path more robust or configurable
-        faceResult = m_fontFace.createFromFile("/home/seanj/Documents/Code/XZZPCB-Layer-Viewer/assets/fonts/Nippo-Light.otf");
-        if (faceResult != BL_SUCCESS)
-        {
-            m_fontLoadFailed = true;
-            std::cerr << "Failed to load font file for grid measurement readout. Error code: " << faceResult << std::endl;
+        face_result = m_font_face_.createFromFile("/home/seanj/Documents/Code/XZZPCB-Layer-Viewer/assets/fonts/Nippo-Light.otf");
+        if (face_result != BL_SUCCESS) {
+            m_font_load_failed_ = true;
+            std::cerr << "Failed to load font file for grid measurement readout. Error code: " << face_result << std::endl;
             return;
         }
     }
 
-    BLResult fontResult = m_font.createFromFace(m_fontFace, 11.0f);
-    if (fontResult != BL_SUCCESS)
-    {
-        m_fontLoadFailed = true;
-        std::cerr << "Failed to create font from face for grid measurement readout. Error code: " << fontResult << std::endl;
+    BLResult font_result = m_font_.createFromFace(m_font_face_, 11.0F);
+    if (font_result != BL_SUCCESS) {
+        m_font_load_failed_ = true;
+        std::cerr << "Failed to create font from face for grid measurement readout. Error code: " << font_result << std::endl;
     }
 }

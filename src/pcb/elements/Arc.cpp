@@ -1,17 +1,20 @@
 #include "pcb/elements/Arc.hpp"
-#include "pcb/elements/Component.hpp" // For parentComponent, though not used by Arc
-#include "utils/GeometryUtils.hpp"    // For geometric calculations
-#include <blend2d.h>
+
+#include <algorithm>  // For std::min/max if needed for tighter bbox
+#include <cmath>      // For M_PI, cos, sin, etc.
 #include <sstream>
-#include <cmath>     // For M_PI, cos, sin, etc.
-#include <algorithm> // For std::min/max if needed for tighter bbox
+
+#include <blend2d.h>
+
+#include "pcb/elements/Component.hpp"  // For parentComponent, though not used by Arc
+#include "utils/GeometryUtils.hpp"     // For geometric calculations
 
 // Define M_PI if not already available from cmath on all compilers/platforms
 #ifndef M_PI
-#define M_PI 3.14159265358979323846
+#    define M_PI 3.14159265358979323846
 #endif
 
-BLRect Arc::getBoundingBox(const Component * /*parentComponent*/) const
+BLRect Arc::getBoundingBox(const Component* /*parentComponent*/) const
 {
     // Placeholder: More complex for an arc. For now, a box around the circle containing the arc.
     // A tighter bounding box would consider start/end angles.
@@ -21,7 +24,7 @@ BLRect Arc::getBoundingBox(const Component * /*parentComponent*/) const
     // TODO: Implement a tighter bounding box calculation based on start/end angles.
 }
 
-bool Arc::isHit(const Vec2 &worldMousePos, float tolerance, const Component * /*parentComponent*/) const
+bool Arc::isHit(const Vec2& worldMousePos, float tolerance, const Component* /*parentComponent*/) const
 {
     // 1. Radial Check
     double dx = worldMousePos.x - cx;
@@ -34,28 +37,26 @@ bool Arc::isHit(const Vec2 &worldMousePos, float tolerance, const Component * /*
     if (r_inner < 0)
         r_inner = 0;
 
-    if (dist_sq > r_outer * r_outer || dist_sq < r_inner * r_inner)
-    {
-        return false; // Point is outside the annulus (ring shape of the arc)
+    if (dist_sq > r_outer * r_outer || dist_sq < r_inner * r_inner) {
+        return false;  // Point is outside the annulus (ring shape of the arc)
     }
 
     // 2. Angular Check
     // Calculate the angle of the mouse position relative to the arc's center
     // std::atan2 returns radians in the range [-PI, PI]
-    double angle_rad_mouse_to_center = std::atan2(dy, dx);
+    double const kAngleRadMouseToCenter = std::atan2(dy, dx);
 
-    // GeometryUtils::isAngleBetween expects start and end angles in degrees
+    // geometry_utils::::isAngleBetween expects start and end angles in degrees
     // and the query angle in radians.
-    return GeometryUtils::isAngleBetween(angle_rad_mouse_to_center, start_angle, end_angle);
+    return geometry_utils::IsAngleBetween(kAngleRadMouseToCenter, start_angle, end_angle);
 }
 
-std::string Arc::getInfo(const Component * /*parentComponent*/) const
+std::string Arc::getInfo(const Component* /*parentComponent*/) const
 {
     std::ostringstream oss;
     oss << "Arc\n";
     oss << "Layer: " << m_layerId << "\n";
-    if (m_netId != -1)
-    {
+    if (m_netId != -1) {
         oss << "Net ID: " << m_netId << "\n";
     }
     oss << "Center: (" << cx << ", " << cy << ")\n";

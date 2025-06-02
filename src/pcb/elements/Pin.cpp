@@ -1,22 +1,24 @@
 #include "pcb/elements/Pin.hpp"
-#include "pcb/elements/Component.hpp" // For parentComponent context
-#include "utils/GeometryUtils.hpp"    // For GeometryUtils functions
-#include <blend2d.h>
+
+#include <algorithm>  // For std::max, std::min if needed for specific shape calcs
+#include <cmath>      // For M_PI, cos, sin, abs, sqrt
 #include <sstream>
-#include <cmath>     // For M_PI, cos, sin, abs, sqrt
-#include <variant>   // For std::visit
-#include <algorithm> // For std::max, std::min if needed for specific shape calcs
+#include <variant>  // For std::visit
+
+#include <blend2d.h>
+
+#include "pcb/elements/Component.hpp"  // For parentComponent context
+#include "utils/GeometryUtils.hpp"     // For geometry_utils:: functions
 
 // Define M_PI if not already available
 #ifndef M_PI
-#define M_PI 3.14159265358979323846
+#    define M_PI 3.14159265358979323846
 #endif
 
 // Helper to get world coordinates of pin center and its world rotation
-std::pair<Vec2, double> Pin::GetPinWorldTransform(const Pin &pin, const Component *parentComponent)
+std::pair<Vec2, double> Pin::GetPinWorldTransform(const Pin& pin, const Component* parentComponent)
 {
-    if (!parentComponent)
-    {
+    if (!parentComponent) {
         // Pin is standalone or context is missing. Treat its coords as world, 0 rotation.
         return {{pin.x_coord, pin.y_coord}, pin.rotation};
     }
@@ -29,7 +31,7 @@ std::pair<Vec2, double> Pin::GetPinWorldTransform(const Pin &pin, const Componen
     double world_x = parentComponent->center_x + (pin.x_coord * cos_comp - pin.y_coord * sin_comp);
     double world_y = parentComponent->center_y + (pin.x_coord * sin_comp + pin.y_coord * cos_comp);
 
-    double world_rotation_deg = parentComponent->rotation + pin.rotation; // Pin's own rotation is added to component's
+    double world_rotation_deg = parentComponent->rotation + pin.rotation;  // Pin's own rotation is added to component's
     world_rotation_deg = fmod(world_rotation_deg, 360.0);
     if (world_rotation_deg < 0)
         world_rotation_deg += 360.0;
@@ -37,15 +39,14 @@ std::pair<Vec2, double> Pin::GetPinWorldTransform(const Pin &pin, const Componen
     return {{world_x, world_y}, world_rotation_deg};
 }
 
-BLRect Pin::getBoundingBox(const Component *parentComponent) const
+BLRect Pin::getBoundingBox(const Component* parentComponent) const
 {
     auto [world_pin_center, pin_world_rotation_deg] = Pin::GetPinWorldTransform(*this, parentComponent);
 
     double w_pin, h_pin;
-    std::tie(w_pin, h_pin) = Pin::getDimensionsFromShape(pad_shape); // Use static helper for base dimensions
+    std::tie(w_pin, h_pin) = Pin::getDimensionsFromShape(pad_shape);  // Use static helper for base dimensions
 
-    if (w_pin == 0 || h_pin == 0)
-    {
+    if (w_pin == 0 || h_pin == 0) {
         return BLRect(world_pin_center.x, world_pin_center.y, 0, 0);
     }
 
@@ -57,15 +58,13 @@ BLRect Pin::getBoundingBox(const Component *parentComponent) const
     double sin_rot = std::sin(angle_rad);
 
     // Coordinates of the 4 corners of the pin's unrotated bounding box, centered at its local origin
-    Vec2 local_corners[4] = {
-        {-half_w, -half_h}, {half_w, -half_h}, {half_w, half_h}, {-half_w, half_h}};
+    Vec2 local_corners[4] = {{-half_w, -half_h}, {half_w, -half_h}, {half_w, half_h}, {-half_w, half_h}};
 
     double min_x_world = world_pin_center.x, max_x_world = world_pin_center.x;
     double min_y_world = world_pin_center.y, max_y_world = world_pin_center.y;
     bool first = true;
 
-    for (int i = 0; i < 4; ++i)
-    {
+    for (int i = 0; i < 4; ++i) {
         // Rotate corner relative to pin's local origin
         double rotated_x = local_corners[i].x * cos_rot - local_corners[i].y * sin_rot;
         double rotated_y = local_corners[i].x * sin_rot + local_corners[i].y * cos_rot;
@@ -74,14 +73,11 @@ BLRect Pin::getBoundingBox(const Component *parentComponent) const
         double corner_world_x = rotated_x + world_pin_center.x;
         double corner_world_y = rotated_y + world_pin_center.y;
 
-        if (first)
-        {
+        if (first) {
             min_x_world = max_x_world = corner_world_x;
             min_y_world = max_y_world = corner_world_y;
             first = false;
-        }
-        else
-        {
+        } else {
             min_x_world = std::min(min_x_world, corner_world_x);
             max_x_world = std::max(max_x_world, corner_world_x);
             min_y_world = std::min(min_y_world, corner_world_y);
@@ -91,107 +87,87 @@ BLRect Pin::getBoundingBox(const Component *parentComponent) const
     return BLRect(min_x_world, min_y_world, max_x_world - min_x_world, max_y_world - min_y_world);
 }
 
-bool Pin::isHit(const Vec2 &worldMousePos, float tolerance, const Component *parentComponent) const
+bool Pin::isHit(const Vec2& worldMousePos, float tolerance, const Component* parentComponent) const
 {
     // Pin coordinates are now global, no need for component transformation
     Vec2 pin_center(x_coord, y_coord);
 
     // Transform mouse position relative to pin center
-    Vec2 mouse_relative_to_pin = {
-        worldMousePos.x - pin_center.x,
-        worldMousePos.y - pin_center.y};
+    Vec2 mouse_relative_to_pin = {worldMousePos.x - pin_center.x, worldMousePos.y - pin_center.y};
 
     // Now, check if mouse_relative_to_pin is within the pin's specific geometry
     return std::visit(
-        [&](const auto &shape) -> bool
-        {
+        [&](const auto& shape) -> bool {
             using T = std::decay_t<decltype(shape)>;
-            if constexpr (std::is_same_v<T, CirclePad>)
-            {
-                return GeometryUtils::isPointInCircle(
-                    mouse_relative_to_pin,
-                    Vec2(0, 0), // Circle is centered at pin coordinates
-                    shape.radius,
-                    static_cast<double>(tolerance));
-            }
-            else if constexpr (std::is_same_v<T, RectanglePad>)
-            {
+            if constexpr (std::is_same_v<T, CirclePad>) {
+                return geometry_utils::IsPointInCircle(mouse_relative_to_pin,
+                                                       Vec2(0, 0),  // Circle is centered at pin coordinates
+                                                       shape.radius,
+                                                       static_cast<double>(tolerance));
+            } else if constexpr (std::is_same_v<T, RectanglePad>) {
                 double half_w = shape.width / 2.0 + tolerance;
                 double half_h = shape.height / 2.0 + tolerance;
                 // Rectangle is centered at pin coordinates
-                return (std::abs(mouse_relative_to_pin.x) <= half_w &&
-                        std::abs(mouse_relative_to_pin.y) <= half_h);
-            }
-            else if constexpr (std::is_same_v<T, CapsulePad>)
-            {
+                return (std::abs(mouse_relative_to_pin.x) <= half_w && std::abs(mouse_relative_to_pin.y) <= half_h);
+            } else if constexpr (std::is_same_v<T, CapsulePad>) {
                 // For CapsulePad, we need to check if the point is near the capsule shape
                 // The capsule is centered at pin coordinates
                 double radius = shape.height / 2.0;
                 double rect_length = shape.width - shape.height;
 
-                if (rect_length <= 0)
-                {
+                if (rect_length <= 0) {
                     // If no rectangular part, treat as a circle
-                    return GeometryUtils::isPointInCircle(
-                        mouse_relative_to_pin,
-                        Vec2(0, 0),
-                        radius,
-                        static_cast<double>(tolerance));
+                    return geometry_utils::IsPointInCircle(mouse_relative_to_pin, Vec2(0, 0), radius, static_cast<double>(tolerance));
                 }
 
                 // Check if point is in the rectangular part
                 double half_rect_length = rect_length / 2.0;
-                if (std::abs(mouse_relative_to_pin.x) <= half_rect_length)
-                {
+                if (std::abs(mouse_relative_to_pin.x) <= half_rect_length) {
                     return std::abs(mouse_relative_to_pin.y) <= radius + tolerance;
                 }
 
                 // Check if point is in either end cap
                 double dx = std::abs(mouse_relative_to_pin.x) - half_rect_length;
                 if (dx <= 0)
-                    return false; // Already checked in rectangular part
+                    return false;  // Already checked in rectangular part
 
-                Vec2 cap_center(
-                    mouse_relative_to_pin.x > 0 ? half_rect_length : -half_rect_length,
-                    0);
-                return GeometryUtils::isPointInCircle(
-                    mouse_relative_to_pin,
-                    cap_center,
-                    radius,
-                    static_cast<double>(tolerance));
+                Vec2 cap_center(mouse_relative_to_pin.x > 0 ? half_rect_length : -half_rect_length, 0);
+                return geometry_utils::IsPointInCircle(mouse_relative_to_pin, cap_center, radius, static_cast<double>(tolerance));
             }
             return false;
         },
         pad_shape);
 }
 
-std::string Pin::getInfo(const Component *parentComponent) const
+std::string Pin::getInfo(const Component* parentComponent) const
 {
     std::ostringstream oss;
     oss << "Pin: " << pin_name << "\n";
     auto [world_pos, world_rot] = Pin::GetPinWorldTransform(*this, parentComponent);
 
-    if (parentComponent)
-    {
+    if (parentComponent) {
         oss << "Component: " << parentComponent->reference_designator << "\n";
         oss << "Local Pin Anchor: (" << x_coord << ", " << y_coord << ") Rot: " << rotation << " deg\n";
     }
     oss << "World Pin Center: (" << world_pos.x << ", " << world_pos.y << ") World Rot: " << world_rot << " deg\n";
     oss << "Layer: " << m_layerId << ", Side: " << side << "\n";
-    if (m_netId != -1)
-    {
+    if (m_netId != -1) {
         oss << "Net ID: " << m_netId << "\n";
     }
     oss << "Shape: ";
-    std::visit([&oss](const auto &s)
-               {
-        using T = std::decay_t<decltype(s)>;
-        if constexpr (std::is_same_v<T, CirclePad>) oss << "Circle (R=" << s.radius << ")";
-        else if constexpr (std::is_same_v<T, RectanglePad>) oss << "Rect (W=" << s.width << ", H=" << s.height << ")";
-        else if constexpr (std::is_same_v<T, CapsulePad>) oss << "Capsule (W=" << s.width << ", H=" << s.height << ")"; }, pad_shape);
+    std::visit(
+        [&oss](const auto& s) {
+            using T = std::decay_t<decltype(s)>;
+            if constexpr (std::is_same_v<T, CirclePad>)
+                oss << "Circle (R=" << s.radius << ")";
+            else if constexpr (std::is_same_v<T, RectanglePad>)
+                oss << "Rect (W=" << s.width << ", H=" << s.height << ")";
+            else if constexpr (std::is_same_v<T, CapsulePad>)
+                oss << "Capsule (W=" << s.width << ", H=" << s.height << ")";
+        },
+        pad_shape);
     oss << "\nOrientation: " << getOrientationName();
-    if (!diode_reading.empty())
-    {
+    if (!diode_reading.empty()) {
         oss << "\nDiode: " << diode_reading;
     }
     return oss.str();

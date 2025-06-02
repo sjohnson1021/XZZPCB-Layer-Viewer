@@ -1,45 +1,54 @@
 #include "StringUtils.hpp"
-#include <algorithm> // For std::remove_if for Trim
-#include <cctype>    // For std::isspace for Trim
 
-namespace StringUtils {
+#include <algorithm>  // For std::remove_if for Trim
+#include <cctype>     // For std::isspace for Trim
+#include <cstddef>
+#include <string>
+#include <utility>
 
-std::string ReplaceAll(std::string str, const std::string& from, const std::string& to) {
+
+namespace string_utils
+{
+// Function to trim leading whitespace
+std::string Ltrim(std::string str)
+{
+    str.erase(str.begin(), std::find_if(str.begin(), str.end(), [](unsigned char chr) { return !std::isspace(chr); }));
+    return str;
+}
+
+// Function to trim trailing whitespace
+std::string Rtrim(std::string str)
+{
+    str.erase(std::find_if(str.rbegin(), str.rend(), [](unsigned char chr) { return !std::isspace(chr); }).base(), str.end());
+    return str;
+}
+
+
+std::string ReplaceAll(std::string str, const std::string& src, const std::string& dst)
+{
     size_t start_pos = 0;
-    while((start_pos = str.find(from, start_pos)) != std::string::npos) {
-        str.replace(start_pos, from.length(), to);
-        start_pos += to.length(); // Handles cases where 'to' is a substring of 'from'
+    while ((start_pos = str.find(src, start_pos)) != std::string::npos) {
+        str.replace(start_pos, src.length(), dst);
+        start_pos += dst.length();  // Handles cases where 'dst' is a substring of 'src'
     }
     return str;
 }
 
-std::string EscapeNewlines(const std::string& input) {
+std::string EscapeNewlines(const std::string& input)
+{
     return ReplaceAll(input, "\n", "\\n");
 }
 
-std::string UnescapeNewlines(const std::string& input) {
+std::string UnescapeNewlines(const std::string& input)
+{
     return ReplaceAll(input, "\\n", "\n");
 }
 
-// Function to trim leading whitespace
-static std::string ltrim(std::string s) {
-    s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) {
-        return !std::isspace(ch);
-    }));
-    return s;
-}
-
-// Function to trim trailing whitespace
-static std::string rtrim(std::string s) {
-    s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) {
-        return !std::isspace(ch);
-    }).base(), s.end());
-    return s;
-}
 
 // Function to trim both leading and trailing whitespace
-std::string Trim(const std::string& str) {
-    return ltrim(rtrim(str));
+std::string Trim(std::string str)
+{
+    return Ltrim(Rtrim(std::move(str)));
 }
 
-} // namespace StringUtils 
+}  // namespace string_utils

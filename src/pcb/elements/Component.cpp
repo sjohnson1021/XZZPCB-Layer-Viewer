@@ -1,10 +1,12 @@
 #include "pcb/elements/Component.hpp"
-#include "utils/Vec2.hpp"          // For Vec2, though indirectly used via BLRect/BLBox
-#include "utils/GeometryUtils.hpp" // Might be useful for future, more complex component shapes
-#include "utils/Constants.hpp"     // For BL_M_PI
-#include <sstream>                 // For getInfo
-#include <cmath>                   // For cos, sin, fmod
-#include <algorithm>               // For std::min, std::max
+
+#include <algorithm>  // For std::min, std::max
+#include <cmath>      // For cos, sin, fmod
+#include <sstream>    // For getInfo
+
+#include "utils/Constants.hpp"      // For kPi
+#include "utils/GeometryUtils.hpp"  // Might be useful for future, more complex component shapes
+#include "utils/Vec2.hpp"           // For Vec2, though indirectly used via BLRect/BLBox
 
 // Other includes for Component methods if necessary
 
@@ -78,7 +80,7 @@
 //     double half_h = height / 2.0;
 
 //     // Convert rotation to radians
-//     double angle_rad = rotation * (BL_M_PI / 180.0);
+//     double angle_rad = rotation * (kPi / 180.0);
 //     double cos_rot = std::cos(angle_rad);
 //     double sin_rot = std::sin(angle_rad);
 

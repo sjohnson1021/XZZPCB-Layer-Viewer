@@ -7,7 +7,7 @@ struct Vec2
 {
     double x, y;
 
-    Vec2(double x_ = 0.0, double y_ = 0.0) : x(x_), y(y_) {}
+    Vec2(double x = 0.0, double y = 0.0) : x(x), y(y) {}
 
     Vec2 operator-(const Vec2 &other) const { return {x - other.x, y - other.y}; }
     Vec2 operator+(const Vec2 &other) const { return {x + other.x, y + other.y}; }
@@ -38,19 +38,21 @@ struct Vec2
         return *this;
     }
     Vec2 operator-() const { return {-x, -y}; } // Unary minus
-    double dot(const Vec2 &other) const { return x * other.x + y * other.y; }
-    double lengthSquared() const { return x * x + y * y; }
-    double length() const
+    [[nodiscard]] double Dot(const Vec2& other) const { return (x * other.x) + (y * other.y); }
+    [[nodiscard]] double LengthSquared() const { return (x * x) + (y * y); }
+    [[nodiscard]] double Length() const
     {
-        if (lengthSquared() == 0.0)
-            return 0.0; // Avoid sqrt(0) issues if any, though 0.0 is fine.
-        return std::sqrt(lengthSquared());
+        if (LengthSquared() == 0.0) {
+            return 0.0;  // Avoid sqrt(0) issues if any, though 0.0 is fine.
+        }
+        return std::sqrt(LengthSquared());
     }
-    Vec2 normalized() const
+    [[nodiscard]] Vec2 Normalized() const
     {
-        double l = length();
-        if (l == 0)
+        double const l = Length();
+        if (l == 0) {
             return {0, 0};
+        }
         return {x / l, y / l};
     }
 };

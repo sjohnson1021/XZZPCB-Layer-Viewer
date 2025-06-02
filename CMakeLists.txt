@@ -14,6 +14,14 @@ find_package(OpenGL REQUIRED)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+# set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# # Use clang-tidy only if available and desired
+# find_program(CLANG_TIDY_EXE NAMES "clang-tidy")
+
+# if(CLANG_TIDY_EXE)
+#   set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")
+# endif()
+
 
 # --- Dependencies (using Git Submodules in external/) ---
 
@@ -41,7 +49,7 @@ add_library(imgui STATIC
     ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
     ${IMGUI_DIR}/backends/imgui_impl_sdlrenderer3.cpp
 )
-target_include_directories(imgui PUBLIC 
+target_include_directories(imgui PUBLIC
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
 )
@@ -53,7 +61,7 @@ target_include_directories(imgui PUBLIC
 set_property(TARGET imgui PROPERTY CXX_STANDARD 11) # ImGui uses C++11, some backends might need it explicitly
 target_link_libraries(imgui PUBLIC SDL3::SDL3)
 
-# --- Add source directory --- 
+# --- Add source directory ---
 # This will process src/CMakeLists.txt, which should define the main executable
 # and link against libraries built in src/core, src/render, etc.
 add_subdirectory(src)
@@ -73,4 +81,4 @@ endif()
 # if(BUILD_TESTS)
 #     enable_testing()
 #     add_subdirectory(tests)
-# endif() 
+# endif()

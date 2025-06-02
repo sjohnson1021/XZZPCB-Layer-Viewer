@@ -1,193 +1,174 @@
-#include "utils/ColorUtils.hpp"
-#include <algorithm> // For std::min, std::max
+#include "ColorUtils.hpp"
+
+#include <algorithm>  // For std::min, std::max
+#include <cmath>
+#include <cstdint>
 // cmath is already included via ColorUtils.hpp for std::fmod, std::fabs, std::round
 
-namespace ColorUtils
+namespace color_utils
 {
-    struct HsvColor
-    {
-        float h;    // Hue: 0-360 degrees
-        float s;    // Saturation: 0-1
-        float v;    // Value: 0-1
-        uint32_t a; // Alpha: 0-255 (preserved from original RGBA)
-    };
 
-    void BLRgba32ToHsv(const BLRgba32 &rgba, HsvColor &hsv)
-    {
-        float r_ = static_cast<float>(rgba.r()) / 255.0f;
-        float g_ = static_cast<float>(rgba.g()) / 255.0f;
-        float b_ = static_cast<float>(rgba.b()) / 255.0f;
-        hsv.a = rgba.a(); // Preserve alpha
+void BLRgba32ToHsv(const BLRgba32& rgba, HsvColor& hsv)
+{
+    float red = static_cast<float>(rgba.r()) / 255.0F;
+    float green = static_cast<float>(rgba.g()) / 255.0F;
+    float blue = static_cast<float>(rgba.b()) / 255.0F;
+    hsv.alpha = rgba.a();  // Preserve alpha
 
-        float cmax = std::max({r_, g_, b_});
-        float cmin = std::min({r_, g_, b_});
-        float delta = cmax - cmin;
+    float cmax = std::max({red, green, blue});
+    float cmin = std::min({red, green, blue});
+    float const kDelta = cmax - cmin;
 
-        // Hue calculation
-        if (delta == 0.0f)
-        {
-            hsv.h = 0.0f; // Achromatic, hue is undefined, conventionally 0
-        }
-        else if (cmax == r_)
-        {
-            hsv.h = 60.0f * std::fmod(((g_ - b_) / delta), 6.0f);
-        }
-        else if (cmax == g_)
-        {
-            hsv.h = 60.0f * (((b_ - r_) / delta) + 2.0f);
-        }
-        else
-        { // cmax == b_
-            hsv.h = 60.0f * (((r_ - g_) / delta) + 4.0f);
-        }
-
-        if (hsv.h < 0.0f)
-        {
-            hsv.h += 360.0f;
-        }
-        if (hsv.h >= 360.0f)
-        { // Ensure h is strictly < 360
-            hsv.h = std::fmod(hsv.h, 360.0f);
-        }
-
-        // Saturation calculation
-        hsv.s = (cmax == 0.0f) ? 0.0f : (delta / cmax);
-
-        // Value calculation
-        hsv.v = cmax;
+    // Hue calculation
+    if (kDelta == 0.0F) {
+        hsv.hue = 0.0F;  // Achromatic, hue is undefined, conventionally 0
+    } else if (cmax == red) {
+        hsv.hue = 60.0F * std::fmod(((green - blue) / kDelta), 6.0F);
+    } else if (cmax == green) {
+        hsv.hue = 60.0F * (((blue - red) / kDelta) + 2.0F);
+    } else {  // cmax == blue
+        hsv.hue = 60.0F * (((red - green) / kDelta) + 4.0F);
     }
 
-    void HsvToBLRgba32(const HsvColor &hsv_color, BLRgba32 &rgba)
-    {
-        float r_f, g_f, b_f; // r,g,b in [0,1]
+    if (hsv.hue < 0.0F) {
+        hsv.hue += 360.0F;
+    }
+    if (hsv.hue >= 360.0F) {  // Ensure h is strictly < 360
+        hsv.hue = std::fmod(hsv.hue, 360.0F);
+    }
 
-        float h = hsv_color.h; // Expected to be [0, 360)
-        float s = hsv_color.s; // 0-1
-        float v = hsv_color.v; // 0-1
+    // Saturation calculation
+    hsv.sat = (cmax == 0.0F) ? 0.0F : (kDelta / cmax);
 
-        if (s == 0.0f)
-        { // Achromatic (grey)
-            r_f = g_f = b_f = v;
-        }
-        else
-        {
-            float h_sector = h / 60.0f;
-            // if (h_sector >= 6.0f) h_sector = 0.0f; // Should not happen if h is [0, 360)
-            int i = static_cast<int>(h_sector);
-            float f = h_sector - i; // Fractional part
+    // Value calculation
+    hsv.val = cmax;
+}
 
-            float p = v * (1.0f - s);
-            float q = v * (1.0f - (s * f));
-            float t = v * (1.0f - (s * (1.0f - f)));
+void HsvToBLRgba32(const HsvColor& hsv_color, BLRgba32& rgba)
+{
+    float red_f = NAN;
+    float green_f = NAN;
+    float blue_f = NAN;  // RGB components in [0,1] range
 
-            switch (i)
-            {
+    float const kHue = hsv_color.hue;  // Expected to be [0, 360)
+    float const kSat = hsv_color.sat;  // 0-1
+    float const kVal = hsv_color.val;  // 0-1
+
+    if (kSat == 0.0F) {  // Achromatic (grey)
+        red_f = green_f = blue_f = kVal;
+    } else {
+        float const kHueSector = kHue / 60.0F;
+        // if (hue_sector >= 6.0f) hue_sector = 0.0f; // Should not happen if hue is [0, 360)
+        int const kSectorIndex = static_cast<int>(kHueSector);
+        float const kFraction = kHueSector - kSectorIndex;  // Fractional part
+
+        float const kPrimary = kVal * (1.0F - kSat);
+        float const kSecondary = kVal * (1.0F - (kSat * kFraction));
+        float const kTertiary = kVal * (1.0F - (kSat * (1.0F - kFraction)));
+
+        switch (kSectorIndex) {
             case 0:
-                r_f = v;
-                g_f = t;
-                b_f = p;
+                red_f = kVal;
+                green_f = kTertiary;
+                blue_f = kPrimary;
                 break;
             case 1:
-                r_f = q;
-                g_f = v;
-                b_f = p;
+                red_f = kSecondary;
+                green_f = kVal;
+                blue_f = kPrimary;
                 break;
             case 2:
-                r_f = p;
-                g_f = v;
-                b_f = t;
+                red_f = kPrimary;
+                green_f = kVal;
+                blue_f = kTertiary;
                 break;
             case 3:
-                r_f = p;
-                g_f = q;
-                b_f = v;
+                red_f = kPrimary;
+                green_f = kSecondary;
+                blue_f = kVal;
                 break;
             case 4:
-                r_f = t;
-                g_f = p;
-                b_f = v;
+                red_f = kTertiary;
+                green_f = kPrimary;
+                blue_f = kVal;
                 break;
             case 5:
             default:
-                r_f = v;
-                g_f = p;
-                b_f = q;
-                break; // Handles sector 5 and h_sector close to 6.0
-            }
+                red_f = kVal;
+                green_f = kPrimary;
+                blue_f = kSecondary;
+                break;  // Handles sector 5 and hue_sector close to 6.0
         }
-
-        rgba.reset(
-            static_cast<uint32_t>(std::round(r_f * 255.0f)),
-            static_cast<uint32_t>(std::round(g_f * 255.0f)),
-            static_cast<uint32_t>(std::round(b_f * 255.0f)),
-            hsv_color.a // Use preserved alpha
-        );
     }
 
-    void HSVtoRGB(float h, float s, float v, float &r, float &g, float &b)
-    {
-        BLRgba32 rgba;
-        HsvColor hsv;
-        hsv.h = h;
-        hsv.s = s;
-        hsv.v = v;
-        HsvToBLRgba32(hsv, rgba);
-        r = rgba.r();
-        g = rgba.g();
-        b = rgba.b();
+    rgba.reset(static_cast<uint32_t>(std::round(red_f * 255.0F)),
+               static_cast<uint32_t>(std::round(green_f * 255.0F)),
+               static_cast<uint32_t>(std::round(blue_f * 255.0F)),
+               hsv_color.alpha  // Use preserved alpha
+    );
+}
+
+// extern void HSVtoRGB(float hue, float sat, float val, float& red, float& green, float& blue)
+// {
+//     BLRgba32 rgba;
+//     HsvColor hsv;
+//     hsv.hue = hue;
+//     hsv.sat = sat;
+//     hsv.val = val;
+//     HsvToBLRgba32(hsv, rgba);
+//     red = rgba.r();
+//     green = rgba.g();
+//     blue = rgba.b();
+// }
+
+// extern void RGBtoHSV(float red, float green, float blue, float& hue, float& saturation, float& value)
+// {
+//     BLRgba32 rgba;
+//     rgba.reset(red, green, blue, 255);
+//     HsvColor hsv;
+//     BLRgba32ToHsv(rgba, hsv);
+//     hue = hsv.hue;
+//     saturation = hsv.sat;
+//     value = hsv.val;
+// }
+BLRgba32 ShiftHue(BLRgba32 base_color, float hue_shift_degrees)
+{
+    HsvColor hsv;
+    BLRgba32ToHsv(base_color, hsv);
+
+    hsv.hue = std::fmod(hsv.hue + hue_shift_degrees, 360.0F);
+    if (hsv.hue < 0.0F) {
+        hsv.hue += 360.0F;
+    }
+    // Ensure h is strictly less than 360 for HsvToBLRgba32Internal's h_sector calculation
+    if (hsv.hue >= 360.0F) {
+        hsv.hue = 0.0F;
     }
 
-    void RGBtoHSV(float r, float g, float b, float &h, float &s, float &v)
-    {
-        BLRgba32 rgba;
-        rgba.reset(r, g, b, 255);
-        HsvColor hsv;
-        BLRgba32ToHsv(rgba, hsv);
-        h = hsv.h;
-        s = hsv.s;
-        v = hsv.v;
-    }
-    BLRgba32 ShiftHue(BLRgba32 baseColor, float hueShiftDegrees)
-    {
-        HsvColor hsv;
-        BLRgba32ToHsv(baseColor, hsv);
+    BLRgba32 result_color;
+    HsvToBLRgba32(hsv, result_color);
+    return result_color;
+}
 
-        hsv.h = std::fmod(hsv.h + hueShiftDegrees, 360.0f);
-        if (hsv.h < 0.0f)
-        {
-            hsv.h += 360.0f;
-        }
-        // Ensure h is strictly less than 360 for HsvToBLRgba32Internal's h_sector calculation
-        if (hsv.h >= 360.0f)
-        {
-            hsv.h = 0.0f;
-        }
-
-        BLRgba32 resultColor;
-        HsvToBLRgba32(hsv, resultColor);
-        return resultColor;
+BLRgba32 GenerateLayerColor(int layer_index, int total_layers, BLRgba32 base_color, float hue_step_degrees)
+{
+    if (total_layers <= 0) {
+        return base_color;  // Should not happen
     }
 
-    BLRgba32 GenerateLayerColor(int layerIndex, int totalLayers, BLRgba32 baseColor, float hueStepDegrees)
-    {
-        if (totalLayers <= 0)
-            return baseColor; // Should not happen
-
-        float actualHueStep = hueStepDegrees;
-        if (actualHueStep == 0.0f && totalLayers > 0)
-        {
-            actualHueStep = 360.0f / static_cast<float>(totalLayers);
-        }
-        // Ensure hueStep doesn't make colors repeat too quickly if many layers
-        // For example, ensure it's at least 15-20 degrees if possible, or cap total shift
-        if (totalLayers > 1 && actualHueStep * totalLayers > 360.f)
-        {
-            // If the steps would exceed 360 significantly, cap the step or distribute evenly.
-            // For simplicity, let's just use the calculated even distribution if hueStepDegrees was 0.
-            // If a specific hueStepDegrees was given, we respect it.
-        }
-
-        return ShiftHue(baseColor, static_cast<float>(layerIndex) * actualHueStep);
+    float actual_hue_step = hue_step_degrees;
+    if (actual_hue_step == 0.0F && total_layers > 0) {
+        actual_hue_step = 360.0F / static_cast<float>(total_layers);
+    }
+    // Ensure hueStep doesn't make colors repeat too quickly if many layers
+    // For example, ensure it's at least 15-20 degrees if possible, or cap total shift
+    if (total_layers > 1 && actual_hue_step * total_layers > 360.F) {
+        // If the steps would exceed 360 significantly, cap the step or distribute evenly.
+        // For simplicity, let's just use the calculated even distribution if hueStepDegrees was 0.
+        // If a specific hueStepDegrees was given, we respect it.
     }
 
-} // namespace ColorUtils
+    return ShiftHue(base_color, static_cast<float>(layer_index) * actual_hue_step);
+}
+
+}  // namespace color_utils

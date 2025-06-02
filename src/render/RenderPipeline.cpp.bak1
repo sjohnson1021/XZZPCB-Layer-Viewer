@@ -116,7 +116,7 @@ void RenderPipeline::RenderBoard(
 
     bl_ctx.translate(viewport.GetWidth() / 2.0, viewport.GetHeight() / 2.0);
     bl_ctx.scale(camera.GetZoom());
-    bl_ctx.rotate(camera.GetRotation() * (BL_M_PI / 180.0));
+    bl_ctx.rotate(camera.GetRotation() * (kPi / 180.0));
     // Apply camera translation: Use positive Y component of camera position
     // to make board's Y movement consistent with grid's Y movement relative to camera world Y changes.
     bl_ctx.translate(-camera.GetPosition().x, camera.GetPosition().y);
@@ -271,8 +271,8 @@ void RenderPipeline::RenderArc(BLContext &bl_ctx, const Arc &arc)
         thickness = 0.05; // Default thickness.
     }
     bl_ctx.setStrokeWidth(thickness);
-    double start_angle_rad = arc.GetStartAngle() * (BL_M_PI / 180.0);
-    double end_angle_rad = arc.GetEndAngle() * (BL_M_PI / 180.0);
+    double start_angle_rad = arc.GetStartAngle() * (kPi / 180.0);
+    double end_angle_rad = arc.GetEndAngle() * (kPi / 180.0);
     double sweep_angle_rad = end_angle_rad - start_angle_rad;
 
     // Ensure sweep_angle_rad is positive and represents the CCW sweep from start to end.
@@ -280,7 +280,7 @@ void RenderPipeline::RenderArc(BLContext &bl_ctx, const Arc &arc)
     // sweep_angle_rad would be negative. Adding 2*PI makes it positive for CCW direction.
     if (sweep_angle_rad < 0)
     {
-        sweep_angle_rad += 2 * BL_M_PI;
+        sweep_angle_rad += 2 * kPi;
     }
     // If the absolute value of sweep_angle_rad is very close to 2*PI or 0, it might indicate a full circle or no arc.
     // This logic assumes a proper arc segment is intended.
@@ -383,7 +383,7 @@ void RenderPipeline::RenderTextLabel(BLContext &bl_ctx, const TextLabel &textLab
     {
         bl_ctx.save();
         bl_ctx.translate(textLabel.x, textLabel.y);
-        bl_ctx.rotate(textLabel.rotation * (BL_M_PI / 180.0));
+        bl_ctx.rotate(textLabel.rotation * (kPi / 180.0));
         // Using fillUtf8Text as per Blend2D documentation
         bl_ctx.fillUtf8Text(BLPoint(0, 0), font, textLabel.text_content.c_str());
         bl_ctx.restore();
@@ -484,13 +484,13 @@ void RenderPipeline::RenderPin(BLContext &bl_ctx, const Pin &pin, const Componen
 
             bool is_effectively_vertical = false;
             if (pin.orientation == PinOrientation::Vertical) {
-                if (shape.width > shape.height) { 
+                if (shape.width > shape.height) {
                     total_width = shape.height;
                     total_height = shape.width;
                 }
                 is_effectively_vertical = true;
             } else if (pin.orientation == PinOrientation::Horizontal) {
-                 if (shape.height > shape.width) { 
+                 if (shape.height > shape.width) {
                     total_width = shape.height;
                     total_height = shape.width;
                 }
@@ -500,26 +500,26 @@ void RenderPipeline::RenderPin(BLContext &bl_ctx, const Pin &pin, const Componen
             }
 
             BLPath path;
-            if (is_effectively_vertical) { 
+            if (is_effectively_vertical) {
                 double radius = total_width / 2.0;
                 double rect_height = total_height - total_width;
-                if (rect_height < 0) rect_height = 0; 
+                if (rect_height < 0) rect_height = 0;
 
                 path.moveTo(local_pin_center_x - radius, local_pin_center_y - rect_height / 2.0);
-                path.arcTo(local_pin_center_x, local_pin_center_y - rect_height / 2.0, radius, radius, BL_M_PI, BL_M_PI);
+                path.arcTo(local_pin_center_x, local_pin_center_y - rect_height / 2.0, radius, radius, kPi, kPi);
                 path.lineTo(local_pin_center_x + radius, local_pin_center_y + rect_height / 2.0);
-                path.arcTo(local_pin_center_x, local_pin_center_y + rect_height / 2.0, radius, radius, 0.0, BL_M_PI);
+                path.arcTo(local_pin_center_x, local_pin_center_y + rect_height / 2.0, radius, radius, 0.0, kPi);
                 path.close();
-            } else { 
+            } else {
                 double radius = total_height / 2.0;
                 double rect_width = total_width - total_height;
                 if (rect_width < 0) rect_width = 0;
 
                 path.moveTo(local_pin_center_x - rect_width / 2.0, local_pin_center_y - radius);
                 path.lineTo(local_pin_center_x + rect_width / 2.0, local_pin_center_y - radius);
-                path.arcTo(local_pin_center_x + rect_width / 2.0, local_pin_center_y, radius, radius, -BL_M_PI / 2.0, BL_M_PI);
+                path.arcTo(local_pin_center_x + rect_width / 2.0, local_pin_center_y, radius, radius, -kPi / 2.0, kPi);
                 path.lineTo(local_pin_center_x - rect_width / 2.0, local_pin_center_y + radius);
-                path.arcTo(local_pin_center_x - rect_width / 2.0, local_pin_center_y, radius, radius, BL_M_PI / 2.0, BL_M_PI);
+                path.arcTo(local_pin_center_x - rect_width / 2.0, local_pin_center_y, radius, radius, kPi / 2.0, kPi);
                 path.close();
             }
             bl_ctx.fillPath(path);
