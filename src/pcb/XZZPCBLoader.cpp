@@ -444,9 +444,9 @@ void PcbLoader::parseArc(const char* data, Board& board)
     int net_id = static_cast<int>(readLE<int32_t>(data + 28));
     // int32_t unknown_arc_val = readLE<int32_t>(data + 32); // If needed
 
-    Arc arc(layer_id, cx, cy, radius, start_angle, end_angle);
+    Arc arc(layer_id, Vec2(cx, cy), radius, start_angle, end_angle, thickness);
     arc.thickness = thickness;
-    arc.setNetId(net_id);  // Changed from arc.net_id
+    arc.SetNetId(net_id);  // Changed from arc.net_id
     board.addArc(arc);
 }
 
@@ -538,8 +538,8 @@ void PcbLoader::parseTrace(const char* data, Board& board)
     double width = static_cast<double>(readLE<int32_t>(data + 20)) / xyscale;  // Assuming 'scale' is width
     int net_id = static_cast<int>(readLE<uint32_t>(data + 24));
 
-    Trace trace(layer_id, x1, y1, x2, y2, width);
-    trace.setNetId(net_id);  // Changed from trace.net_id
+    Trace trace(layer_id, Vec2(x1, y1), Vec2(x2, y2), width);
+    trace.SetNetId(net_id);  // Changed from trace.net_id
     board.addTrace(trace);
 }
 
@@ -581,8 +581,11 @@ void PcbLoader::parseTextLabel(const char* data, Board& board, bool isStandalone
     uint32_t text_len = readLE<uint32_t>(data + 24);
     std::string text_content = readCB2312String(data + 28, text_len);
 
-    TextLabel label(text_content, x, y, layer_id, font_size);
-    label.scale = scale_factor;  // From 'divider' field, which likely was a scale.
+    TextLabel label = {text_content, Vec2(x, y), layer_id, font_size, scale_factor};
+    // label.text_content = text_content;
+    // label.coords = lbl_coords;
+    // label.layer_id, font_size;
+    // label.scale = scale_factor;  // From 'divider' field, which likely was a scale. -> Now passed in constructor
     // Standalone text labels from type 0x06 don't have visibility/ps06_flag in the same way as component text.
     // These are set to defaults in TextLabel.hpp.
 
@@ -837,9 +840,9 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
                 }
 
                 // TextLabel label(lbl_text, lbl_x, lbl_y, lbl_layer, lbl_font_size); // OLD
-                auto label_ptr = std::make_unique<TextLabel>(lbl_text, lbl_x, lbl_y, lbl_layer, lbl_font_size);
-                label_ptr->scale = lbl_font_scale;
-                label_ptr->setVisible(visible);
+                auto label_ptr = std::make_unique<TextLabel>(lbl_text, Vec2(lbl_x, lbl_y), lbl_layer, lbl_font_size, lbl_font_scale);
+                // label_ptr->scale = lbl_font_scale; // Now passed in constructor
+                label_ptr->SetVisible(visible);
                 label_ptr->font_family = font_family_str;  // Make sure to set all relevant fields
                 label_ptr->rotation = rotation_degrees;    // Make sure to set all relevant fields
                 // label.ps06_flag = ps06_flag; // ps06_flag is removed
@@ -949,7 +952,7 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
                 CirclePad default_circle_pad_shape_obj;     // x_offset and y_offset default to 0.0
                 default_circle_pad_shape_obj.radius = 0.1;  // Set the radius
                 PadShape default_pad_shape = default_circle_pad_shape_obj;
-                auto current_pin_object_ptr = std::make_unique<Pin>(pin_x, pin_y, pin_name_str, default_pad_shape, Board::kPinsLayer);  // Renamed pin_ptr to current_pin_object_ptr
+                auto current_pin_object_ptr = std::make_unique<Pin>(Vec2(pin_x, pin_y), pin_name_str, default_pad_shape, Board::kPinsLayer);  // Renamed pin_ptr to current_pin_object_ptr
 
 #ifdef ENABLE_PCB_LOADER_LOGGING
                 std::cout << "[PcbLoader LOG]         Starting Pin Outline parsing. pin_offset_iterator=" << pin_offset_iterator << std::endl;
@@ -1042,12 +1045,12 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
                     // This implies net_id is always at a fixed position from the end.
                     if (subBlockSize >= net_id_footer_size)  // ps08_footer_size is 8 bytes (u32 type + u32 value)
                     {
-                        current_pin_object_ptr->setNetId(static_cast<int>(readLE<uint32_t>(subBlockDataStart + subBlockSize - net_id_footer_size)));
+                        current_pin_object_ptr->SetNetId(static_cast<int>(readLE<uint32_t>(subBlockDataStart + subBlockSize - net_id_footer_size)));
                     } else {
-                        current_pin_object_ptr->setNetId(-1);  // Default if footer is too small
+                        current_pin_object_ptr->SetNetId(-1);  // Default if footer is too small
                     }
                 } else {
-                    current_pin_object_ptr->setNetId(-1);  // Default if no valid type found
+                    current_pin_object_ptr->SetNetId(-1);  // Default if no valid type found
                 }
 
                 // Diode readings association
@@ -1062,7 +1065,7 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
 #endif
                         }
                     }
-                } else if (diodeReadingsType_ == 2 && current_pin_object_ptr->getNetId() != -1) {
+                } else if (diodeReadingsType_ == 2 && current_pin_object_ptr->GetNetId() != -1) {
                     // This requires nets to be parsed first or a two-pass approach for diode readings.
                     // For now, this part of diode reading might not work perfectly if nets aren't ready.
                     // A placeholder for net name lookup:
@@ -1074,11 +1077,11 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
 
                 // Update initial_width, initial_height, long_side, short_side from the final pad_shape
                 // This also needs to use current_pin_object_ptr:
-                std::tie(current_pin_object_ptr->width, current_pin_object_ptr->height) = Pin::getDimensionsFromShape(current_pin_object_ptr->pad_shape);
+                std::tie(current_pin_object_ptr->width, current_pin_object_ptr->height) = Pin::GetDimensionsFromShape(current_pin_object_ptr->pad_shape);
                 current_pin_object_ptr->long_side = std::max(current_pin_object_ptr->width, current_pin_object_ptr->height);
                 current_pin_object_ptr->short_side = std::min(current_pin_object_ptr->width, current_pin_object_ptr->height);
-                current_pin_object_ptr->x_coord = pin_x;
-                current_pin_object_ptr->y_coord = pin_y;
+                current_pin_object_ptr->coords.x_ax = pin_x;
+                current_pin_object_ptr->coords.y_ax = pin_y;
                 comp.pins.push_back(std::move(current_pin_object_ptr));  // Changed pin_ptr to current_pin_object_ptr
 #ifdef ENABLE_PCB_LOADER_LOGGING
                 std::cout << "[PcbLoader LOG]         Added pin. Total pins for \"" << comp.reference_designator << "\": " << comp.pins.size() << std::endl;
@@ -1144,10 +1147,10 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
         double max_coord_y = std::numeric_limits<double>::lowest();
 
         for (const auto& seg : comp.graphical_elements) {
-            min_coord_x = std::min({min_coord_x, seg.start.x, seg.end.x});
-            max_coord_x = std::max({max_coord_x, seg.start.x, seg.end.x});
-            min_coord_y = std::min({min_coord_y, seg.start.y, seg.end.y});
-            max_coord_y = std::max({max_coord_y, seg.start.y, seg.end.y});
+            min_coord_x = std::min({min_coord_x, seg.start.x_ax, seg.end.x_ax});
+            max_coord_x = std::max({max_coord_x, seg.start.x_ax, seg.end.x_ax});
+            min_coord_y = std::min({min_coord_y, seg.start.y_ax, seg.end.y_ax});
+            max_coord_y = std::max({max_coord_y, seg.start.y_ax, seg.end.y_ax});
         }
 
         // Check if any coordinates were actually processed (i.e., bounds are not still at initial extreme values)

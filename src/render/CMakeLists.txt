@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.21)
+
 set(LIBRARY_NAME render_lib)
 
 # Source files
@@ -28,4 +30,4 @@ target_link_libraries(${LIBRARY_NAME}
 )
 
 # Ensure PcbRenderer.hpp and other headers can be found by users of this library
-# The PUBLIC include directory above should handle this. 
+# The PUBLIC include directory above should handle this.

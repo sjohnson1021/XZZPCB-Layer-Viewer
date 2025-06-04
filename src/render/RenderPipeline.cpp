@@ -133,7 +133,7 @@ BLMatrix2D RenderPipeline::ViewMatrix(BLContext& bl_ctx, const Camera& camera, c
     view_matrix.translate(viewport.GetWidth() / 2.0, viewport.GetHeight() / 2.0);
     view_matrix.scale(camera.GetZoom());
     view_matrix.rotate(-camera.GetRotation() * (static_cast<float>(kPi) / 180.0f));
-    view_matrix.translate(-camera.GetPosition().x, -camera.GetPosition().y);
+    view_matrix.translate(-camera.GetPosition().x_ax, -camera.GetPosition().y_ax);
     return view_matrix;
 }
 
@@ -189,15 +189,15 @@ BLRect RenderPipeline::GetVisibleWorldBounds(const Camera& camera, const Viewpor
 
     for (int i = 1; i < 4; ++i) {
         Vec2 world_corner = viewport.ScreenToWorld(screen_corners[i], camera);
-        world_min.x = std::min(world_min.x, world_corner.x);
-        world_min.y = std::min(world_min.y, world_corner.y);
-        world_max.x = std::max(world_max.x, world_corner.x);
-        world_max.y = std::max(world_max.y, world_corner.y);
+        world_min.x_ax = std::min(world_min.x_ax, world_corner.x_ax);
+        world_min.y_ax = std::min(world_min.y_ax, world_corner.y_ax);
+        world_max.x_ax = std::max(world_max.x_ax, world_corner.x_ax);
+        world_max.y_ax = std::max(world_max.y_ax, world_corner.y_ax);
     }
     // world_min and world_max are now correctly in Y-Down world coordinates.
     // BLRect expects (x, y, width, height) where x,y is the top-left corner.
     // In Y-Down, the top-left y is world_min.y.
-    return BLRect(world_min.x, world_min.y, world_max.x - world_min.x, world_max.y - world_min.y);
+    return BLRect(world_min.x_ax, world_min.y_ax, world_max.x_ax - world_min.x_ax, world_max.y_ax - world_min.y_ax);
 }
 
 void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Camera& camera, const Viewport& viewport, const BLRect& world_view_rect)
@@ -265,10 +265,10 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
 
             const auto& elements_on_layer = layer_elements_it->second;
             for (const auto& element_ptr : elements_on_layer) {
-                if (!element_ptr || !element_ptr->isVisible())
+                if (!element_ptr || !element_ptr->IsVisible())
                     continue;
 
-                ElementType current_type = element_ptr->getElementType();
+                ElementType current_type = element_ptr->GetElementType();
                 bool type_matches = false;
                 if (target_element_types.empty()) {  // Empty means render all types on the matched layer(s)
                     type_matches = true;
@@ -283,17 +283,17 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                 if (!type_matches)
                     continue;
 
-                bool is_selected_net = (selected_net_id != -1 && element_ptr->getNetId() == selected_net_id);
+                bool is_selected_net = (selected_net_id != -1 && element_ptr->GetNetId() == selected_net_id);
                 BLRgba32 current_element_color;
 
                 if (is_selected_net) {
                     current_element_color = highlight_color;
-                } else if (current_type == ElementType::COMPONENT) {  // Components handled separately unless forced here
+                } else if (current_type == ElementType::kComponent) {  // Components handled separately unless forced here
                     current_element_color = component_theme_color;
-                } else if (current_type == ElementType::PIN) {  // Standalone pins
+                } else if (current_type == ElementType::kPin) {  // Standalone pins
                     current_element_color = pin_theme_color;
                 } else if (is_silkscreen_pass &&
-                           (current_type == ElementType::TEXT_LABEL || current_type == ElementType::ARC || current_type == ElementType::TRACE)) {  // Example: Text, Arcs, Traces on silkscreen
+                           (current_type == ElementType::kTextLabel || current_type == ElementType::kArc || current_type == ElementType::kTrace)) {  // Example: Text, Arcs, Traces on silkscreen
                     current_element_color = silkscreen_theme_color;
                 } else if (is_board_outline_pass) {  // Example: Board outlines
                     current_element_color = board_edges_theme_color;
@@ -305,11 +305,11 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                 bl_ctx.setFillStyle(current_element_color);
 
                 switch (current_type) {
-                    case ElementType::TRACE:
+                    case ElementType::kTrace:
                         if (auto trace = dynamic_cast<const Trace*>(element_ptr.get())) {
                             BLStrokeCap start_cap = BL_STROKE_CAP_ROUND;
                             BLStrokeCap end_cap = BL_STROKE_CAP_ROUND;
-                            int net_id = trace->getNetId();
+                            int net_id = trace->GetNetId();
                             BLPoint current_start_point(trace->GetStartX(), trace->GetStartY());
                             BLPoint current_end_point(trace->GetEndX(), trace->GetEndY());
                             auto net_it = trace_cap_manager.find(net_id);
@@ -327,12 +327,12 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                             trace_cap_manager[net_id] = {current_start_point, current_end_point};
                         }
                         break;
-                    case ElementType::ARC:
+                    case ElementType::kArc:
                         if (auto arc = dynamic_cast<const Arc*>(element_ptr.get())) {
                             RenderArc(bl_ctx, *arc, world_view_rect);
                         }
                         break;
-                    case ElementType::VIA:
+                    case ElementType::kVia:
                         if (auto via = dynamic_cast<const Via*>(element_ptr.get())) {
                             BLRgba32 via_color_from;
                             BLRgba32 via_color_to;
@@ -346,11 +346,11 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                             RenderVia(bl_ctx, *via, board, world_view_rect, via_color_from, via_color_to);
                         }
                         break;
-                    case ElementType::COMPONENT:
+                    case ElementType::kComponent:
                         // Components are rendered in their own dedicated pass to ensure correct order and specific handling.
                         // This case in the general lambda might be skipped or only for very specific scenarios.
                         break;
-                    case ElementType::PIN:  // For standalone pins not part of a component drawn via RenderComponent
+                    case ElementType::kPin:  // For standalone pins not part of a component drawn via RenderComponent
                         if (auto pin = dynamic_cast<const Pin*>(element_ptr.get())) {
                             // A pin element here implies it's not part of a kCompLayer component.
                             // It needs a parent_component for GetPinWorldTransform if its coords are local.
@@ -358,7 +358,7 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                             // RenderPin(bl_ctx, *pin, nullptr, current_element_color);
                         }
                         break;
-                    case ElementType::TEXT_LABEL:
+                    case ElementType::kTextLabel:
                         if (auto text_label = dynamic_cast<const TextLabel*>(element_ptr.get())) {
                             RenderTextLabel(bl_ctx, *text_label, current_element_color);  // Color already set
                         }
@@ -375,7 +375,7 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
     for (int i = 1; i <= 16; ++i)
         copper_layer_ids.push_back(i);
     std::map<int, std::pair<BLPoint, BLPoint>> trace_cap_manager_copper;
-    executeRenderPass(copper_layer_ids, {ElementType::TRACE, ElementType::ARC, ElementType::VIA}, trace_cap_manager_copper);
+    executeRenderPass(copper_layer_ids, {ElementType::kTrace, ElementType::kArc, ElementType::kVia}, trace_cap_manager_copper);
 
     std::map<int, std::pair<BLPoint, BLPoint>> trace_cap_manager_silkscreen;  // If traces/arcs can be on silkscreen
     executeRenderPass({kSilkscreenLayerId}, {} /* all types */, trace_cap_manager_silkscreen, true /*is_silkscreen_pass*/);
@@ -384,7 +384,7 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
     for (int i = 18; i <= 27; ++i)
         other_trace_layer_ids.push_back(i);
     std::map<int, std::pair<BLPoint, BLPoint>> trace_cap_manager_other;
-    executeRenderPass(other_trace_layer_ids, {ElementType::TRACE, ElementType::ARC, ElementType::VIA}, trace_cap_manager_other);
+    executeRenderPass(other_trace_layer_ids, {ElementType::kTrace, ElementType::kArc, ElementType::kVia}, trace_cap_manager_other);
 
     std::map<int, std::pair<BLPoint, BLPoint>> trace_cap_manager_board_outline;  // If traces/arcs can be on board outline
     executeRenderPass({kBoardOutlineLayerId}, {} /* all types */, trace_cap_manager_board_outline, false, true /*is_board_outline_pass*/);
@@ -395,7 +395,7 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
     if (comp_layer_elements_it != board.m_elementsByLayer.end()) {
         const auto& elements_on_comp_layer = comp_layer_elements_it->second;
         for (const auto& element_ptr : elements_on_comp_layer) {
-            if (element_ptr && element_ptr->getElementType() == ElementType::COMPONENT && element_ptr->isVisible()) {
+            if (element_ptr && element_ptr->GetElementType() == ElementType::kComponent && element_ptr->IsVisible()) {
                 Component* component_to_render = dynamic_cast<Component*>(element_ptr.get());
                 if (!component_to_render) {
                     continue;
@@ -404,7 +404,7 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                 bool current_component_is_selected = false;  // Initialize for this specific component
                 if (selected_net_id != -1) {
                     for (const auto& pin_ptr : component_to_render->pins) {
-                        if (pin_ptr && pin_ptr->getNetId() == selected_net_id) {
+                        if (pin_ptr && pin_ptr->GetNetId() == selected_net_id) {
                             current_component_is_selected = true;
                             break;
                         }
@@ -510,7 +510,7 @@ void RenderPipeline::RenderArc(BLContext& bl_ctx, const Arc& arc, const BLRect& 
     // More precise AABB would involve checking arc extents, but this is usually sufficient for culling.
     double radius = arc.GetRadius();
     double thickness_for_aabb = arc.GetThickness() > 0 ? arc.GetThickness() : kDefaultArcThickness;
-    BLRect arc_aabb(arc.GetCX() - radius - thickness_for_aabb / 2.0, arc.GetCY() - radius - thickness_for_aabb / 2.0, 2 * radius + thickness_for_aabb, 2 * radius + thickness_for_aabb);
+    BLRect arc_aabb(arc.GetCenterX() - radius - thickness_for_aabb / 2.0, arc.GetCenterY() - radius - thickness_for_aabb / 2.0, 2 * radius + thickness_for_aabb, 2 * radius + thickness_for_aabb);
 
     if (!AreRectsIntersecting(arc_aabb, world_view_rect)) {
         return;  // Cull this arc
@@ -536,7 +536,7 @@ void RenderPipeline::RenderArc(BLContext& bl_ctx, const Arc& arc, const BLRect& 
     // This logic assumes a proper arc segment is intended.
 
     BLPath path;
-    path.arcTo(arc.GetCX(), arc.GetCY(), arc.GetRadius(), arc.GetRadius(), start_angle_rad, sweep_angle_rad);
+    path.arcTo(arc.GetCenterX(), arc.GetCenterY(), arc.GetRadius(), arc.GetRadius(), start_angle_rad, sweep_angle_rad);
     bl_ctx.strokePath(path);
 }
 
@@ -625,16 +625,16 @@ void RenderPipeline::RenderComponent(BLContext& bl_ctx,
     BLRgba32 pin_standard_theme_color = theme_color_cache.count(BoardDataManager::ColorType::kPin) ? theme_color_cache.at(BoardDataManager::ColorType::kPin)
                                                                                                    : BLRgba32(0xFFAAAAAA);  // Consistent pin theme fallback (from RenderBoard)
     for (const auto& pin_ptr : component.pins) {
-        if (pin_ptr && pin_ptr->isVisible()) {
-            bool is_pin_selected_net = (selected_net_id != -1 && pin_ptr->getNetId() == selected_net_id);
+        if (pin_ptr && pin_ptr->IsVisible()) {
+            bool is_pin_selected_net = (selected_net_id != -1 && pin_ptr->GetNetId() == selected_net_id);
             RenderPin(bl_ctx, *pin_ptr, &component, is_pin_selected_net ? pin_highlight_for_pins : pin_standard_theme_color);
         }
     }
 
     // Render Component-Specific Text Labels
     for (const auto& label_ptr : component.text_labels) {
-        if (label_ptr && label_ptr->isVisible()) {
-            const Board::LayerInfo* element_layer = board.GetLayerById(label_ptr->getLayerId());
+        if (label_ptr && label_ptr->IsVisible()) {
+            const Board::LayerInfo* element_layer = board.GetLayerById(label_ptr->GetLayerId());
             if (element_layer && element_layer->IsVisible()) {
                 // Use layer_id_color_cache for text labels on specific layers
                 BLRgba32 text_color = theme_color_cache.count(BoardDataManager::ColorType::kSilkscreen) ? theme_color_cache.at(BoardDataManager::ColorType::kSilkscreen) : BLRgba32(0xFFFFFFFF);
@@ -646,7 +646,7 @@ void RenderPipeline::RenderComponent(BLContext& bl_ctx,
 
 void RenderPipeline::RenderTextLabel(BLContext& bl_ctx, const TextLabel& text_label, const BLRgba32& color)
 {
-    if (!text_label.isVisible() || text_label.text_content.empty())  // Ensure isVisible() is used
+    if (!text_label.IsVisible() || text_label.text_content.empty())  // Ensure isVisible() is used
     {
         return;
     }
@@ -702,14 +702,14 @@ void RenderPipeline::RenderTextLabel(BLContext& bl_ctx, const TextLabel& text_la
 
     if (text_label.rotation != 0.0) {
         bl_ctx.save();
-        bl_ctx.translate(text_label.x, text_label.y);
+        bl_ctx.translate(text_label.coords.x_ax, text_label.coords.y_ax);
         bl_ctx.rotate(text_label.rotation * (kPi / 180.0));
         // Using fillUtf8Text as per Blend2D documentation
         bl_ctx.fillUtf8Text(BLPoint(0, 0), font, text_label.text_content.c_str());
         bl_ctx.restore();
     } else {
         // Using fillUtf8Text. Adjusted y for baseline approximation.
-        bl_ctx.fillUtf8Text(BLPoint(text_label.x, text_label.y + text_label.font_size), font, text_label.text_content.c_str());
+        bl_ctx.fillUtf8Text(BLPoint(text_label.coords.x_ax, text_label.coords.y_ax + text_label.font_size), font, text_label.text_content.c_str());
     }
 }
 
@@ -855,9 +855,9 @@ void RenderPipeline::RenderTextLabel(BLContext& bl_ctx, const TextLabel& text_la
 void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* parent_component, const BLRgba32& highlight_color)
 {
     // Get pin dimensions (these are in the pin's local coordinate system)
-    auto [local_width, local_height] = pin.getDimensions();  // Should return dimensions pre-rotation
-    double x_coord = pin.x_coord;
-    double y_coord = pin.y_coord;
+    auto [local_width, local_height] = pin.GetDimensions();  // Should return dimensions pre-rotation
+    double x_coord = pin.coords.x_ax;
+    double y_coord = pin.coords.y_ax;
     double long_side = std::max(local_width, local_height);
     double short_side = std::min(local_width, local_height);
     PinOrientation orientation = pin.orientation;
@@ -876,7 +876,7 @@ void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* 
                 // Assuming shape.radius is the correct local radius.
                 BLCircle circle(x_coord, y_coord, shape.radius);
                 ctx.fillCircle(circle);
-            } else if (orientation == PinOrientation::Vertical) {
+            } else if (orientation == PinOrientation::kVertical) {
                 if constexpr (std::is_same_v<T, RectanglePad>) {
                     BLRect rect(x_coord - long_side / 2.0, y_coord - short_side / 2.0, long_side, short_side);
                     ctx.fillRect(rect);
@@ -885,7 +885,7 @@ void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* 
                     // with the pin's local width and height.
                     renderCapsule(ctx, local_width, local_height, x_coord, y_coord);
                 }
-            } else if (orientation == PinOrientation::Horizontal) {
+            } else if (orientation == PinOrientation::kHorizontal) {
                 if constexpr (std::is_same_v<T, RectanglePad>) {
                     BLRect rect(x_coord - local_height / 2.0, y_coord - local_width / 2.0, local_height, local_width);
                     ctx.fillRect(rect);
@@ -894,7 +894,7 @@ void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* 
                     // with the pin's local width and height.
                     renderCapsule(ctx, local_width, local_height, x_coord, y_coord);
                 }
-            } else if (orientation == PinOrientation::Natural) {
+            } else if (orientation == PinOrientation::kNatural) {
                 if constexpr (std::is_same_v<T, RectanglePad>) {
                     BLRect rect(x_coord - local_width / 2.0, y_coord - local_height / 2.0, local_width, local_height);
                     ctx.fillRect(rect);

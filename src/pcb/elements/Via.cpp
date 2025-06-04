@@ -9,7 +9,7 @@
 #include "pcb/elements/Component.hpp"  // For parentComponent, though not used by Via
 #include "utils/GeometryUtils.hpp"     // For geometric calculations
 
-BLRect Via::getBoundingBox(const Component* /*parentComponent*/) const
+BLRect Via::GetBoundingBox(const Component* /*parentComponent*/) const
 {
     double max_radius = std::max(pad_radius_from, pad_radius_to);
     if (max_radius == 0 && drill_diameter > 0)
@@ -19,7 +19,7 @@ BLRect Via::getBoundingBox(const Component* /*parentComponent*/) const
     return BLRect(x - max_radius, y - max_radius, max_radius * 2, max_radius * 2);
 }
 
-bool Via::isHit(const Vec2& worldMousePos, float tolerance, const Component* /*parentComponent*/) const
+bool Via::IsHit(const Vec2& worldMousePos, float tolerance, const Component* /*parentComponent*/) const
 {
     double max_radius = std::max(pad_radius_from, pad_radius_to);
     if (max_radius == 0 && drill_diameter > 0)
@@ -33,14 +33,14 @@ bool Via::isHit(const Vec2& worldMousePos, float tolerance, const Component* /*p
                                            static_cast<double>(tolerance));
 }
 
-std::string Via::getInfo(const Component* /*parentComponent*/) const
+std::string Via::GetInfo(const Component* /*parentComponent*/) const
 {
     std::ostringstream oss;
     oss << "Via\n";
     oss << "Position: (" << x << ", " << y << ")\n";
-    oss << "Layers: " << layer_from << " to " << layer_to << " (Primary Element Layer: " << m_layerId << ")\n";
-    if (m_netId != -1) {
-        oss << "Net ID: " << m_netId << "\n";
+    oss << "Layers: " << layer_from << " to " << layer_to << " (Primary Element Layer: " << GetLayerId() << ")\n";
+    if (GetNetId() != -1) {
+        oss << "Net ID: " << GetNetId() << "\n";
     }
     oss << "Drill Dia: " << drill_diameter << "\n";
     oss << "Pad From Layer: " << pad_radius_from << ", Pad To Layer: " << pad_radius_to;
@@ -50,7 +50,7 @@ std::string Via::getInfo(const Component* /*parentComponent*/) const
     return oss.str();
 }
 
-void Via::translate(double dx, double dy)
+void Via::Translate(double dx, double dy)
 {
     x += dx;
     y += dy;

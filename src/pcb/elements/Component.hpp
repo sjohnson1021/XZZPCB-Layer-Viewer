@@ -1,9 +1,11 @@
 #pragma once
 
-#include <cmath>    // For std::cos, std::sin
+#include <cmath>  // For std::cos, std::sin
+#include <math.h>
 #include <memory>   // For std::unique_ptr
 #include <sstream>  // For std::stringstream
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <blend2d.h>  // For BLRect
@@ -17,31 +19,31 @@
 
 // Helper struct for line segments (e.g., for silkscreen or courtyard)
 struct LineSegment {
-    Vec2 start;  // Changed from Point2D to Vec2
-    Vec2 end;    // Changed from Point2D to Vec2
+    Vec2 start {};  // Changed from Point2D to Vec2
+    Vec2 end {};    // Changed from Point2D to Vec2
     double thickness = 0.1;
     int layer = 0;  // If segments can be on different layers relative to component
 };
 
 enum class ComponentElementType  // Renamed from ComponentType to avoid conflict if Element has ElementType
 {
-    SMD,
-    ThroughHole,
-    Other
+    kSmd,
+    kThroughHole,
+    kOther
 };
 enum class MountingSide {
-    Top,
-    Bottom,
+    kTop,
+    kBottom,
     // Both // Consider if 'Both' is valid for a single component instance
 };
 
 class Component : public Element  // Now inherits from Element
 {
 public:
-    Component(const std::string& ref_des, const std::string& val, double x, double y, int layer = 0, int net_id = -1)
-        : Element(layer, ElementType::COMPONENT, net_id),  // Call base constructor
-          reference_designator(ref_des),
-          value(val),
+    Component(std::string ref_des, std::string val, double x, double y, int layer = 0, int net_id = -1)
+        : Element(layer, ElementType::kComponent, net_id),  // Call base constructor
+          reference_designator(std::move(ref_des)),
+          value(std::move(val)),
           center_x(x),
           center_y(y)
     {
@@ -49,7 +51,7 @@ public:
 
     // Copy constructor for deep copy
     Component(const Component& other)
-        : Element(other.m_layerId, other.m_type, other.m_netId),  // Initialize Element base
+        : Element(other.GetLayerId(), other.GetElementType(), other.GetNetId()),  // Initialize Element base
           reference_designator(other.reference_designator),
           value(other.value),
           footprint_name(other.footprint_name),
@@ -110,21 +112,21 @@ public:
     double rotation = 0.0;  // Degrees
 
     // We need to add a method to get the center of the component, which is the center of the min and max x an y coordinates of the graphical elements
-    Vec2 getCenter() const
+    [[nodiscard]] Vec2 GetCenter() const
     {
-        double min_x = std::numeric_limits<double>::max();
-        double max_x = std::numeric_limits<double>::min();
-        double min_y = std::numeric_limits<double>::max();
-        double max_y = std::numeric_limits<double>::min();
+        double kMinX = std::numeric_limits<double>::max();
+        double kMaxX = std::numeric_limits<double>::min();
+        double kMinY = std::numeric_limits<double>::max();
+        double kMaxY = std::numeric_limits<double>::min();
 
-        for (const auto& segment : graphical_elements) {
-            min_x = std::min(min_x, segment.start.x);
-            max_x = std::max(max_x, segment.start.x);
-            min_y = std::min(min_y, segment.start.y);
-            max_y = std::max(max_y, segment.start.y);
+        for (const auto segment : graphical_elements) {
+            kMinX = std::min(kMinX, segment.start.x_ax);
+            kMaxX = std::max(kMaxX, segment.start.x_ax);
+            kMinY = std::min(kMinY, segment.start.y_ax);
+            kMaxY = std::max(kMaxY, segment.start.y_ax);
         }
 
-        return Vec2((min_x + max_x) / 2.0, (min_y + max_y) / 2.0);
+        return Vec2((kMinX + kMaxX) / 2.0, (kMinY + kMaxY) / 2.0);
     }
 
     // Component dimensions (as potentially reported by the PCB file or calculated)
@@ -147,50 +149,53 @@ public:
     bool is_connector = false;       // Often has many pins along one or two edges
 
     // Indices of pins located on the primary edges of the pin bounding box
-    std::vector<size_t> left_edge_pin_indices;
-    std::vector<size_t> right_edge_pin_indices;
-    std::vector<size_t> top_edge_pin_indices;
-    std::vector<size_t> bottom_edge_pin_indices;
+    std::vector<size_t> left_edge_pin_indices {};
+    std::vector<size_t> right_edge_pin_indices {};
+    std::vector<size_t> top_edge_pin_indices {};
+    std::vector<size_t> bottom_edge_pin_indices {};
 
     int layer = 0;  // Primary layer the component resides on
-    MountingSide side = MountingSide::Top;
-    ComponentElementType type = ComponentElementType::SMD;  // Renamed enum type
+    MountingSide side = MountingSide::kTop;
+    ComponentElementType type = ComponentElementType::kSmd;  // Renamed enum type
 
-    std::vector<std::unique_ptr<Pin>> pins;               // New
-    std::vector<std::unique_ptr<TextLabel>> text_labels;  // New
-    std::vector<LineSegment> graphical_elements;          // For silkscreen, courtyard, assembly drawings, etc.
+    std::vector<std::unique_ptr<Pin>> pins {};               // New
+    std::vector<std::unique_ptr<TextLabel>> text_labels {};  // New
+    std::vector<LineSegment> graphical_elements {};          // For silkscreen, courtyard, assembly drawings, etc.
 
     // --- Virtual methods similar to Element subclasses (for polymorphism if Components become part of Element hierarchy later) ---
     // Or, these could be non-virtual if Component is always a top-level distinct type.
     // For now, let's assume they might be part of a common interface for inspectable/hittable objects.
-    virtual BLRect getBoundingBox(const Component* parentComponent = nullptr) const override
+    virtual BLRect GetBoundingBox(const Component* parentComponent = nullptr) const override
     {
         // For a component, we don't need the parent component parameter since it is the parent
-        double comp_w = width > 0 ? width : 0.1;
-        double comp_h = height > 0 ? height : 0.1;
-        Vec2 center = getCenter();
-        double comp_cx = center.x;
-        double comp_cy = center.y;
-        double comp_rot_rad = rotation * (kPi / 180.0);
+        double const kCompW = width > 0 ? width : 0.1;
+        double const kCompH = height > 0 ? height : 0.1;
+        Vec2 center = GetCenter();
+        double comp_cx = center.x_ax;
+        double comp_cy = center.y_ax;
+        double comp_rot_rad;
+        comp_rot_rad = rotation * (kPi / 180.0);
         double cos_r = std::cos(comp_rot_rad);
         double sin_r = std::sin(comp_rot_rad);
 
         // Local corners (relative to component's local origin 0,0 before rotation/translation)
-        BLPoint local_corners[4] = {{-comp_w / 2.0, -comp_h / 2.0}, {comp_w / 2.0, -comp_h / 2.0}, {comp_w / 2.0, comp_h / 2.0}, {-comp_w / 2.0, comp_h / 2.0}};
+        BLPoint local_corners[4] = {{-kCompW / 2.0, -kCompH / 2.0}, {kCompW / 2.0, -kCompH / 2.0}, {kCompW / 2.0, kCompH / 2.0}, {-kCompW / 2.0, kCompH / 2.0}};
 
         BLPoint world_corners[4];
         for (int i = 0; i < 4; ++i) {
             // Rotate
-            double rx = local_corners[i].x * cos_r - local_corners[i].y * sin_r;
-            double ry = local_corners[i].x * sin_r + local_corners[i].y * cos_r;
+            double rx = (local_corners[i].x * cos_r) - (local_corners[i].y * sin_r);
+            double ry = (local_corners[i].x * sin_r) + (local_corners[i].y * cos_r);
             // Translate
             world_corners[i].x = rx + comp_cx;
             world_corners[i].y = ry + comp_cy;
         }
 
         // Find min/max of world_corners to form AABB
-        double min_wx = world_corners[0].x, max_wx = world_corners[0].x;
-        double min_wy = world_corners[0].y, max_wy = world_corners[0].y;
+        double min_wx = world_corners[0].x;
+        double max_wx = world_corners[0].x;
+        double min_wy = world_corners[0].y;
+        double max_wy = world_corners[0].y;
         for (int i = 1; i < 4; ++i) {
             min_wx = std::min(min_wx, world_corners[i].x);
             max_wx = std::max(max_wx, world_corners[i].x);
@@ -200,40 +205,43 @@ public:
         return BLRect(min_wx, min_wy, max_wx - min_wx, max_wy - min_wy);
     }
 
-    virtual bool isHit(const Vec2& worldMousePos, float tolerance, const Component* parentComponent = nullptr) const override
+    bool IsHit(const Vec2& world_mouse, float tolerance, const Component* parentComponent = nullptr) const override
     {
         // For a component, we don't need the parent component parameter since it is the parent
-        BLRect bounds = getBoundingBox();
+        BLRect bounds = GetBoundingBox();
 
         // First check if point is within the bounding box (with tolerance)
-        if (worldMousePos.x < bounds.x - tolerance || worldMousePos.x > bounds.x + bounds.w + tolerance || worldMousePos.y < bounds.y - tolerance ||
-            worldMousePos.y > bounds.y + bounds.h + tolerance) {
+        if (world_mouse.x_ax < bounds.x - tolerance || world_mouse.x_ax > bounds.x + bounds.w + tolerance || world_mouse.y_ax < bounds.y - tolerance ||
+            world_mouse.y_ax > bounds.y + bounds.h + tolerance) {
             return false;
         }
 
         // Transform mouse position to component's local space
-        double comp_cx = center_x;
-        double comp_cy = center_y;
-        double comp_rot_rad = -rotation * (kPi / 180.0);  // Negative rotation to transform back
-        double cos_r = std::cos(comp_rot_rad);
-        double sin_r = std::sin(comp_rot_rad);
+        double const kCompCx = center_x;
+        double const kCompCy = center_y;
+        double comp_rot_rad = NAN;
+        comp_rot_rad = -rotation * (kPi / 180.0);  // Negative rotation to transform back
+        double const kCosR = std::cos(comp_rot_rad);
+        double const kSinR = std::sin(comp_rot_rad);
 
         // Translate to origin, rotate, then translate back
-        double local_x = worldMousePos.x - comp_cx;
-        double local_y = worldMousePos.y - comp_cy;
-        double rotated_x = local_x * cos_r - local_y * sin_r;
-        double rotated_y = local_x * sin_r + local_y * cos_r;
+        double local_x = NAN;
+        local_x = world_mouse.x_ax - kCompCx;
+        double local_y = NAN;
+        local_y = world_mouse.y_ax - kCompCy;
+        double const kRotatedX = (local_x * kCosR) - (local_y * kSinR);
+        double const kRotatedY = (local_x * kSinR) + (local_y * kCosR);
 
         // Check if point is within the component's rectangle in local space
-        double half_width = width / 2.0;
-        double half_height = height / 2.0;
-        return rotated_x >= -half_width - tolerance && rotated_x <= half_width + tolerance && rotated_y >= -half_height - tolerance && rotated_y <= half_height + tolerance;
+        double const kHalfWidth = width / 2.0;
+        double const kHalfHeight = height / 2.0;
+        return kRotatedX >= -kHalfWidth - tolerance && kRotatedX <= kHalfWidth + tolerance && kRotatedY >= -kHalfHeight - tolerance && kRotatedY <= kHalfHeight + tolerance;
     }
 
-    virtual std::string getInfo(const Component* parentComponent = nullptr) const override
+    std::string GetInfo(const Component* parentComponent = nullptr) const override
     {
         // For a component, we don't need the parent component parameter since it is the parent
-        std::stringstream ss;
+        std::stringstream ss = {};
         ss << "Component: " << reference_designator << "\n";
         ss << "Value: " << value << "\n";
         ss << "Footprint: " << footprint_name << "\n";
@@ -241,14 +249,14 @@ public:
         ss << "Rotation: " << rotation << "°\n";
         ss << "Size: " << width << " x " << height << "\n";
         ss << "Layer: " << layer << "\n";
-        ss << "Side: " << (side == MountingSide::Top ? "Top" : "Bottom") << "\n";
-        ss << "Type: " << (type == ComponentElementType::SMD ? "SMD" : type == ComponentElementType::ThroughHole ? "Through Hole" : "Other") << "\n";
+        ss << "Side: " << (side == MountingSide::kTop ? "Top" : "Bottom") << "\n";
+        ss << "Type: " << (type == ComponentElementType::kSmd ? "SMD" : type == ComponentElementType::kThroughHole ? "Through Hole" : "Other") << "\n";
         ss << "Pins: " << pins.size() << "\n";
         return ss.str();
     }
 
     // Method to translate the component and its owned elements
-    void translate(double dx, double dy) override
+    void Translate(double dx, double dy) override
     {
         center_x += dx;
         center_y += dy;
@@ -256,21 +264,21 @@ public:
         // Translate all owned elements
         for (auto& pin : pins) {
             if (pin) {
-                pin->translate(dx, dy);
+                pin->Translate(dx, dy);
             }
         }
 
         for (auto& label : text_labels) {
             if (label) {
-                label->translate(dx, dy);
+                label->Translate(dx, dy);
             }
         }
 
         for (auto& segment : graphical_elements) {
-            segment.start.x += dx;
-            segment.start.y += dy;
-            segment.end.x += dx;
-            segment.end.y += dy;
+            segment.start.x_ax += dx;
+            segment.start.y_ax += dy;
+            segment.end.x_ax += dx;
+            segment.end.y_ax += dy;
         }
     }
 };

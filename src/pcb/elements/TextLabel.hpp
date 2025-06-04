@@ -1,8 +1,11 @@
 #pragma once
 
-#include "pcb/elements/Element.hpp" // Include base class
-#include "utils/Vec2.hpp"           // For Vec2
 #include <string>
+#include <utility>
+
+#include "Element.hpp"  // Include base class
+
+#include "utils/Vec2.hpp"  // For Vec2
 // #include <cstdint> // No longer strictly needed
 
 // Enum for text alignment/justification if needed later
@@ -10,41 +13,49 @@
 // enum class TextOrientation { Horizontal, Vertical, Rotated... };
 
 class TextLabel : public Element
-{ // Inherit from Element
+{  // Inherit from Element
 public:
-    TextLabel(const std::string &content, double pos_x, double pos_y, int layer_id, double font_size_val,
-              double scale_val = 1.0, double rotation_val = 0.0, const std::string &font_family_val = "", int net_id_val = -1) // Net ID typically -1 for text
-        : Element(layer_id, ElementType::TEXT_LABEL, net_id_val),                                                              // Call base constructor
-          text_content(content), x(pos_x), y(pos_y), font_size(font_size_val),
-          scale(scale_val), rotation(rotation_val), font_family(font_family_val)
+    TextLabel(std::string content,
+              Vec2 coords,
+              int layer_id,
+              double font_size_val,
+              double scale_val = 1.0,
+              double rotation_val = 0.0,
+              const std::string& font_family_val = "",
+              int net_id_val = -1)                                 // Net ID typically -1 for text
+        : Element(layer_id, ElementType::kTextLabel, net_id_val),  // Call base constructor
+          text_content(std::move(content)),
+          coords(coords),
+          font_size(font_size_val),
+          scale(scale_val),
+          rotation(rotation_val),
+          font_family(font_family_val)
     {
         // Element's m_isGloballyVisible handles the 'is_visible' flag
     }
 
     // Copy constructor
-    TextLabel(const TextLabel &other)
-        : Element(other.m_layerId, other.m_type, other.m_netId), // Initialize Element base
+    TextLabel(const TextLabel& other)
+        : Element(other.GetLayerId(), other.GetElementType(), other.GetNetId()),  // Initialize Element base
           text_content(other.text_content),
-          x(other.x),
-          y(other.y),
+          coords(other.coords),
           font_size(other.font_size),
           scale(other.scale),
           rotation(other.rotation),
           font_family(other.font_family)
     {
-        setVisible(true); // Copy visibility state
+        SetVisible(true);  // Copy visibility state
     }
 
     // --- Overridden virtual methods ---
-    BLRect getBoundingBox(const Component *parentComponent = nullptr) const override;
-    bool isHit(const Vec2 &worldMousePos, float tolerance, const Component *parentComponent = nullptr) const override;
-    std::string getInfo(const Component *parentComponent = nullptr) const override;
-    void translate(double dx, double dy) override;
+    BLRect GetBoundingBox(const Component* parent_component = nullptr) const override;
+    bool IsHit(const Vec2& world_mouse_pos, float tolerance, const Component* parent_component = nullptr) const override;
+    std::string GetInfo(const Component* parent_component = nullptr) const override;
+    void Translate(double dist_x, double dist_y) override;
 
     // --- TextLabel-specific Member Data ---
     std::string text_content;
-    double x = 0.0;
-    double y = 0.0;
+    Vec2 coords = {0.0, 0.0};
     double font_size = 1.0;
     double scale = 1.0;
     double rotation = 0.0;

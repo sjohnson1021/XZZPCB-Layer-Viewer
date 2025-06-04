@@ -503,7 +503,7 @@ void Application::OpenPcbFile(const std::string& filePath)
 
             m_camera->FocusOnRect(board_bounds, *m_viewport, 0.1f);
 
-            std::cout << "Camera after FocusOnRect: Zoom=" << m_camera->GetZoom() << " Position=(" << m_camera->GetPosition().x << "," << m_camera->GetPosition().y << ")"
+            std::cout << "Camera after FocusOnRect: Zoom=" << m_camera->GetZoom() << " Position=(" << m_camera->GetPosition().x_ax << "," << m_camera->GetPosition().y_ax << ")"
                       << " Rotation=" << m_camera->GetRotation() << std::endl;
             if (m_viewport) {
                 std::cout << "Viewport: Width=" << m_viewport->GetWidth() << " Height=" << m_viewport->GetHeight() << std::endl;

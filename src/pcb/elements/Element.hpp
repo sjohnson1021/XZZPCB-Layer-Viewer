@@ -2,62 +2,61 @@
 #define ELEMENT_HPP
 
 #include <string>
-#include <memory>         // For std::unique_ptr if used in containers
-#include "utils/Vec2.hpp" // For Vec2
-#include <blend2d.h>      // For BLRect
+
+#include <blend2d.h>  // For BLRect
+
+#include "utils/Vec2.hpp"  // For Vec2
 
 // Forward declaration if Board context is needed by some virtual methods
 class Board;
-class Component; // Added: Parent component context for pins
+class Component;  // Added: Parent component context for pins
 
-enum class ElementType
-{
-    NONE,
-    TRACE,
-    VIA,
-    ARC,
-    PIN,
-    TEXT_LABEL,
-    COMPONENT_GRAPHIC,
-    COMPONENT // For generic graphical lines/shapes within a component, if needed
+enum class ElementType {
+    kNone,
+    kTrace,
+    kVia,
+    kArc,
+    kPin,
+    kTextLabel,
+    kComponentGraphic,
+    kComponent  // For generic graphical lines/shapes within a component, if needed
     // Add other types as necessary
 };
 
 class Element
 {
 public:
-    Element(int layerId, ElementType type, int netId = -1)
-        : m_layerId(layerId), m_type(type), m_netId(netId), m_isGloballyVisible(true) {}
+    Element(int layer_id, ElementType type, int net_id = -1) : m_layer_id_(layer_id), m_type_(type), m_net_id_(net_id) {}
 
     virtual ~Element() = default;
 
     // Pure virtual methods to be implemented by derived classes
-    virtual BLRect getBoundingBox(const Component *parentComponent = nullptr) const = 0;
-    virtual bool isHit(const Vec2 &worldMousePos, float tolerance, const Component *parentComponent = nullptr) const = 0;
-    virtual std::string getInfo(const Component *parentComponent = nullptr) const = 0;
+    virtual BLRect GetBoundingBox(const Component* parent_component = nullptr) const = 0;
+    virtual bool IsHit(const Vec2& world_mouse_pos, float tolerance, const Component* parent_component = nullptr) const = 0;
+    virtual std::string GetInfo(const Component* parent_component = nullptr) const = 0;
 
     // Method to translate the element's coordinates
-    virtual void translate(double dx, double dy) = 0;
+    virtual void Translate(double dx, double dy) = 0;
 
     // Concrete methods
-    ElementType getElementType() const { return m_type; }
-    int getLayerId() const { return m_layerId; }
-    int getNetId() const { return m_netId; }
-    void setNetId(int netId) { m_netId = netId; }
+    [[nodiscard]] ElementType GetElementType() const { return m_type_; }
+    [[nodiscard]] int GetLayerId() const { return m_layer_id_; }
+    [[nodiscard]] int GetNetId() const { return m_net_id_; }
+    void SetNetId(int net_id) { m_net_id_ = net_id; }
 
-    bool isVisible() const { return m_isGloballyVisible; }
-    void setVisible(bool visible) { m_isGloballyVisible = visible; }
+    [[nodiscard]] bool IsVisible() const { return m_is_globally_visible_; }
+    void SetVisible(bool visible) { m_is_globally_visible_ = visible; }
 
-    Element(const Element &) = delete;
-    Element &operator=(const Element &) = delete;
-    Element(Element &&) = delete;
-    Element &operator=(Element &&) = delete;
+    Element(const Element&) = delete;
+    Element& operator=(const Element&) = delete;
+    Element(Element&&) = delete;
+    Element& operator=(Element&&) = delete;
 
-protected:
-    int m_layerId;
-    ElementType m_type;
-    int m_netId;
-    bool m_isGloballyVisible;
+private:
+    int m_layer_id_;
+    ElementType m_type_;
+    int m_net_id_;
+    bool m_is_globally_visible_ {true};
 };
 
-#endif // ELEMENT_HPP
+#endif  // ELEMENT_HPP

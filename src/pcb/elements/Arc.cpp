@@ -7,29 +7,25 @@
 #include <blend2d.h>
 
 #include "pcb/elements/Component.hpp"  // For parentComponent, though not used by Arc
+#include "utils/Constants.hpp"         // For kPi
 #include "utils/GeometryUtils.hpp"     // For geometric calculations
 
-// Define M_PI if not already available from cmath on all compilers/platforms
-#ifndef M_PI
-#    define M_PI 3.14159265358979323846
-#endif
-
-BLRect Arc::getBoundingBox(const Component* /*parentComponent*/) const
+BLRect Arc::GetBoundingBox(const Component* /*parent_component*/) const
 {
     // Placeholder: More complex for an arc. For now, a box around the circle containing the arc.
     // A tighter bounding box would consider start/end angles.
     // This simple version assumes the arc could be a full circle for bounding box purposes.
     double r = radius + thickness / 2.0;
-    return BLRect(cx - r, cy - r, r * 2, r * 2);
+    return BLRect(center.x_ax - r, center.y_ax - r, r * 2, r * 2);
     // TODO: Implement a tighter bounding box calculation based on start/end angles.
 }
 
-bool Arc::isHit(const Vec2& worldMousePos, float tolerance, const Component* /*parentComponent*/) const
+bool Arc::IsHit(const Vec2& world_mouse_pos, float tolerance, const Component* /*parent_component*/) const
 {
     // 1. Radial Check
-    double dx = worldMousePos.x - cx;
-    double dy = worldMousePos.y - cy;
-    double dist_sq = dx * dx + dy * dy;
+    double dist_x = world_mouse_pos.x_ax - center.x_ax;
+    double dist_y = world_mouse_pos.y_ax - center.y_ax;
+    double dist_sq = dist_x * dist_x + dist_y * dist_y;
 
     double r_outer = radius + thickness / 2.0 + tolerance;
     double r_inner = radius - thickness / 2.0 - tolerance;
@@ -44,30 +40,30 @@ bool Arc::isHit(const Vec2& worldMousePos, float tolerance, const Component* /*p
     // 2. Angular Check
     // Calculate the angle of the mouse position relative to the arc's center
     // std::atan2 returns radians in the range [-PI, PI]
-    double const kAngleRadMouseToCenter = std::atan2(dy, dx);
+    double const kAngleRadMouseToCenter = std::atan2(dist_y, dist_x);
 
     // geometry_utils::::isAngleBetween expects start and end angles in degrees
     // and the query angle in radians.
     return geometry_utils::IsAngleBetween(kAngleRadMouseToCenter, start_angle, end_angle);
 }
 
-std::string Arc::getInfo(const Component* /*parentComponent*/) const
+std::string Arc::GetInfo(const Component* /*parent_component*/) const
 {
     std::ostringstream oss;
     oss << "Arc\n";
-    oss << "Layer: " << m_layerId << "\n";
-    if (m_netId != -1) {
-        oss << "Net ID: " << m_netId << "\n";
+    oss << "Layer: " << GetLayerId() << "\n";
+    if (GetNetId() != -1) {
+        oss << "Net ID: " << GetNetId() << "\n";
     }
-    oss << "Center: (" << cx << ", " << cy << ")\n";
+    oss << "Center: (" << center.x_ax << ", " << center.y_ax << ")\n";
     oss << "Radius: " << radius << ", Thickness: " << thickness << "\n";
     oss << "Angles: " << start_angle << " to " << end_angle << " deg";
     return oss.str();
 }
 
-void Arc::translate(double dx, double dy)
+void Arc::Translate(double dist_x, double dist_y)
 {
-    cx += dx;
-    cy += dy;
+    center.x_ax += dist_x;
+    center.y_ax += dist_y;
     // Radius, angles, thickness are not affected by translation
 }

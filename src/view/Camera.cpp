@@ -1,7 +1,9 @@
-#include "view/Camera.hpp"
-#include "view/Viewport.hpp" // Needed for Camera::FocusOnRect
-#include <cmath>             // For std::pow, std::cos, std::sin, etc. if needed for transformations
-#include <algorithm>         // For std::min/max
+#include "Camera.hpp"
+
+#include <algorithm>  // For std::min/max
+#include <cmath>      // For std::pow, std::cos, std::sin, etc. if needed for transformations
+
+#include "Viewport.hpp"  // Needed for Camera::FocusOnRect
 
 // If using GLM:
 // #include <glm/gtc/matrix_transform.hpp>
@@ -17,11 +19,10 @@ const float MAX_ZOOM_LEVEL = 100.0f;
 
 // Define PI if not available from cmath or a math library
 #ifndef M_PI
-#define M_PI 3.14159265358979323846
+#    define M_PI 3.14159265358979323846
 #endif
 
-Camera::Camera()
-    : m_position(DEFAULT_POSITION), m_zoom(DEFAULT_ZOOM), m_rotation(DEFAULT_ROTATION), m_viewChangedThisFrame(true)
+Camera::Camera() : m_position(DEFAULT_POSITION), m_zoom(DEFAULT_ZOOM), m_rotation(DEFAULT_ROTATION), m_viewChangedThisFrame(true)
 {
     float rad = m_rotation * (static_cast<float>(M_PI) / 180.0f);
     m_cachedCosRotation = std::cos(rad);
@@ -29,17 +30,16 @@ Camera::Camera()
     // UpdateViewMatrix(); // If we had one
 }
 
-void Camera::SetPosition(const Vec2 &position)
+void Camera::SetPosition(const Vec2& position)
 {
-    if (m_position.x != position.x || m_position.y != position.y)
-    {
+    if (m_position.x_ax != position.x_ax || m_position.y_ax != position.y_ax) {
         m_position = position;
         m_viewChangedThisFrame = true;
     }
     // UpdateViewMatrix();
 }
 
-const Vec2 &Camera::GetPosition() const
+const Vec2& Camera::GetPosition() const
 {
     return m_position;
 }
@@ -48,10 +48,8 @@ void Camera::SetZoom(float zoom)
 {
     // Add constraints to zoom if necessary (e.g., min/max zoom)
     float clampedZoom = std::max(MIN_ZOOM_LEVEL, std::min(zoom, MAX_ZOOM_LEVEL));
-    if (clampedZoom > 0.0f)
-    { // Zoom must be positive
-        if (m_zoom != clampedZoom)
-        {
+    if (clampedZoom > 0.0f) {  // Zoom must be positive
+        if (m_zoom != clampedZoom) {
             m_zoom = clampedZoom;
             m_viewChangedThisFrame = true;
         }
@@ -66,8 +64,7 @@ float Camera::GetZoom() const
 
 void Camera::SetRotation(float angleDegrees)
 {
-    if (m_rotation != angleDegrees)
-    {
+    if (m_rotation != angleDegrees) {
         m_rotation = angleDegrees;
         // Normalize angle if desired (e.g., to [0, 360) or [-180, 180))
         float rad = m_rotation * (static_cast<float>(M_PI) / 180.0f);
@@ -83,30 +80,28 @@ float Camera::GetRotation() const
     return m_rotation;
 }
 
-void Camera::Pan(const Vec2 &delta)
+void Camera::Pan(const Vec2& delta)
 {
-    if (delta.x != 0.0f || delta.y != 0.0f)
-    {
+    if (delta.x_ax != 0.0f || delta.y_ax != 0.0f) {
         m_position -= delta;
         m_viewChangedThisFrame = true;
     }
     // UpdateViewMatrix();
 }
 
-void Camera::ZoomAt(const Vec2 &screenPoint, float zoomFactor)
+void Camera::ZoomAt(const Vec2& screenPoint, float zoomFactor)
 {
     float oldZoom = m_zoom;
     float newZoom = m_zoom * zoomFactor;
-    SetZoom(newZoom); // SetZoom will handle clamping and setting m_viewChangedThisFrame if zoom actually changes
+    SetZoom(newZoom);  // SetZoom will handle clamping and setting m_viewChangedThisFrame if zoom actually changes
     // If SetZoom resulted in a change, m_viewChangedThisFrame is already true.
     // The more complex position adjustment logic would also set m_viewChangedThisFrame if SetPosition is called.
 }
 
 void Camera::AdjustZoom(float zoomMultiplier)
 {
-    if (zoomMultiplier != 1.0f)
-    {
-        SetZoom(m_zoom * zoomMultiplier); // SetZoom handles the flag
+    if (zoomMultiplier != 1.0f) {
+        SetZoom(m_zoom * zoomMultiplier);  // SetZoom handles the flag
     }
 }
 
@@ -122,7 +117,7 @@ Vec2 Camera::GetWorldToViewOffset() const
     // So the offset part for the initial translation is -m_position.
     // However, this function might be interpreted as part of a matrix.
     // If view matrix = Scale * Rotate * Translate, then Translate is by -m_position.
-    return Vec2(-m_position.x, -m_position.y);
+    return Vec2(-m_position.x_ax, -m_position.y_ax);
 }
 
 float Camera::GetWorldToViewScale() const
@@ -139,26 +134,22 @@ float Camera::GetWorldToViewRotation() const
 void Camera::Reset()
 {
     bool changed = false;
-    if (m_position.x != DEFAULT_POSITION.x || m_position.y != DEFAULT_POSITION.y)
-    {
+    if (m_position.x_ax != DEFAULT_POSITION.x_ax || m_position.y_ax != DEFAULT_POSITION.y_ax) {
         m_position = DEFAULT_POSITION;
         changed = true;
     }
-    if (m_zoom != DEFAULT_ZOOM)
-    {
+    if (m_zoom != DEFAULT_ZOOM) {
         m_zoom = DEFAULT_ZOOM;
         changed = true;
     }
-    if (m_rotation != DEFAULT_ROTATION)
-    {
+    if (m_rotation != DEFAULT_ROTATION) {
         m_rotation = DEFAULT_ROTATION;
         float rad = m_rotation * (static_cast<float>(M_PI) / 180.0f);
         m_cachedCosRotation = std::cos(rad);
         m_cachedSinRotation = std::sin(rad);
         changed = true;
     }
-    if (changed)
-    {
+    if (changed) {
         m_viewChangedThisFrame = true;
     }
     // UpdateViewMatrix();
@@ -173,18 +164,17 @@ void Camera::Reset()
 // Then usually invert it for the actual view matrix: m_viewMatrix = glm::inverse(m_viewMatrix);
 // }
 
-void Camera::FocusOnRect(const BLRect &worldRect, const Viewport &viewport, float padding)
+void Camera::FocusOnRect(const BLRect& worldRect, const Viewport& viewport, float padding)
 {
-    if (worldRect.w <= 0 || worldRect.h <= 0 || viewport.GetWidth() <= 0 || viewport.GetHeight() <= 0)
-    {
+    if (worldRect.w <= 0 || worldRect.h <= 0 || viewport.GetWidth() <= 0 || viewport.GetHeight() <= 0) {
         // Cannot focus on an empty rect or with an invalid viewport
         // Optionally, could reset to default view here or log a warning.
         // For now, do nothing to prevent division by zero or nonsensical state.
         return;
     }
 
-    float old_target_pan_x = m_position.x;
-    float old_target_pan_y = m_position.y;
+    float old_target_pan_x = m_position.x_ax;
+    float old_target_pan_y = m_position.y_ax;
     float old_zoom = m_zoom;
 
     float target_pan_x = static_cast<float>(worldRect.x + worldRect.w / 2.0);
@@ -199,9 +189,9 @@ void Camera::FocusOnRect(const BLRect &worldRect, const Viewport &viewport, floa
 
     // Ensure padded dimensions are not zero to avoid division by zero if original w/h was tiny.
     if (padded_rect_width <= 0)
-        padded_rect_width = 1.0f; // Min effective width for zoom calc
+        padded_rect_width = 1.0f;  // Min effective width for zoom calc
     if (padded_rect_height <= 0)
-        padded_rect_height = 1.0f; // Min effective height
+        padded_rect_height = 1.0f;  // Min effective height
 
     float zoom_x = static_cast<float>(viewport.GetWidth()) / padded_rect_width;
     float zoom_y = static_cast<float>(viewport.GetHeight()) / padded_rect_height;

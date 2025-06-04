@@ -110,8 +110,8 @@ inline bool IsPointInPolygon(const Vec2& world_mouse_pos, const std::vector<Vec2
     Vec2 pnt1 = polygon_vertices[kNumVertices - 1];  // Start with the last vertex
     for (int i = 0; i < kNumVertices; ++i) {
         Vec2 const kPnt2 = polygon_vertices[i];
-        if (((kPnt2.y <= world_mouse_pos.y && world_mouse_pos.y < pnt1.y) || (pnt1.y <= world_mouse_pos.y && world_mouse_pos.y < kPnt2.y)) &&
-            (world_mouse_pos.x < (pnt1.x - kPnt2.x) * (world_mouse_pos.y - kPnt2.y) / (pnt1.y - kPnt2.y) + kPnt2.x)) {
+        if (((kPnt2.y_ax <= world_mouse_pos.y_ax && world_mouse_pos.y_ax < pnt1.y_ax) || (pnt1.y_ax <= world_mouse_pos.y_ax && world_mouse_pos.y_ax < kPnt2.y_ax)) &&
+            (world_mouse_pos.x_ax < (pnt1.x_ax - kPnt2.x_ax) * (world_mouse_pos.y_ax - kPnt2.y_ax) / (pnt1.y_ax - kPnt2.y_ax) + kPnt2.x_ax)) {
             inside = !inside;
         }
         pnt1 = kPnt2;

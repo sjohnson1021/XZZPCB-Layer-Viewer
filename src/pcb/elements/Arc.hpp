@@ -1,52 +1,53 @@
 #pragma once
 
-#include "pcb/elements/Element.hpp" // Include base class
-#include "utils/Vec2.hpp"           // For Vec2
 #include <string>
+
+#include "pcb/elements/Element.hpp"  // Include base class
+#include "utils/Vec2.hpp"            // For Vec2
 // #include <cstdint> // No longer strictly needed
 
 class Arc : public Element
-{ // Inherit from Element
+{  // Inherit from Element
 public:
-    Arc(int layer_id, double x_center, double y_center, double radius_val,
-        double start_angle_deg, double end_angle_deg, double thickness_val = 1.0, int net_id_val = -1)
-        : Element(layer_id, ElementType::ARC, net_id_val), // Call base constructor
-          cx(x_center), cy(y_center), radius(radius_val),
-          start_angle(start_angle_deg), end_angle(end_angle_deg), thickness(thickness_val)
+    Arc(int layer_id, Vec2 center_val, double radius_val, double start_angle_deg, double end_angle_deg, double thickness_val = 1.0, int net_id_val = -1)
+        : Element(layer_id, ElementType::kArc, net_id_val),  // Call base constructor
+          center(center_val),
+          radius(radius_val),
+          start_angle(start_angle_deg),
+          end_angle(end_angle_deg),
+          thickness(thickness_val)
     {
     }
 
     // Copy constructor
-    Arc(const Arc &other)
-        : Element(other.m_layerId, other.m_type, other.m_netId), // Initialize Element base
-          cx(other.cx),
-          cy(other.cy),
+    Arc(const Arc& other)
+        : Element(other.GetLayerId(), other.GetElementType(), other.GetNetId()),  // Initialize Element base
+          center(other.center),
           radius(other.radius),
           start_angle(other.start_angle),
           end_angle(other.end_angle),
           thickness(other.thickness)
     {
-        setVisible(other.isVisible()); // Copy visibility state
+        SetVisible(other.IsVisible());  // Copy visibility state
     }
 
     // --- Overridden virtual methods ---
-    BLRect getBoundingBox(const Component *parentComponent = nullptr) const override;
-    bool isHit(const Vec2 &worldMousePos, float tolerance, const Component *parentComponent = nullptr) const override;
-    std::string getInfo(const Component *parentComponent = nullptr) const override;
-    void translate(double dx, double dy) override;
+    BLRect GetBoundingBox(const Component* parent_component = nullptr) const override;
+    bool IsHit(const Vec2& world_mouse_pos, float tolerance, const Component* parent_component = nullptr) const override;
+    std::string GetInfo(const Component* parent_component = nullptr) const override;
+    void Translate(double dist_x, double dist_y) override;
 
     // --- Arc-specific Member Data ---
-    double cx = 0.0;
-    double cy = 0.0;
+    Vec2 center {};
     double radius = 0.0;
-    double start_angle = 0.0; // Degrees
-    double end_angle = 0.0;   // Degrees
+    double start_angle = 0.0;  // Degrees
+    double end_angle = 0.0;    // Degrees
     double thickness = 1.0;
     // layer and net_id are in Element
 
     // --- Arc-specific Getters ---
-    double GetCX() const { return cx; }
-    double GetCY() const { return cy; }
+    double GetCenterX() const { return center.x_ax; }
+    double GetCenterY() const { return center.y_ax; }
     double GetRadius() const { return radius; }
     double GetStartAngle() const { return start_angle; }
     double GetEndAngle() const { return end_angle; }

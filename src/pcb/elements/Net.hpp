@@ -1,8 +1,7 @@
 #pragma once
 
 #include <string>
-#include <cstdint>
-#include <vector>
+#include <utility>
 
 // Forward declare other element types if a Net needs to store pointers to them
 // class Pin;
@@ -12,8 +11,7 @@
 class Net
 {
 public:
-    Net(int id_val, const std::string &net_name)
-        : id(id_val), name(net_name) {}
+    Net(int id_val, std::string net_name) : id_(id_val), name_(std::move(net_name)) {}
 
     // User-defined name of the net (e.g., "GND", "VCC")
 
@@ -24,10 +22,10 @@ public:
     // (Using raw pointers here for illustration; smart pointers would be safer)
 
     // Add constructors, getters, setters, and helper methods as needed
-    int GetId() const { return id; }
-    const std::string &GetName() const { return name; }
+    [[nodiscard]] int GetId() const { return id_; }
+    [[nodiscard]] const std::string& GetName() const { return name_; }
     // Add other methods as needed
 private:         // Member Data
-    int id = -1; // Unique identifier for the net
-    std::string name;
+    int id_ = -1;  // Unique identifier for the net
+    std::string name_;
 };

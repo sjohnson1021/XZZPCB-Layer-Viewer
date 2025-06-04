@@ -195,10 +195,10 @@ void Grid::GetVisibleWorldBounds(const Camera& camera, const Viewport& viewport,
     out_min_world = world_corners[0];
     out_max_world = world_corners[0];
     for (int i = 1; i < 4; ++i) {
-        out_min_world.x = std::min(out_min_world.x, world_corners[i].x);
-        out_min_world.y = std::min(out_min_world.y, world_corners[i].y);
-        out_max_world.x = std::max(out_max_world.x, world_corners[i].x);
-        out_max_world.y = std::max(out_max_world.y, world_corners[i].y);
+        out_min_world.x_ax = std::min(out_min_world.x_ax, world_corners[i].x_ax);
+        out_min_world.y_ax = std::min(out_min_world.y_ax, world_corners[i].y_ax);
+        out_max_world.x_ax = std::max(out_max_world.x_ax, world_corners[i].x_ax);
+        out_max_world.y_ax = std::max(out_max_world.y_ax, world_corners[i].y_ax);
     }
 }
 
@@ -212,12 +212,12 @@ void Grid::EnforceRenderingLimits(
     }
 
     // Calculate how many horizontal and vertical lines would be drawn
-    long long i_start_x = static_cast<long long>(std::ceil(world_min.x / spacing));
-    long long i_end_x = static_cast<long long>(std::floor(world_max.x / spacing));
+    long long i_start_x = static_cast<long long>(std::ceil(world_min.x_ax / spacing));
+    long long i_end_x = static_cast<long long>(std::floor(world_max.x_ax / spacing));
     int kNumHorizontalLines = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
 
-    long long i_start_y = static_cast<long long>(std::ceil(world_min.y / spacing));
-    long long i_end_y = static_cast<long long>(std::floor(world_max.y / spacing));
+    long long i_start_y = static_cast<long long>(std::ceil(world_min.y_ax / spacing));
+    long long i_end_y = static_cast<long long>(std::floor(world_max.y_ax / spacing));
     int kNumVerticalLines = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
 
     // Total number of lines
@@ -354,12 +354,12 @@ void Grid::DrawGridLines(BLContext& bl_ctx,
 
         BLPath lines_path;
 
-        long long i_start_x = static_cast<long long>(std::ceil(world_min.x / spacing));
-        long long i_end_x = static_cast<long long>(std::floor(world_max.x / spacing));
+        long long i_start_x = static_cast<long long>(std::ceil(world_min.x_ax / spacing));
+        long long i_end_x = static_cast<long long>(std::floor(world_max.x_ax / spacing));
         int const kReserveHorizLines = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
 
-        long long i_start_y = static_cast<long long>(std::ceil(world_min.y / spacing));
-        long long i_end_y = static_cast<long long>(std::floor(world_max.y / spacing));
+        long long i_start_y = static_cast<long long>(std::ceil(world_min.y_ax / spacing));
+        long long i_end_y = static_cast<long long>(std::floor(world_max.y_ax / spacing));
         int const kReserveVertLines = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
 
         const int kMaxReservePerAxis = std::min(estimated_line_count, 10000);  // Respect the calculated limit
@@ -380,9 +380,9 @@ void Grid::DrawGridLines(BLContext& bl_ctx,
             if (is_major && m_settings_->m_show_axis_lines && std::abs(x) < major_spacing_for_axis_check * 0.1F) {
                 continue;
             }
-            Vec2 screen_p1 = viewport.WorldToScreen({x, world_min.y}, camera);
-            Vec2 screen_p2 = viewport.WorldToScreen({x, world_max.y}, camera);
-            if (std::isfinite(screen_p1.x) && std::isfinite(screen_p1.y) && std::isfinite(screen_p2.x) && std::isfinite(screen_p2.y)) {
+            Vec2 screen_p1 = viewport.WorldToScreen({x, world_min.y_ax}, camera);
+            Vec2 screen_p2 = viewport.WorldToScreen({x, world_max.y_ax}, camera);
+            if (std::isfinite(screen_p1.x_ax) && std::isfinite(screen_p1.y_ax) && std::isfinite(screen_p2.x_ax) && std::isfinite(screen_p2.y_ax)) {
                 vertical_start_points.push_back(screen_p1);
                 vertical_end_points.push_back(screen_p2);
             }
@@ -393,22 +393,22 @@ void Grid::DrawGridLines(BLContext& bl_ctx,
             if (is_major && m_settings_->m_show_axis_lines && std::abs(y) < major_spacing_for_axis_check * 0.1F) {
                 continue;
             }
-            Vec2 screen_p1 = viewport.WorldToScreen({world_min.x, y}, camera);
-            Vec2 screen_p2 = viewport.WorldToScreen({world_max.x, y}, camera);
-            if (std::isfinite(screen_p1.x) && std::isfinite(screen_p1.y) && std::isfinite(screen_p2.x) && std::isfinite(screen_p2.y)) {
+            Vec2 screen_p1 = viewport.WorldToScreen({world_min.x_ax, y}, camera);
+            Vec2 screen_p2 = viewport.WorldToScreen({world_max.x_ax, y}, camera);
+            if (std::isfinite(screen_p1.x_ax) && std::isfinite(screen_p1.y_ax) && std::isfinite(screen_p2.x_ax) && std::isfinite(screen_p2.y_ax)) {
                 horizontal_start_points.push_back(screen_p1);
                 horizontal_end_points.push_back(screen_p2);
             }
         }
 
         for (size_t i = 0; i < vertical_start_points.size(); i++) {
-            lines_path.moveTo(vertical_start_points[i].x, vertical_start_points[i].y);
-            lines_path.lineTo(vertical_end_points[i].x, vertical_end_points[i].y);
+            lines_path.moveTo(vertical_start_points[i].x_ax, vertical_start_points[i].y_ax);
+            lines_path.lineTo(vertical_end_points[i].x_ax, vertical_end_points[i].y_ax);
         }
 
         for (size_t i = 0; i < horizontal_start_points.size(); i++) {
-            lines_path.moveTo(horizontal_start_points[i].x, horizontal_start_points[i].y);
-            lines_path.lineTo(horizontal_end_points[i].x, horizontal_end_points[i].y);
+            lines_path.moveTo(horizontal_start_points[i].x_ax, horizontal_start_points[i].y_ax);
+            lines_path.lineTo(horizontal_end_points[i].x_ax, horizontal_end_points[i].y_ax);
         }
 
         if (!lines_path.empty()) {
@@ -461,10 +461,10 @@ void Grid::DrawGridDots(BLContext& bl_ctx,
         BLPath dots_path;
         int dots_count = 0;
 
-        long long i_start_x = static_cast<long long>(std::ceil(world_min.x / spacing));
-        long long i_end_x = static_cast<long long>(std::floor(world_max.x / spacing));
-        long long i_start_y = static_cast<long long>(std::ceil(world_min.y / spacing));
-        long long i_end_y = static_cast<long long>(std::floor(world_max.y / spacing));
+        long long i_start_x = static_cast<long long>(std::ceil(world_min.x_ax / spacing));
+        long long i_end_x = static_cast<long long>(std::floor(world_max.x_ax / spacing));
+        long long i_start_y = static_cast<long long>(std::ceil(world_min.y_ax / spacing));
+        long long i_end_y = static_cast<long long>(std::floor(world_max.y_ax / spacing));
 
         int num_potential_dots_x = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
         int num_potential_dots_y = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
@@ -490,10 +490,10 @@ void Grid::DrawGridDots(BLContext& bl_ctx,
 
                 Vec2 screen_p = viewport.WorldToScreen({x, y}, camera);
 
-                if (std::isfinite(screen_p.x) && std::isfinite(screen_p.y)) {
-                    if (screen_p.x >= -dot_radius && screen_p.x <= viewport.GetWidth() + dot_radius && screen_p.y >= -dot_radius && screen_p.y <= viewport.GetHeight() + dot_radius) {
+                if (std::isfinite(screen_p.x_ax) && std::isfinite(screen_p.y_ax)) {
+                    if (screen_p.x_ax >= -dot_radius && screen_p.x_ax <= viewport.GetWidth() + dot_radius && screen_p.y_ax >= -dot_radius && screen_p.y_ax <= viewport.GetHeight() + dot_radius) {
                         if (dots_count < kMaxReserveTotalDots) {
-                            dots_path.addCircle(BLCircle(screen_p.x, screen_p.y, dot_radius));
+                            dots_path.addCircle(BLCircle(screen_p.x_ax, screen_p.y_ax, dot_radius));
                             dots_count++;
                         } else {
                             // Reached limit, stop adding
@@ -566,34 +566,34 @@ void Grid::DrawAxis(BLContext& bl_ctx, const Camera& camera, const Viewport& vie
         bl_ctx.setStrokeWidth(m_settings_->m_axis_line_thickness);
 
         // X-Axis (y=0)
-        if (0.0F >= world_min.y && 0.0F <= world_max.y) {
+        if (0.0F >= world_min.y_ax && 0.0F <= world_max.y_ax) {
             BLRgba32 x_axis_color(static_cast<uint32_t>(m_settings_->m_x_axis_color.r * 255.0F),
                                   static_cast<uint32_t>(m_settings_->m_x_axis_color.g * 255.0F),
                                   static_cast<uint32_t>(m_settings_->m_x_axis_color.b * 255.0F),
                                   static_cast<uint32_t>(m_settings_->m_x_axis_color.a * 255.0F));
             bl_ctx.setStrokeStyle(x_axis_color);
 
-            Vec2 screen_start = viewport.WorldToScreen({world_min.x, 0.0F}, camera);
-            Vec2 screen_end = viewport.WorldToScreen({world_max.x, 0.0F}, camera);
+            Vec2 screen_start = viewport.WorldToScreen({world_min.x_ax, 0.0F}, camera);
+            Vec2 screen_end = viewport.WorldToScreen({world_max.x_ax, 0.0F}, camera);
 
-            if (std::isfinite(screen_start.x) && std::isfinite(screen_start.y) && std::isfinite(screen_end.x) && std::isfinite(screen_end.y)) {
-                bl_ctx.strokeLine(screen_start.x, screen_start.y, screen_end.x, screen_end.y);
+            if (std::isfinite(screen_start.x_ax) && std::isfinite(screen_start.y_ax) && std::isfinite(screen_end.x_ax) && std::isfinite(screen_end.y_ax)) {
+                bl_ctx.strokeLine(screen_start.x_ax, screen_start.y_ax, screen_end.x_ax, screen_end.y_ax);
             }
         }
 
         // Y-Axis (x=0)
-        if (0.0F >= world_min.x && 0.0F <= world_max.x) {
+        if (0.0F >= world_min.x_ax && 0.0F <= world_max.x_ax) {
             BLRgba32 y_axis_color(static_cast<uint32_t>(m_settings_->m_y_axis_color.r * 255.0F),
                                   static_cast<uint32_t>(m_settings_->m_y_axis_color.g * 255.0F),
                                   static_cast<uint32_t>(m_settings_->m_y_axis_color.b * 255.0F),
                                   static_cast<uint32_t>(m_settings_->m_y_axis_color.a * 255.0F));
             bl_ctx.setStrokeStyle(y_axis_color);
 
-            Vec2 screen_start = viewport.WorldToScreen({0.0F, world_min.y}, camera);
-            Vec2 screen_end = viewport.WorldToScreen({0.0F, world_max.y}, camera);
+            Vec2 screen_start = viewport.WorldToScreen({0.0F, world_min.y_ax}, camera);
+            Vec2 screen_end = viewport.WorldToScreen({0.0F, world_max.y_ax}, camera);
 
-            if (std::isfinite(screen_start.x) && std::isfinite(screen_start.y) && std::isfinite(screen_end.x) && std::isfinite(screen_end.y)) {
-                bl_ctx.strokeLine(screen_start.x, screen_start.y, screen_end.x, screen_end.y);
+            if (std::isfinite(screen_start.x_ax) && std::isfinite(screen_start.y_ax) && std::isfinite(screen_end.x_ax) && std::isfinite(screen_end.y_ax)) {
+                bl_ctx.strokeLine(screen_start.x_ax, screen_start.y_ax, screen_end.x_ax, screen_end.y_ax);
             }
         }
     } catch (const std::exception& e) {
