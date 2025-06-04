@@ -1,8 +1,6 @@
 #include "pcb/Board.hpp"
 
-#include <algorithm>  // For std::min/max in GetBoundingBox
-#include <iostream>   // For std::cerr or logging
-#include <vector>
+#include <iostream>
 
 #include "core/BoardDataManager.hpp"   // Include for implementation
 #include "pcb/BoardLoaderFactory.hpp"  // Include the factory
@@ -15,29 +13,29 @@
 // Component.hpp and Net.hpp are already included via Board.hpp (as they are not just Element types)
 
 // Default constructor
-Board::Board() : m_isLoaded(false)
+Board::Board() : m_is_loaded_(false)
 {
     // Default initialization only
 }
 
 // Constructor that takes a file path - now just calls initialize
-Board::Board(const std::string& filePath) : file_path(filePath), m_isLoaded(false)
+Board::Board(const std::string& filePath) : file_path(filePath), m_is_loaded_(false)
 {
-    initialize(filePath);
+    Initialize(filePath);
 }
 
 // New initialization method that can be called by both constructor and loaders
-bool Board::initialize(const std::string& filePath)
+bool Board::Initialize(const std::string& filePath)
 {
     if (filePath.empty()) {
-        m_errorMessage = "File path is empty.";
-        m_isLoaded = false;
+        m_error_message_ = "File path is empty.";
+        m_is_loaded_ = false;
         return false;
     }
 
     if (filePath == "dummy_fail.pcb") {
-        m_errorMessage = "This is a dummy failure to test the error modal.";
-        m_isLoaded = false;
+        m_error_message_ = "This is a dummy failure to test the error modal.";
+        m_is_loaded_ = false;
         return false;
     }
 
@@ -49,39 +47,39 @@ bool Board::initialize(const std::string& filePath)
         std::cerr << "Warning: Could not determine valid bounding box for normalization for file: " << filePath << std::endl;
     }
 
-    m_isLoaded = true;
-    m_errorMessage.clear();
+    m_is_loaded_ = true;
+    m_error_message_.clear();
     return true;
 }
 
 // --- Add Methods ---
-void Board::addArc(const Arc& arc)
+void Board::AddArc(const Arc& arc)
 {
-    m_elementsByLayer[arc.GetLayerId()].emplace_back(std::make_unique<Arc>(arc));
+    m_elements_by_layer[arc.GetLayerId()].emplace_back(std::make_unique<Arc>(arc));
 }
-void Board::addVia(const Via& via)
+void Board::AddVia(const Via& via)
 {
     // Vias can span multiple layers. Add to m_elementsByLayer based on their primary layer id.
     // The IsOnLayer() check within Via itself handles multi-layer aspect for rendering/interaction.
-    m_elementsByLayer[via.GetLayerId()].emplace_back(std::make_unique<Via>(via));
+    m_elements_by_layer[via.GetLayerId()].emplace_back(std::make_unique<Via>(via));
 }
-void Board::addTrace(const Trace& trace)
+void Board::AddTrace(const Trace& trace)
 {
-    m_elementsByLayer[trace.GetLayerId()].emplace_back(std::make_unique<Trace>(trace));
+    m_elements_by_layer[trace.GetLayerId()].emplace_back(std::make_unique<Trace>(trace));
 }
-void Board::addStandaloneTextLabel(const TextLabel& label)
+void Board::AddStandaloneTextLabel(const TextLabel& label)
 {
-    m_elementsByLayer[label.GetLayerId()].emplace_back(std::make_unique<TextLabel>(label));
+    m_elements_by_layer[label.GetLayerId()].emplace_back(std::make_unique<TextLabel>(label));
 }
-void Board::addComponent(const Component& component)
+void Board::AddComponent(const Component& component)
 {
-    m_elementsByLayer[Board::kCompLayer].emplace_back(std::make_unique<Component>(component));
+    m_elements_by_layer[Board::kCompLayer].emplace_back(std::make_unique<Component>(component));
 }
-void Board::addNet(const Net& net)
+void Board::AddNet(const Net& net)
 {
     m_nets.emplace(net.GetId(), net);  // Nets stored directly
 }
-void Board::addLayer(const LayerInfo& layer)
+void Board::AddLayer(const LayerInfo& layer)
 {
     LayerInfo l = layer;
     l.is_visible = true;
@@ -120,8 +118,8 @@ void Board::SetLayerVisible(int layerIndex, bool visible)
     if (layerIndex >= 0 && layerIndex < layers.size()) {
         layers[layerIndex].is_visible = visible;
         // Use BoardDataManager if available
-        if (m_boardDataManager) {
-            m_boardDataManager->SetLayerVisible(layerIndex, visible);
+        if (m_board_data_manager_) {
+            m_board_data_manager_->SetLayerVisible(layerIndex, visible);
         }
     }
     // Else: handle error or do nothing for invalid index
@@ -135,12 +133,12 @@ void Board::SetLayerColor(int layerIndex, BLRgba32 color)
 // --- Loading Status Methods ---
 bool Board::IsLoaded() const
 {
-    return m_isLoaded;
+    return m_is_loaded_;
 }
 
 std::string Board::GetErrorMessage() const
 {
-    return m_errorMessage;
+    return m_error_message_;
 }
 
 std::string Board::GetFilePath() const
@@ -201,8 +199,8 @@ BLRect Board::GetBoundingBox(bool include_invisible_layers) const
         expand_rect_from_point(r.x + r.w, r.y + r.h);
     };
 
-    auto it = m_elementsByLayer.find(board_outline_layer_id);
-    if (it != m_elementsByLayer.end()) {
+    auto it = m_elements_by_layer.find(board_outline_layer_id);
+    if (it != m_elements_by_layer.end()) {
         for (const auto& element_ptr : it->second) {
             if (!element_ptr)
                 continue;
@@ -237,7 +235,7 @@ BoardPoint2D Board::NormalizeCoordinatesAndGetCenterOffset(const BLRect& origina
     // std::cout << "Normalizing by offset: X=" << offset_x << ", Y=" << offset_y << std::endl;
 
     // Normalize all standalone elements in m_elementsByLayer
-    for (auto& layer_pair : m_elementsByLayer) {
+    for (auto& layer_pair : m_elements_by_layer) {
         for (auto& element_ptr : layer_pair.second) {
             if (element_ptr) {
                 element_ptr->Translate(-offset_x, -offset_y);
@@ -280,7 +278,7 @@ std::vector<ElementInteractionInfo> Board::GetAllVisibleElementsForInteraction()
     result.reserve(5000);  // Pre-allocate, adjust based on typical board size
 
     // 1. Iterate through standalone elements grouped by layer
-    for (const auto& layer_pair : m_elementsByLayer) {
+    for (const auto& layer_pair : m_elements_by_layer) {
         const LayerInfo* layer_info = GetLayerById(layer_pair.first);
         if (layer_info && layer_info->IsVisible()) {
             for (const auto& element_ptr : layer_pair.second) {
@@ -295,8 +293,8 @@ std::vector<ElementInteractionInfo> Board::GetAllVisibleElementsForInteraction()
     }
 
     // 2. Iterate through components and their elements (Pins, component-specific TextLabels)
-    auto comp_layer_it = m_elementsByLayer.find(Board::kCompLayer);
-    if (comp_layer_it != m_elementsByLayer.end()) {
+    auto comp_layer_it = m_elements_by_layer.find(Board::kCompLayer);
+    if (comp_layer_it != m_elements_by_layer.end()) {
         for (const auto& element_ptr : comp_layer_it->second) {
             if (!element_ptr)
                 continue;
@@ -336,7 +334,7 @@ std::vector<ElementInteractionInfo> Board::GetAllVisibleElementsForInteraction()
     return result;
 }
 
-const Net* Board::getNetById(int net_id) const
+const Net* Board::GetNetById(int net_id) const
 {
     auto it = m_nets.find(net_id);
     if (it != m_nets.end()) {
@@ -347,5 +345,5 @@ const Net* Board::getNetById(int net_id) const
 
 void Board::SetBoardDataManager(std::shared_ptr<BoardDataManager> manager)
 {
-    m_boardDataManager = manager;
+    m_board_data_manager_ = manager;
 }

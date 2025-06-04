@@ -1,15 +1,17 @@
 #pragma once
 
+#include <map>
+#include <memory>  // For std::unique_ptr
 #include <string>
-#include <vector>
 #include <unordered_map>
-#include <map>       // For std::map
-#include <memory>    // For std::unique_ptr
-#include <blend2d.h> // Added for BLRgba32
+#include <utility>
+#include <vector>
 
-#include "elements/Element.hpp"   // Base class for all elements
-#include "elements/Component.hpp" // Components are containers, not Elements themselves directly
-#include "elements/Net.hpp"       // Nets are metadata
+#include <blend2d.h>  // Added for BLRgba32
+
+#include "elements/Component.hpp"  // Components are containers, not Elements themselves directly
+#include "elements/Element.hpp"    // Base class for all elements
+#include "elements/Net.hpp"        // Nets are metadata
 
 // Forward declarations
 class BoardDataManager;
@@ -19,35 +21,33 @@ class Trace;
 class TextLabel;
 // Component is already included
 
-struct BoardPoint2D
-{
+struct BoardPoint2D {
     double x = 0.0;
     double y = 0.0;
 };
 
 // New struct for interaction queries
-struct ElementInteractionInfo
-{
-    const Element *element = nullptr;
-    const Component *parentComponent = nullptr; // Null if not part of a component or if element is a Component's graphical_element
+struct ElementInteractionInfo {
+    const Element* element = nullptr;
+    const Component* parent_component = nullptr;  // Null if not part of a component or if element is a Component's graphical_element
 };
 
 class Board
 {
 public:
     // Constructor that takes a file path (implementation will be in Board.cpp)
-    explicit Board(const std::string &filePath);
-    Board(); // Keep default constructor if needed, or remove if filePath constructor is primary
+    explicit Board(const std::string& file_path);
+    Board();  // Keep default constructor if needed, or remove if filePath constructor is primary
 
     // New initialization method
-    bool initialize(const std::string &filePath);
+    bool Initialize(const std::string& file_path);
 
     // Set the BoardDataManager for handling layer visibility changes
     void SetBoardDataManager(std::shared_ptr<BoardDataManager> manager);
 
     // --- Board Metadata ---
     std::string board_name;
-    std::string file_path; // Path to the original PCB file
+    std::string file_path;  // Path to the original PCB file
 
     // Board dimensions (could be calculated from elements or read from file)
     double width = 0.0;
@@ -56,38 +56,35 @@ public:
     // For now, let's assume Point2D from Component.hpp is not directly used here or define a simple one.
     BoardPoint2D origin_offset = {0.0, 0.0};
     // Structure to define a layer
-    struct LayerInfo
-    {
-        enum class LayerType
-        {
-            Signal,
-            PowerPlane, // Could be positive or negative plane
-            Silkscreen,
-            SolderMask,
-            SolderPaste,
-            Drill,
-            Mechanical,
-            BoardOutline,
-            Comment,
-            Other
+    struct LayerInfo {
+        enum class LayerType : uint8_t {
+            kSignal,
+            kPowerPlane,  // Could be positive or negative plane
+            kSilkscreen,
+            kSolderMask,
+            kSolderPaste,
+            kDrill,
+            kMechanical,
+            kBoardOutline,
+            kComment,
+            kOther
         };
 
-        int id = 0;       // Original ID from file if applicable, or internal ID
-        std::string name; // e.g., "TopLayer", "BottomLayer", "SilkscreenTop"
-        LayerType type = LayerType::Other;
+        int id = 0;        // Original ID from file if applicable, or internal ID
+        std::string name;  // e.g., "TopLayer", "BottomLayer", "SilkscreenTop"
+        LayerType type = LayerType::kOther;
         bool is_visible = true;
         // Removed color field
         // double thickness; // Optional: physical thickness of the layer
 
-        LayerInfo(int i, const std::string &n, LayerType t)
-            : id(i), name(n), type(t), is_visible(true) {}
-        LayerInfo() : id(-1), name("Unknown"), type(LayerType::Other), is_visible(true) {}
+        LayerInfo(int i, std::string n, LayerType t) : id(i), name(std::move(n)), type(t) {}
+        LayerInfo() : id(-1), name("Unknown") {}
 
-        bool IsVisible() const { return is_visible; }
+        [[nodiscard]] bool IsVisible() const { return is_visible; }
         void SetVisible(bool visible) { is_visible = visible; }
-        int GetId() const { return id; }
-        const std::string &GetName() const { return name; }
-        LayerType GetType() const { return type; }
+        [[nodiscard]] int GetId() const { return id; }
+        [[nodiscard]] const std::string& GetName() const { return name; }
+        [[nodiscard]] LayerType GetType() const { return type; }
         // Removed GetColor()
     };
     // Layer ID constants for PCB board structure
@@ -102,57 +99,57 @@ public:
     static constexpr int kPinsLayer = 31;
     std::vector<LayerInfo> layers;
 
-        // --- NEW PCB Element Storage ---
+    // --- NEW PCB Element Storage ---
     // Elements are grouped by layer ID for efficient layer-based operations.
     // Components are stored separately as they are containers of other elements (pins, specific text).
-    std::map<int, std::vector<std::unique_ptr<Element>>> m_elementsByLayer;
-    std::unordered_map<int, Net> m_nets; // Keep storing nets as before
+    std::map<int, std::vector<std::unique_ptr<Element>>> m_elements_by_layer;
+    std::unordered_map<int, Net> m_nets;  // Keep storing nets as before
 
     // --- Methods to add elements (modified) ---
     // These will now emplace std::unique_ptr<Element> into m_elementsByLayer
-    void addArc(const Arc &arc);
-    void addVia(const Via &via);
-    void addTrace(const Trace &trace);
-    void addStandaloneTextLabel(const TextLabel &label); // For text not part of a component
-    void addComponent(const Component &component);       // Will store in m_components
-    void addNet(const Net &net);                         // Will store in m_nets
-    void addLayer(const LayerInfo &layer);               // Will store in layers
+    void AddArc(const Arc& arc);
+    void AddVia(const Via& via);
+    void AddTrace(const Trace& trace);
+    void AddStandaloneTextLabel(const TextLabel& label);  // For text not part of a component
+    void AddComponent(const Component& component);        // Will store in m_components
+    void AddNet(const Net& net);                          // Will store in m_nets
+    void AddLayer(const LayerInfo& layer);                // Will store in layers
 
     // --- Methods to retrieve elements (modified/new) ---
     // Old GetTraces, GetVias, etc. are removed. Use GetAllVisibleElementsForInteraction or iterate m_elementsByLayer if needed.
 
-    const Net *getNetById(int net_id) const;
-    const LayerInfo *GetLayerById(int layerId) const;
+    [[nodiscard]] const Net* GetNetById(int net_id) const;
+    [[nodiscard]] const LayerInfo* GetLayerById(int layer_id) const;
 
-    std::vector<ElementInteractionInfo> GetAllVisibleElementsForInteraction() const;
+    [[nodiscard]] std::vector<ElementInteractionInfo> GetAllVisibleElementsForInteraction() const;
 
     // --- Layer Access Methods ---
-    std::vector<Board::LayerInfo> GetLayers() const;
-    int GetLayerCount() const;
-    std::string GetLayerName(int layerIndex) const; // Consider returning const&
-    bool IsLayerVisible(int layerIndex) const;
-    void SetLayerVisible(int layerIndex, bool visible);
-    void SetLayerColor(int layerIndex, BLRgba32 color);
+    [[nodiscard]] std::vector<Board::LayerInfo> GetLayers() const;
+    [[nodiscard]] int GetLayerCount() const;
+    [[nodiscard]] std::string GetLayerName(int layer_index) const;  // Consider returning const&
+    [[nodiscard]] bool IsLayerVisible(int layer_index) const;
+    void SetLayerVisible(int layer_index, bool visible);
+    void SetLayerColor(int layer_index, BLRgba32 color);
 
     // --- Loading Status Methods ---
-    bool IsLoaded() const;
-    std::string GetErrorMessage() const; // Consider returning const&
-    std::string GetFilePath() const;     // Getter for file_path
+    [[nodiscard]] bool IsLoaded() const;
+    [[nodiscard]] std::string GetErrorMessage() const;  // Consider returning const&
+    [[nodiscard]] std::string GetFilePath() const;      // Getter for file_path
 
     // Calculate the bounding box of all renderable elements on visible layers
-    BLRect GetBoundingBox(bool include_invisible_layers = false) const;
+    [[nodiscard]] BLRect GetBoundingBox(bool include_invisible_layers = false) const;
 
     // Normalizes all element coordinates so the center of their collective bounding box is (0,0)
     // Returns the offset that was applied (original center).
-    BoardPoint2D NormalizeCoordinatesAndGetCenterOffset(const BLRect &original_bounds);
+    BoardPoint2D NormalizeCoordinatesAndGetCenterOffset(const BLRect& original_bounds);
 
     // Methods for board-level operations (e.g., calculate extents)
     // void calculateBoardDimensions();
 
 private:
-    bool m_isLoaded = false;
-    std::string m_errorMessage;
+    bool m_is_loaded_ = false;
+    std::string m_error_message_;
     // If PcbLoader is to be used internally:
     // void ParseBoardFile(const std::string& filePath);
-    std::shared_ptr<BoardDataManager> m_boardDataManager;
+    std::shared_ptr<BoardDataManager> m_board_data_manager_;
 };

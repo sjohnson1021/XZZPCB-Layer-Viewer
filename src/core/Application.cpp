@@ -334,8 +334,8 @@ void Application::RenderUI()
 
     // Handle file dialog opening (m_openFileRequested is set by MainMenuBar)
     if (m_openFileRequested && m_fileDialogInstance && m_boardLoaderFactory) {
-        std::string supportedExtensions = m_boardLoaderFactory->getSupportedExtensionsFilterString();
-        std::vector<std::string> extensionsList = m_boardLoaderFactory->getSupportedExtensions();
+        std::string supportedExtensions = m_boardLoaderFactory->GetSupportedExtensionsFilterString();
+        std::vector<std::string> extensionsList = m_boardLoaderFactory->GetSupportedExtensions();
 
         // Dynamically apply file styling for registered extensions
         // This is a basic example; you might want more sophisticated color/icon choices
@@ -477,7 +477,7 @@ void Application::OpenPcbFile(const std::string& filePath)
         return;
     }
 
-    auto newBoard = m_boardLoaderFactory->loadBoard(filePath);
+    auto newBoard = m_boardLoaderFactory->LoadBoard(filePath);
     if (newBoard) {
         m_currentBoard = std::move(newBoard);
         if (m_boardDataManager) {

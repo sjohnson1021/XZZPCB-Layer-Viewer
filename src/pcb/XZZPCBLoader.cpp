@@ -1,7 +1,8 @@
 #include "XZZPCBLoader.hpp"
 
 #include <algorithm>  // For std::search
-#include <cstring>    // For std::memcpy
+#include <cstdint>
+#include <cstring>  // For std::memcpy
 #include <fstream>
 #include <iomanip>   // For std::setw, std::setfill, std::hex
 #include <iostream>  // Added for logging
@@ -15,6 +16,7 @@
 #include "Board.hpp"
 
 #include "../utils/ColorUtils.hpp"  // Added for layer color generation
+#include "../utils/des.h"
 #include "processing/PinResolver.hpp"
 
 // Define this to enable verbose logging for PcbLoader
@@ -38,49 +40,49 @@ void PcbLoader::DefineStandardLayers(Board& board)
     board.layers.clear();
 
     // Define layer for pins
-    board.addLayer(Board::LayerInfo(Board::kCompLayer, "Components", Board::LayerInfo::LayerType::Signal));
-    board.addLayer(Board::LayerInfo(Board::kPinsLayer, "Pins", Board::LayerInfo::LayerType::Signal));
-    board.addLayer(Board::LayerInfo(Board::kViasLayer, "Vias", Board::LayerInfo::LayerType::Signal));
+    board.AddLayer(Board::LayerInfo(Board::kCompLayer, "Components", Board::LayerInfo::LayerType::kSignal));
+    board.AddLayer(Board::LayerInfo(Board::kPinsLayer, "Pins", Board::LayerInfo::LayerType::kSignal));
+    board.AddLayer(Board::LayerInfo(Board::kViasLayer, "Vias", Board::LayerInfo::LayerType::kSignal));
     // Define Trace Layers (1-16)
     for (int i = 1; i <= 16; ++i) {
         std::string name = "Trace Layer " + std::to_string(i);
         // Layer 16 is often special (e.g., last layer in a sequence)
         // For now, all are Signal type. Specific XZZ usage might refine this.
-        board.addLayer(Board::LayerInfo(i, name, Board::LayerInfo::LayerType::Signal));
+        board.AddLayer(Board::LayerInfo(i, name, Board::LayerInfo::LayerType::kSignal));
     }
 
     // Silkscreen (17)
-    board.addLayer(Board::LayerInfo(Board::kSilkscreenLayer, "Silkscreen", Board::LayerInfo::LayerType::Silkscreen));
+    board.AddLayer(Board::LayerInfo(Board::kSilkscreenLayer, "Silkscreen", Board::LayerInfo::LayerType::kSilkscreen));
 
     // Unknown Layers (18-27) - treat as generic 'Other' or 'Comment' type for now
     for (int i = 18; i <= 27; ++i) {
         std::string name = "Unknown Layer " + std::to_string(i);
         // These might be used for internal notes, mechanical details, or additional silkscreen
         // Defaulting to 'Other' type. Users can inspect content.
-        board.addLayer(Board::LayerInfo(i, name, Board::LayerInfo::LayerType::Other));
+        board.AddLayer(Board::LayerInfo(i, name, Board::LayerInfo::LayerType::kOther));
     }
 
     // Board Edges (28)
-    board.addLayer(Board::LayerInfo(Board::kBoardEdgesLayer, "Board Edges", Board::LayerInfo::LayerType::BoardOutline));
+    board.AddLayer(Board::LayerInfo(Board::kBoardEdgesLayer, "Board Edges", Board::LayerInfo::LayerType::kBoardOutline));
 
     // After adding all layers, if your Board class has a function to assign unique colors:
     // board.RegenerateLayerColors(); // Or similar, if it exists in Board.hpp
 }
 
-std::unique_ptr<Board> PcbLoader::loadFromFile(const std::string& filePath)
+std::unique_ptr<Board> PcbLoader::LoadFromFile(const std::string& filePath)
 {
     std::vector<char> fileData;
-    if (!readFileData(filePath, fileData)) {
+    if (!ReadFileData(filePath, fileData)) {
         // Consider logging an error here
         return nullptr;
     }
 
-    if (!verifyFormat(fileData)) {
+    if (!VerifyFormat(fileData)) {
         // Consider logging an error here
         return nullptr;
     }
 
-    if (!decryptFileDataIfNeeded(fileData)) {
+    if (!DecryptFileDataIfNeeded(fileData)) {
         // Consider logging an error here
         return nullptr;
     }
@@ -95,15 +97,15 @@ std::unique_ptr<Board> PcbLoader::loadFromFile(const std::string& filePath)
     uint32_t imageDataOffset = 0;  // Currently unused by parser logic beyond header
     uint32_t mainDataBlocksSize = 0;
 
-    if (!parseHeader(fileData, *board, mainDataOffset, netDataOffset, imageDataOffset, mainDataBlocksSize)) {
+    if (!ParseHeader(fileData, *board, mainDataOffset, netDataOffset, imageDataOffset, mainDataBlocksSize)) {
         return nullptr;  // Error parsing header
     }
 
-    if (!parseMainDataBlocks(fileData, *board, mainDataOffset, mainDataBlocksSize)) {
+    if (!ParseMainDataBlocks(fileData, *board, mainDataOffset, mainDataBlocksSize)) {
         return nullptr;  // Error parsing main data blocks
     }
 
-    if (!parseNetBlock(fileData, *board, netDataOffset)) {
+    if (!ParseNetBlock(fileData, *board, netDataOffset)) {
         return nullptr;  // Error parsing net block
     }
 
@@ -111,7 +113,7 @@ std::unique_ptr<Board> PcbLoader::loadFromFile(const std::string& filePath)
     static const std::vector<uint8_t> v6_marker = {0x76, 0x36, 0x76, 0x36, 0x35, 0x35, 0x35, 0x76, 0x36, 0x76, 0x36};
     auto v6_iter = std::search(fileData.cbegin(), fileData.cend(), v6_marker.cbegin(), v6_marker.cend());
     if (v6_iter != fileData.cend()) {
-        if (!parsePostV6Block(fileData, *board, v6_iter)) {
+        if (!ParsePostV6Block(fileData, *board, v6_iter)) {
             // Optional: log error but continue, as this might be auxiliary data
         }
     }
@@ -138,15 +140,15 @@ std::unique_ptr<Board> PcbLoader::loadFromFile(const std::string& filePath)
 
     // Process pin orientations
     // PCBProcessing::OrientationProcessor::processBoard(*board);
-    for (auto& component : board->m_elementsByLayer[Board::kCompLayer]) {
+    for (auto& component : board->m_elements_by_layer[Board::kCompLayer]) {
         if (auto* comp = dynamic_cast<Component*>(component.get())) {
-            PinResolver::resolveComponentPinOrientations(comp);
+            PinResolver::ResolveComponentPinOrientations(comp);
         }
     }
     return board;
 }
 
-bool PcbLoader::readFileData(const std::string& filePath, std::vector<char>& fileData)
+bool PcbLoader::ReadFileData(const std::string& filePath, std::vector<char>& fileData)
 {
     std::ifstream file(filePath, std::ios::binary | std::ios::ate);
     if (!file.is_open()) {
@@ -164,7 +166,7 @@ bool PcbLoader::readFileData(const std::string& filePath, std::vector<char>& fil
     return true;
 }
 
-bool PcbLoader::verifyFormat(const std::vector<char>& fileData)
+bool PcbLoader::VerifyFormat(const std::vector<char>& fileData)
 {
     if (fileData.size() < 6)
         return false;
@@ -192,7 +194,7 @@ bool PcbLoader::verifyFormat(const std::vector<char>& fileData)
 
 // Handles the initial XOR decryption of the entire file if needed.
 // The DES decryption for component blocks is handled separately in parseComponent.
-bool PcbLoader::decryptFileDataIfNeeded(std::vector<char>& fileData)
+bool PcbLoader::DecryptFileDataIfNeeded(std::vector<char>& fileData)
 {
     if (fileData.size() < 0x11 || static_cast<uint8_t>(fileData[0x10]) == 0x00) {
         return true;  // Not encrypted this way or too small
@@ -216,7 +218,7 @@ bool PcbLoader::decryptFileDataIfNeeded(std::vector<char>& fileData)
 }
 
 // This method is specifically for DES-decrypting component data blocks.
-void PcbLoader::decryptComponentBlock(std::vector<char>& blockData)
+void PcbLoader::DecryptComponentBlock(std::vector<char>& blockData)
 {
     std::ostringstream key_hex_stream;
     key_hex_stream.str().reserve(16);  // DES key is 8 bytes = 16 hex chars
@@ -262,7 +264,7 @@ void PcbLoader::decryptComponentBlock(std::vector<char>& blockData)
     blockData = decrypted_data;  // Replace original with decrypted version
 }
 
-std::string PcbLoader::readCB2312String(const char* data, size_t length)
+std::string PcbLoader::ReadCB2312String(const char* data, size_t length)
 {
     std::string result;
     result.reserve(length);  // Approximate reservation
@@ -285,7 +287,7 @@ std::string PcbLoader::readCB2312String(const char* data, size_t length)
     return result;
 }
 
-bool PcbLoader::parseHeader(const std::vector<char>& fileData, Board& board, uint32_t& outMainDataOffset, uint32_t& outNetDataOffset, uint32_t& outImageDataOffset, uint32_t& outMainDataBlocksSize)
+bool PcbLoader::ParseHeader(const std::vector<char>& fileData, Board& board, uint32_t& outMainDataOffset, uint32_t& outNetDataOffset, uint32_t& outImageDataOffset, uint32_t& outMainDataBlocksSize)
 {
     if (fileData.size() < 0x44) {  // Minimum size for the header fields we need
         return false;              // Error: File too small for header
@@ -297,19 +299,19 @@ bool PcbLoader::parseHeader(const std::vector<char>& fileData, Board& board, uin
         // - net_block_start is at 0x28, relative to 0x20
         // - main_data_blocks_size is at 0x40 (absolute address in fileData)
 
-        // uint32_t header_addresses_size = readLE<uint32_t>(&fileData[0x20]); // This was in old loader, seems unused for critical offsets by old loader.
+        // uint32_t header_addresses_size = ReadLE<uint32_t>(&fileData[0x20]); // This was in old loader, seems unused for critical offsets by old loader.
 
         // Aligning with XZZXZZPCBLoader.cpp: offsets are added to 0x20 unconditionally
         // if the file format implies these fields are always relative offsets stored at 0x24/0x28.
         // If an offset of 0 at 0x24 truly means "no image block and 0 is not relative to 0x20",
         // then the previous conditional logic was safer. Assuming old loader was correct:
-        outImageDataOffset = readLE<uint32_t>(&fileData[0x24]) + 0x20;
-        outNetDataOffset = readLE<uint32_t>(&fileData[0x28]) + 0x20;
+        outImageDataOffset = ReadLE<uint32_t>(&fileData[0x24]) + 0x20;
+        outNetDataOffset = ReadLE<uint32_t>(&fileData[0x28]) + 0x20;
 
         // The main data block content starts immediately after its size field.
         // The size field itself is at absolute offset 0x40.
         outMainDataOffset = 0x40;
-        outMainDataBlocksSize = readLE<uint32_t>(&fileData[outMainDataOffset]);
+        outMainDataBlocksSize = ReadLE<uint32_t>(&fileData[outMainDataOffset]);
 
         // Basic validation of offsets (crude check, can be improved)
         if (outMainDataOffset + 4 + outMainDataBlocksSize > fileData.size() || (outNetDataOffset > 0 && outNetDataOffset > fileData.size()) ||
@@ -342,7 +344,7 @@ bool PcbLoader::parseHeader(const std::vector<char>& fileData, Board& board, uin
     }
 }
 
-bool PcbLoader::parseMainDataBlocks(const std::vector<char>& fileData, Board& board, uint32_t mainDataOffset, uint32_t mainDataBlocksSize)
+bool PcbLoader::ParseMainDataBlocks(const std::vector<char>& fileData, Board& board, uint32_t mainDataOffset, uint32_t mainDataBlocksSize)
 {
     if (mainDataBlocksSize == 0)
         return true;  // No main data to parse
@@ -362,7 +364,7 @@ bool PcbLoader::parseMainDataBlocks(const std::vector<char>& fileData, Board& bo
             }
 
             // Handle potential 4-byte null padding between blocks
-            if (readLE<uint32_t>(&fileData[currentOffset]) == 0) {
+            if (ReadLE<uint32_t>(&fileData[currentOffset]) == 0) {
                 currentOffset += 4;
                 continue;
             }
@@ -370,7 +372,7 @@ bool PcbLoader::parseMainDataBlocks(const std::vector<char>& fileData, Board& bo
             uint8_t blockType = static_cast<uint8_t>(fileData[currentOffset]);
             currentOffset += 1;
 
-            uint32_t blockSize = readLE<uint32_t>(&fileData[currentOffset]);
+            uint32_t blockSize = ReadLE<uint32_t>(&fileData[currentOffset]);
             currentOffset += 4;
 
             // Boundary check for the block content itself
@@ -383,28 +385,28 @@ bool PcbLoader::parseMainDataBlocks(const std::vector<char>& fileData, Board& bo
 
             switch (blockType) {
                 case 0x01:  // Arc
-                    parseArc(blockDataStart, board);
+                    ParseArc(blockDataStart, board);
                     break;
                 case 0x02:  // Via
-                    parseVia(blockDataStart, blockSize, board);
+                    ParseVia(blockDataStart, blockSize, board);
                     break;
                 case 0x03:  // Unknown type_03 from hexpat, skip for now
                     // std::cout << "Skipping unknown block type 0x03 of size " << blockSize << std::endl;
                     break;
                 case 0x05:  // Trace (Line Segment in hexpat for traces)
-                    parseTrace(blockDataStart, board);
+                    ParseTrace(blockDataStart, board);
                     break;
                 case 0x06:  // Text Label (standalone)
-                    parseTextLabel(blockDataStart, board, true /* isStandalone */);
+                    ParseTextLabel(blockDataStart, board, true /* isStandalone */);
                     break;
                 case 0x07:  // Component
-                    parseComponent(blockDataStart, blockSize, board);
+                    ParseComponent(blockDataStart, blockSize, board);
                     break;
                 case 0x09:  // Test Pad / Drill Hole (type_09 in hexpat) - Treat as Via for now?
                     // Or create a new element type like 'DrillHole' or 'TestPad'
                     // For now, let's define a placeholder or skip.
                     // std::cout << "Skipping block type 0x09 (TestPad/DrillHole) of size " << blockSize << std::endl;
-                    parseVia(blockDataStart, blockSize, board);  // TEMPORARY: treat as via. TODO: Revisit this.
+                    ParseVia(blockDataStart, blockSize, board);  // TEMPORARY: treat as via. TODO: Revisit this.
                     break;
                 default:
                     // Unknown or unhandled block type
@@ -414,13 +416,13 @@ bool PcbLoader::parseMainDataBlocks(const std::vector<char>& fileData, Board& bo
             currentOffset += blockSize;
         }
         return true;
-    } catch (const std::runtime_error& e) {  // Catch potential errors from readLE
+    } catch (const std::runtime_error& e) {  // Catch potential errors from ReadLE
         // Log e.what()
         return false;
     }
 }
 
-void PcbLoader::parseArc(const char* data, Board& board)
+void PcbLoader::ParseArc(const char* data, Board& board)
 {
     // Structure from XZZPCBLoader.h & .hexpat type_01:
     // u32 layer;
@@ -433,24 +435,24 @@ void PcbLoader::parseArc(const char* data, Board& board)
     // s32 net_index;
     // s32 unknown_arc; (offset 28, size 4, total size 32 before unknown_arc, 36 with it)
 
-    int layer_id = static_cast<int>(readLE<uint32_t>(data));
-    double cx = static_cast<double>(readLE<uint32_t>(data + 4)) / xyscale;
-    double cy = static_cast<double>(readLE<uint32_t>(data + 8)) / xyscale;
-    double radius = static_cast<double>(readLE<int32_t>(data + 12)) / xyscale;
+    int layer_id = static_cast<int>(ReadLE<uint32_t>(data));
+    double cx = static_cast<double>(ReadLE<uint32_t>(data + 4)) / xyscale;
+    double cy = static_cast<double>(ReadLE<uint32_t>(data + 8)) / xyscale;
+    double radius = static_cast<double>(ReadLE<int32_t>(data + 12)) / xyscale;
     // Correct angle scaling: XZZ format likely stores angles scaled by 10000 (degrees * 10000)
-    double start_angle = static_cast<double>(readLE<int32_t>(data + 16)) / 10000.0;
-    double end_angle = static_cast<double>(readLE<int32_t>(data + 20)) / 10000.0;
-    double thickness = static_cast<double>(readLE<int32_t>(data + 24)) / xyscale;  // Assuming 'scale' is thickness
-    int net_id = static_cast<int>(readLE<int32_t>(data + 28));
-    // int32_t unknown_arc_val = readLE<int32_t>(data + 32); // If needed
+    double start_angle = static_cast<double>(ReadLE<int32_t>(data + 16)) / 10000.0;
+    double end_angle = static_cast<double>(ReadLE<int32_t>(data + 20)) / 10000.0;
+    double thickness = static_cast<double>(ReadLE<int32_t>(data + 24)) / xyscale;  // Assuming 'scale' is thickness
+    int net_id = static_cast<int>(ReadLE<int32_t>(data + 28));
+    // int32_t unknown_arc_val = ReadLE<int32_t>(data + 32); // If needed
 
     Arc arc(layer_id, Vec2(cx, cy), radius, start_angle, end_angle, thickness);
     arc.thickness = thickness;
     arc.SetNetId(net_id);  // Changed from arc.net_id
-    board.addArc(arc);
+    board.AddArc(arc);
 }
 
-void PcbLoader::parseVia(const char* data, uint32_t blockSize, Board& board)
+void PcbLoader::ParseVia(const char* data, uint32_t blockSize, Board& board)
 {
     // Structure from XZZPCBLoader.h & .hexpat type_02:
     // s32 x;
@@ -462,14 +464,14 @@ void PcbLoader::parseVia(const char* data, uint32_t blockSize, Board& board)
     // u32 net_index;
     // u32 via_text_length; (Typically 0 or 1, if 1, an extra u8 for text)
     // char via_text[via_text_length];
-    double x = static_cast<double>(readLE<int32_t>(data)) / xyscale;
-    double y = static_cast<double>(readLE<int32_t>(data + 4)) / xyscale;
-    double radius_a = static_cast<double>(readLE<int32_t>(data + 8)) / xyscale;   // Pad radius on layer_a
-    double radius_b = static_cast<double>(readLE<int32_t>(data + 12)) / xyscale;  // Pad radius on layer_b
-    int layer_a = static_cast<int>(readLE<uint32_t>(data + 16));
-    int layer_b = static_cast<int>(readLE<uint32_t>(data + 20));
-    int net_id = static_cast<int>(readLE<uint32_t>(data + 24));
-    uint32_t text_len = readLE<uint32_t>(data + 28);
+    double x = static_cast<double>(ReadLE<int32_t>(data)) / xyscale;
+    double y = static_cast<double>(ReadLE<int32_t>(data + 4)) / xyscale;
+    double radius_a = static_cast<double>(ReadLE<int32_t>(data + 8)) / xyscale;   // Pad radius on layer_a
+    double radius_b = static_cast<double>(ReadLE<int32_t>(data + 12)) / xyscale;  // Pad radius on layer_b
+    int layer_a = static_cast<int>(ReadLE<uint32_t>(data + 16));
+    int layer_b = static_cast<int>(ReadLE<uint32_t>(data + 20));
+    int net_id = static_cast<int>(ReadLE<uint32_t>(data + 24));
+    uint32_t text_len = ReadLE<uint32_t>(data + 28);
 
     // For our Via class, we might simplify to one pad_radius if they are usually the same,
     // or keep separate if they can differ. The current Via.hpp has pad_radius_from, pad_radius_to.
@@ -512,13 +514,13 @@ void PcbLoader::parseVia(const char* data, uint32_t blockSize, Board& board)
             // If it's truly a length, then data + 32 is the start of text.
             // The old XZZPCBLoader has: via.text = std::string(&fileData[currentOffset + 32], textLen);
             // So, text_len is indeed the length of the string starting at offset 32 from blockDataStart.
-            via.optional_text = readCB2312String(data + 32, text_len);
+            via.optional_text = ReadCB2312String(data + 32, text_len);
         }
     }
-    board.addVia(via);
+    board.AddVia(via);
 }
 
-void PcbLoader::parseTrace(const char* data, Board& board)
+void PcbLoader::ParseTrace(const char* data, Board& board)
 {
     // Structure from XZZPCBLoader.h & .hexpat type_05 (Line Segment):
     // u32 layer;
@@ -530,20 +532,20 @@ void PcbLoader::parseTrace(const char* data, Board& board)
     // u32 trace_net_index;
     // Total size 28 bytes.
 
-    int layer_id = static_cast<int>(readLE<uint32_t>(data));
-    double x1 = static_cast<double>(readLE<int32_t>(data + 4)) / xyscale;
-    double y1 = static_cast<double>(readLE<int32_t>(data + 8)) / xyscale;
-    double x2 = static_cast<double>(readLE<int32_t>(data + 12)) / xyscale;
-    double y2 = static_cast<double>(readLE<int32_t>(data + 16)) / xyscale;
-    double width = static_cast<double>(readLE<int32_t>(data + 20)) / xyscale;  // Assuming 'scale' is width
-    int net_id = static_cast<int>(readLE<uint32_t>(data + 24));
+    int layer_id = static_cast<int>(ReadLE<uint32_t>(data));
+    double x1 = static_cast<double>(ReadLE<int32_t>(data + 4)) / xyscale;
+    double y1 = static_cast<double>(ReadLE<int32_t>(data + 8)) / xyscale;
+    double x2 = static_cast<double>(ReadLE<int32_t>(data + 12)) / xyscale;
+    double y2 = static_cast<double>(ReadLE<int32_t>(data + 16)) / xyscale;
+    double width = static_cast<double>(ReadLE<int32_t>(data + 20)) / xyscale;  // Assuming 'scale' is width
+    int net_id = static_cast<int>(ReadLE<uint32_t>(data + 24));
 
     Trace trace(layer_id, Vec2(x1, y1), Vec2(x2, y2), width);
     trace.SetNetId(net_id);  // Changed from trace.net_id
-    board.addTrace(trace);
+    board.AddTrace(trace);
 }
 
-void PcbLoader::parseTextLabel(const char* data, Board& board, bool isStandalone)
+void PcbLoader::ParseTextLabel(const char* data, Board& board, bool isStandalone)
 {
     // Structure from .hexpat type_06 (standalone Text):
     // u32 unknown_1; (layer in old XZZPCBLoader, matches hexpat part_sub_type_06 layer)
@@ -556,20 +558,20 @@ void PcbLoader::parseTextLabel(const char* data, Board& board, bool isStandalone
     // u32 text_length;
     // char text[text_length];
     // Offsets from XZZXZZPCBLoader.cpp for standalone text (type 0x06):
-    // label.layer = readLE<uint32_t>(&fileData[currentOffset]); -> data + 0
-    // label.x = readLE<int32_t>(&fileData[currentOffset + 4]); -> data + 4
-    // label.y = readLE<int32_t>(&fileData[currentOffset + 8]); -> data + 8
-    // label.fontSize = readLE<uint32_t>(&fileData[currentOffset + 12]); -> data + 12 (text_size)
-    // textLen = readLE<uint32_t>(&fileData[currentOffset + 24]); -> data + 24 (text_length)
+    // label.layer = ReadLE<uint32_t>(&fileData[currentOffset]); -> data + 0
+    // label.x = ReadLE<int32_t>(&fileData[currentOffset + 4]); -> data + 4
+    // label.y = ReadLE<int32_t>(&fileData[currentOffset + 8]); -> data + 8
+    // label.fontSize = ReadLE<uint32_t>(&fileData[currentOffset + 12]); -> data + 12 (text_size)
+    // textLen = ReadLE<uint32_t>(&fileData[currentOffset + 24]); -> data + 24 (text_length)
     // text_start = data + 28
     // The `scale` in old TextLabel struct came from part_sub_type_06 `font_scale` or type_06 `divider`.
     // Visibility and ps06flag are only in part_sub_type_06.
 
-    int layer_id = static_cast<int>(readLE<uint32_t>(data));                 // unknown_1 in hexpat, but layer in old loader
-    double x = static_cast<double>(readLE<uint32_t>(data + 4) / xyscale);    // pos_x
-    double y = static_cast<double>(readLE<uint32_t>(data + 8) / xyscale);    // pos_y
-    double font_size = static_cast<double>(readLE<uint32_t>(data + 12));     // text_size
-    double scale_factor = static_cast<double>(readLE<uint32_t>(data + 16));  // divider in hexpat, was text_scale in TextLabel.hpp
+    int layer_id = static_cast<int>(ReadLE<uint32_t>(data));                 // unknown_1 in hexpat, but layer in old loader
+    double x = static_cast<double>(ReadLE<uint32_t>(data + 4) / xyscale);    // pos_x
+    double y = static_cast<double>(ReadLE<uint32_t>(data + 8) / xyscale);    // pos_y
+    double font_size = static_cast<double>(ReadLE<uint32_t>(data + 12));     // text_size
+    double scale_factor = static_cast<double>(ReadLE<uint32_t>(data + 16));  // divider in hexpat, was text_scale in TextLabel.hpp
     // data + 20 is 'empty' (4 bytes), data + 24 is 'one' (2 bytes) then text_length (4 bytes from old loader) - this is slightly different from hexpat
     // XZZPCBLoader textLen was at +24. Text started at +28.
     // Let's trust XZZPCBLoader reading logic: fontSize @+12, textLen @+24, text @+28
@@ -578,8 +580,8 @@ void PcbLoader::parseTextLabel(const char* data, Board& board, bool isStandalone
     // Hexpat standalone type_06: unknown_1 (layer), pos_x, pos_y, text_size (fontSize), divider (scale?), empty, one, text_length, text.
     // For standalone, we use fields based on old loader interpretation of type_06 block.
 
-    uint32_t text_len = readLE<uint32_t>(data + 24);
-    std::string text_content = readCB2312String(data + 28, text_len);
+    uint32_t text_len = ReadLE<uint32_t>(data + 24);
+    std::string text_content = ReadCB2312String(data + 28, text_len);
 
     TextLabel label = {text_content, Vec2(x, y), layer_id, font_size, scale_factor};
     // label.text_content = text_content;
@@ -590,7 +592,7 @@ void PcbLoader::parseTextLabel(const char* data, Board& board, bool isStandalone
     // These are set to defaults in TextLabel.hpp.
 
     if (isStandalone) {
-        board.addStandaloneTextLabel(label);
+        board.AddStandaloneTextLabel(label);
     } else {
         // This case should ideally not be hit if parseComponent calls a different variant or populates directly.
         // However, if called from component parsing, the component itself should add it.
@@ -601,7 +603,7 @@ void PcbLoader::parseTextLabel(const char* data, Board& board, bool isStandalone
     }
 }
 
-void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentBlockSize, Board& board)
+void PcbLoader::ParseComponent(const char* rawComponentData, uint32_t componentBlockSize, Board& board)
 {
     // Component data (type 0x07) is typically DES-encrypted.
     // First, make a mutable copy of the component's block data to decrypt it.
@@ -615,7 +617,7 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
     double rotation_degrees = 0.0;     // Default to 0.0 degrees
 
     std::vector<char> componentData(rawComponentData, rawComponentData + componentBlockSize);
-    decryptComponentBlock(componentData);  // Decrypts in-place
+    DecryptComponentBlock(componentData);  // Decrypts in-place
 #ifdef ENABLE_PCB_LOADER_LOGGING
     std::cout << "[PcbLoader LOG] Decrypted componentData size: " << componentData.size() << std::endl;
 #endif
@@ -630,7 +632,7 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
 #endif
         return;
     }
-    uint32_t part_overall_size = readLE<uint32_t>(&componentData[localOffset]);  // Size of the actual part data within this block
+    uint32_t part_overall_size = ReadLE<uint32_t>(&componentData[localOffset]);  // Size of the actual part data within this block
 #ifdef ENABLE_PCB_LOADER_LOGGING
     std::cout << "[PcbLoader LOG] part_overall_size: " << part_overall_size << " at offset " << localOffset << std::endl;
 #endif
@@ -653,7 +655,7 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
 #endif
         return;
     }
-    double part_x = static_cast<double>(readLE<uint32_t>(&componentData[localOffset])) / xyscale;
+    double part_x = static_cast<double>(ReadLE<uint32_t>(&componentData[localOffset])) / xyscale;
     localOffset += 4;
     if (componentData.size() < localOffset + 4) { /*part_y*/
 #ifdef ENABLE_PCB_LOADER_LOGGING
@@ -661,7 +663,7 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
 #endif
         return;
     }
-    double part_y = static_cast<double>(readLE<uint32_t>(&componentData[localOffset])) / xyscale;
+    double part_y = static_cast<double>(ReadLE<uint32_t>(&componentData[localOffset])) / xyscale;
     localOffset += 4;
     if (componentData.size() < localOffset + 4) { /*scale/padding*/
 #ifdef ENABLE_PCB_LOADER_LOGGING
@@ -683,7 +685,7 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
 
     uint32_t pad_size_len = 0;
     if (localOffset + 4 <= componentData.size() && localOffset + 4 <= part_overall_size) {  // Check against part_overall_size for logical end too
-        pad_size_len = readLE<uint32_t>(&componentData[localOffset]);
+        pad_size_len = ReadLE<uint32_t>(&componentData[localOffset]);
 #ifdef ENABLE_PCB_LOADER_LOGGING
         std::cout << "[PcbLoader LOG] pad_size_len: " << pad_size_len << " at offset " << localOffset << std::endl;
 #endif
@@ -699,7 +701,7 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
     std::string comp_footprint_name_str;
     if (pad_size_len > 0) {
         if (localOffset + pad_size_len <= componentData.size() && localOffset + pad_size_len <= part_overall_size) {  // Check against part_overall_size
-            comp_footprint_name_str = readCB2312String(&componentData[localOffset], pad_size_len);
+            comp_footprint_name_str = ReadCB2312String(&componentData[localOffset], pad_size_len);
 #ifdef ENABLE_PCB_LOADER_LOGGING
             std::cout << "[PcbLoader LOG] comp_footprint_name_str: \"" << comp_footprint_name_str << "\" at offset " << localOffset << std::endl;
 #endif
@@ -749,7 +751,7 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
             break;
         }
 
-        uint32_t subBlockSize = readLE<uint32_t>(&componentData[localOffset]);
+        uint32_t subBlockSize = ReadLE<uint32_t>(&componentData[localOffset]);
 #ifdef ENABLE_PCB_LOADER_LOGGING
         std::cout << "[PcbLoader LOG]     subBlockSize=" << subBlockSize << " (read at offset " << localOffset << ").";
 #endif
@@ -794,12 +796,12 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
 #endif
                     break;
                 }
-                int seg_layer = static_cast<int>(readLE<uint32_t>(subBlockDataStart));
-                double x1 = static_cast<double>(readLE<int32_t>(subBlockDataStart + 4)) / xyscale;
-                double y1 = static_cast<double>(readLE<int32_t>(subBlockDataStart + 8)) / xyscale;
-                double x2 = static_cast<double>(readLE<int32_t>(subBlockDataStart + 12)) / xyscale;
-                double y2 = static_cast<double>(readLE<int32_t>(subBlockDataStart + 16)) / xyscale;
-                double thickness = static_cast<double>(readLE<uint32_t>(subBlockDataStart + 20)) / xyscale;  // Scale
+                int seg_layer = static_cast<int>(ReadLE<uint32_t>(subBlockDataStart));
+                double x1 = static_cast<double>(ReadLE<int32_t>(subBlockDataStart + 4)) / xyscale;
+                double y1 = static_cast<double>(ReadLE<int32_t>(subBlockDataStart + 8)) / xyscale;
+                double x2 = static_cast<double>(ReadLE<int32_t>(subBlockDataStart + 12)) / xyscale;
+                double y2 = static_cast<double>(ReadLE<int32_t>(subBlockDataStart + 16)) / xyscale;
+                double thickness = static_cast<double>(ReadLE<uint32_t>(subBlockDataStart + 20)) / xyscale;  // Scale
 
 #ifdef ENABLE_PCB_LOADER_LOGGING
                 std::cout << "[PcbLoader LOG]         Segment: (" << x1 << "," << y1 << ") to (" << x2 << "," << y2 << "), Thickness: " << thickness << ", Layer: " << seg_layer << std::endl;
@@ -816,25 +818,25 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
                 if (subBlockSize < 30) {
                     break;
                 }
-                int lbl_layer = static_cast<int>(readLE<uint32_t>(subBlockDataStart + 0));
-                double lbl_x = static_cast<double>(readLE<uint32_t>(subBlockDataStart + 4));
-                double lbl_y = static_cast<double>(readLE<uint32_t>(subBlockDataStart + 8));
-                double lbl_font_size = static_cast<double>(readLE<uint32_t>(subBlockDataStart + 12));
-                double lbl_font_scale = static_cast<double>(readLE<uint32_t>(subBlockDataStart + 16));
+                int lbl_layer = static_cast<int>(ReadLE<uint32_t>(subBlockDataStart + 0));
+                double lbl_x = static_cast<double>(ReadLE<uint32_t>(subBlockDataStart + 4));
+                double lbl_y = static_cast<double>(ReadLE<uint32_t>(subBlockDataStart + 8));
+                double lbl_font_size = static_cast<double>(ReadLE<uint32_t>(subBlockDataStart + 12));
+                double lbl_font_scale = static_cast<double>(ReadLE<uint32_t>(subBlockDataStart + 16));
                 // offset +20 is 4 bytes padding
                 bool visible = (static_cast<uint8_t>(subBlockDataStart[24]) == 0x02);
                 int ps06_flag = static_cast<uint8_t>(subBlockDataStart[25]);
 
                 uint32_t nameSize = 0;
                 if (subBlockSize >= 30) {  // Enough for nameSize field itself
-                    nameSize = readLE<uint32_t>(subBlockDataStart + 26);
+                    nameSize = ReadLE<uint32_t>(subBlockDataStart + 26);
                 } else {
                     break;
                 }
 
                 std::string lbl_text;
                 if (nameSize > 0 && 30 + nameSize <= subBlockSize) {  // Check if text fits in subBlock
-                    lbl_text = readCB2312String(subBlockDataStart + 30, nameSize);
+                    lbl_text = ReadCB2312String(subBlockDataStart + 30, nameSize);
                 } else if (nameSize > 0) { /* Declared nameSize but not enough space */
                     break;
                 }
@@ -885,7 +887,7 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
 #endif
                     break;
                 }
-                double pin_x = static_cast<double>(readLE<int32_t>(subBlockDataStart + pin_offset_iterator)) / xyscale;
+                double pin_x = static_cast<double>(ReadLE<int32_t>(subBlockDataStart + pin_offset_iterator)) / xyscale;
                 pin_offset_iterator += 4;
                 // std::cout << "[PcbLoader LOG]         pin_x: " << pin_x << ", pin_offset_iterator: " << pin_offset_iterator << std::endl;
 
@@ -896,7 +898,7 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
 #endif
                     break;
                 }
-                double pin_y = static_cast<double>(readLE<int32_t>(subBlockDataStart + pin_offset_iterator)) / xyscale;
+                double pin_y = static_cast<double>(ReadLE<int32_t>(subBlockDataStart + pin_offset_iterator)) / xyscale;
                 pin_offset_iterator += 4;
                 // std::cout << "[PcbLoader LOG]         pin_y: " << pin_y << ", pin_offset_iterator: " << pin_offset_iterator << std::endl;
 
@@ -917,7 +919,7 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
 #endif
                     break;
                 }
-                uint32_t pin_name_size = readLE<uint32_t>(subBlockDataStart + pin_offset_iterator);
+                uint32_t pin_name_size = ReadLE<uint32_t>(subBlockDataStart + pin_offset_iterator);
                 pin_offset_iterator += 4;
 #ifdef ENABLE_PCB_LOADER_LOGGING
                 std::cout << "[PcbLoader LOG]         Pin Coords: (" << pin_x << "," << pin_y << "), NameSize: " << pin_name_size << ". pin_offset_iterator after name_size: " << pin_offset_iterator
@@ -927,7 +929,7 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
                 std::string pin_name_str;  // Renamed from pin_name to avoid conflict with Pin member
                 if (pin_name_size > 0) {
                     if (pin_offset_iterator + pin_name_size <= subBlockSize) {  // Check against subBlockSize
-                        pin_name_str = readCB2312String(subBlockDataStart + pin_offset_iterator, pin_name_size);
+                        pin_name_str = ReadCB2312String(subBlockDataStart + pin_offset_iterator, pin_name_size);
 #ifdef ENABLE_PCB_LOADER_LOGGING
                         std::cout << "[PcbLoader LOG]         Pin Name: \"" << pin_name_str << "\"" << std::endl;
 #endif
@@ -992,9 +994,9 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
                     }
 
                     // Read raw outline data
-                    double outline_width_raw = static_cast<double>(readLE<uint32_t>(subBlockDataStart + pin_offset_iterator)) / xyscale;
+                    double outline_width_raw = static_cast<double>(ReadLE<uint32_t>(subBlockDataStart + pin_offset_iterator)) / xyscale;
                     pin_offset_iterator += 4;
-                    double outline_height_raw = static_cast<double>(readLE<uint32_t>(subBlockDataStart + pin_offset_iterator)) / xyscale;
+                    double outline_height_raw = static_cast<double>(ReadLE<uint32_t>(subBlockDataStart + pin_offset_iterator)) / xyscale;
                     pin_offset_iterator += 4;
                     uint8_t outline_type_raw = static_cast<uint8_t>(subBlockDataStart[pin_offset_iterator++]);
 
@@ -1045,7 +1047,7 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
                     // This implies net_id is always at a fixed position from the end.
                     if (subBlockSize >= net_id_footer_size)  // ps08_footer_size is 8 bytes (u32 type + u32 value)
                     {
-                        current_pin_object_ptr->SetNetId(static_cast<int>(readLE<uint32_t>(subBlockDataStart + subBlockSize - net_id_footer_size)));
+                        current_pin_object_ptr->SetNetId(static_cast<int>(ReadLE<uint32_t>(subBlockDataStart + subBlockSize - net_id_footer_size)));
                     } else {
                         current_pin_object_ptr->SetNetId(-1);  // Default if footer is too small
                     }
@@ -1054,9 +1056,9 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
                 }
 
                 // Diode readings association
-                if (diodeReadingsType_ == 1 && !comp.reference_designator.empty() && !current_pin_object_ptr->pin_name.empty()) {
-                    auto comp_it = diodeReadings_.find(comp.reference_designator);
-                    if (comp_it != diodeReadings_.end()) {
+                if (diode_readings_type_ == 1 && !comp.reference_designator.empty() && !current_pin_object_ptr->pin_name.empty()) {
+                    auto comp_it = diode_readings_.find(comp.reference_designator);
+                    if (comp_it != diode_readings_.end()) {
                         auto pin_it = comp_it->second.find(current_pin_object_ptr->pin_name);
                         if (pin_it != comp_it->second.end()) {
                             current_pin_object_ptr->diode_reading = pin_it->second;
@@ -1065,7 +1067,7 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
 #endif
                         }
                     }
-                } else if (diodeReadingsType_ == 2 && current_pin_object_ptr->GetNetId() != -1) {
+                } else if (diode_readings_type_ == 2 && current_pin_object_ptr->GetNetId() != -1) {
                     // This requires nets to be parsed first or a two-pass approach for diode readings.
                     // For now, this part of diode reading might not work perfectly if nets aren't ready.
                     // A placeholder for net name lookup:
@@ -1168,10 +1170,10 @@ void PcbLoader::parseComponent(const char* rawComponentData, uint32_t componentB
     // If graphical_elements is empty, comp.width and comp.height retain any values they had from earlier parsing stages.
     // ARBITRARY: Set all layers to one layer for now.
     comp.layer = Board::kCompLayer;  // TODO: Will need to handle top and bottom sides once we have the board 'folded'.
-    board.addComponent(comp);
+    board.AddComponent(comp);
 }
 
-bool PcbLoader::parsePostV6Block(const std::vector<char>& fileData, Board& board, std::vector<char>::const_iterator v6_iter)
+bool PcbLoader::ParsePostV6Block(const std::vector<char>& fileData, Board& board, std::vector<char>::const_iterator v6_iter)
 {
     // Logic adapted from XZZPCBLoader::parsePostV6Block
     // v6_iter points to the start of the "v6v6555v6v6" marker.
@@ -1195,7 +1197,7 @@ bool PcbLoader::parsePostV6Block(const std::vector<char>& fileData, Board& board
         if (static_cast<uint8_t>(fileData[currentFileOffset]) == 0x0A) {
             // Type 1 diode readings (from old loader comments)
             // Format: 0x0A '=VOLTAGE=PART_NAME(PIN_NAME)'
-            diodeReadingsType_ = 1;
+            diode_readings_type_ = 1;
             while (currentFileOffset < fileData.size()) {
                 currentFileOffset += 1;  // Skip 0x0A
                 if (currentFileOffset >= fileData.size() || static_cast<uint8_t>(fileData[currentFileOffset]) != '=')
@@ -1208,7 +1210,7 @@ bool PcbLoader::parsePostV6Block(const std::vector<char>& fileData, Board& board
                     currentFileOffset++;
                 if (currentFileOffset >= fileData.size())
                     break;
-                voltageReading = readCB2312String(&fileData[startPos], currentFileOffset - startPos);
+                voltageReading = ReadCB2312String(&fileData[startPos], currentFileOffset - startPos);
                 currentFileOffset++;  // Skip '='
 
                 startPos = currentFileOffset;
@@ -1216,7 +1218,7 @@ bool PcbLoader::parsePostV6Block(const std::vector<char>& fileData, Board& board
                     currentFileOffset++;
                 if (currentFileOffset >= fileData.size())
                     break;
-                partName = readCB2312String(&fileData[startPos], currentFileOffset - startPos);
+                partName = ReadCB2312String(&fileData[startPos], currentFileOffset - startPos);
                 currentFileOffset++;  // Skip '('
 
                 startPos = currentFileOffset;
@@ -1224,10 +1226,10 @@ bool PcbLoader::parsePostV6Block(const std::vector<char>& fileData, Board& board
                     currentFileOffset++;
                 if (currentFileOffset >= fileData.size())
                     break;
-                pinName = readCB2312String(&fileData[startPos], currentFileOffset - startPos);
+                pinName = ReadCB2312String(&fileData[startPos], currentFileOffset - startPos);
                 currentFileOffset++;  // Skip ')'
 
-                diodeReadings_[partName][pinName] = voltageReading;
+                diode_readings_[partName][pinName] = voltageReading;
             }
         } else {
             // Type 2 or Type 3 diode readings (from old loader comments)
@@ -1237,7 +1239,7 @@ bool PcbLoader::parsePostV6Block(const std::vector<char>& fileData, Board& board
             if (static_cast<uint8_t>(fileData[currentFileOffset]) != 0x0D) {
                 currentFileOffset += 2;  // Skip two unknown bytes for Type 2 (CD BC)
             }
-            diodeReadingsType_ = 2;
+            diode_readings_type_ = 2;
 
             while (currentFileOffset < fileData.size()) {
                 if (currentFileOffset + 2 > fileData.size())
@@ -1259,7 +1261,7 @@ bool PcbLoader::parsePostV6Block(const std::vector<char>& fileData, Board& board
                     currentFileOffset++;
                 if (currentFileOffset >= fileData.size())
                     break;
-                netName = readCB2312String(&fileData[startPos], currentFileOffset - startPos);
+                netName = ReadCB2312String(&fileData[startPos], currentFileOffset - startPos);
                 currentFileOffset++;  // Skip '='
 
                 startPos = currentFileOffset;
@@ -1267,9 +1269,9 @@ bool PcbLoader::parsePostV6Block(const std::vector<char>& fileData, Board& board
                     currentFileOffset++;
                 if (currentFileOffset >= fileData.size())
                     break;  // Value should end before 0D (start of next 0D 0A)
-                value = readCB2312String(&fileData[startPos], currentFileOffset - startPos);
+                value = ReadCB2312String(&fileData[startPos], currentFileOffset - startPos);
 
-                diodeReadings_[netName]["0"] = value;  // Use "0" as pin key for this type
+                diode_readings_[netName]["0"] = value;  // Use "0" as pin key for this type
             }
         }
         return true;
@@ -1279,7 +1281,7 @@ bool PcbLoader::parsePostV6Block(const std::vector<char>& fileData, Board& board
     }
 }
 
-bool PcbLoader::parseNetBlock(const std::vector<char>& fileData, Board& board, uint32_t netDataOffset)
+bool PcbLoader::ParseNetBlock(const std::vector<char>& fileData, Board& board, uint32_t netDataOffset)
 {
     if (netDataOffset == 0 || netDataOffset >= fileData.size()) {
         return true;  // No net block or invalid offset, considered okay.
@@ -1291,7 +1293,7 @@ bool PcbLoader::parseNetBlock(const std::vector<char>& fileData, Board& board, u
             // Not enough data even for the block size itself
             return false;
         }
-        uint32_t netBlockTotalSize = readLE<uint32_t>(&fileData[netDataOffset]);
+        uint32_t netBlockTotalSize = ReadLE<uint32_t>(&fileData[netDataOffset]);
 
         uint32_t currentRelativeOffset = 4;                  // Start reading after the netBlockTotalSize field
         uint32_t netBlockEndOffset = 4 + netBlockTotalSize;  // Relative end offset within the conceptual net block data
@@ -1304,8 +1306,8 @@ bool PcbLoader::parseNetBlock(const std::vector<char>& fileData, Board& board, u
                 return false;
             }
 
-            uint32_t netRecordSize = readLE<uint32_t>(&fileData[netDataOffset + currentRelativeOffset]);
-            uint32_t netId = readLE<uint32_t>(&fileData[netDataOffset + currentRelativeOffset + 4]);
+            uint32_t netRecordSize = ReadLE<uint32_t>(&fileData[netDataOffset + currentRelativeOffset]);
+            uint32_t netId = ReadLE<uint32_t>(&fileData[netDataOffset + currentRelativeOffset + 4]);
 
             if (netRecordSize < 8) {
                 // Record size must be at least 8 to hold its own size and the ID.
@@ -1326,11 +1328,11 @@ bool PcbLoader::parseNetBlock(const std::vector<char>& fileData, Board& board, u
 
             std::string netName;
             if (netNameLength > 0) {
-                netName = readCB2312String(&fileData[netDataOffset + currentRelativeOffset + 8], netNameLength);
+                netName = ReadCB2312String(&fileData[netDataOffset + currentRelativeOffset + 8], netNameLength);
             }
 
             // Use emplace to construct Net in place, avoiding issues with default constructor
-            board.addNet(Net(static_cast<int>(netId), netName));
+            board.AddNet(Net(static_cast<int>(netId), netName));
 
             currentRelativeOffset += netRecordSize;
         }

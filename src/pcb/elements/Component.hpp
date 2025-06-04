@@ -114,19 +114,19 @@ public:
     // We need to add a method to get the center of the component, which is the center of the min and max x an y coordinates of the graphical elements
     [[nodiscard]] Vec2 GetCenter() const
     {
-        double kMinX = std::numeric_limits<double>::max();
-        double kMaxX = std::numeric_limits<double>::min();
-        double kMinY = std::numeric_limits<double>::max();
-        double kMaxY = std::numeric_limits<double>::min();
+        double min_x = std::numeric_limits<double>::max();
+        double max_x = std::numeric_limits<double>::min();
+        double min_y = std::numeric_limits<double>::max();
+        double max_y = std::numeric_limits<double>::min();
 
-        for (const auto segment : graphical_elements) {
-            kMinX = std::min(kMinX, segment.start.x_ax);
-            kMaxX = std::max(kMaxX, segment.start.x_ax);
-            kMinY = std::min(kMinY, segment.start.y_ax);
-            kMaxY = std::max(kMaxY, segment.start.y_ax);
+        for (const auto& segment : graphical_elements) {
+            min_x = std::min(min_x, segment.start.x_ax);
+            max_x = std::max(max_x, segment.start.x_ax);
+            min_y = std::min(min_y, segment.start.y_ax);
+            max_y = std::max(max_y, segment.start.y_ax);
         }
 
-        return Vec2((kMinX + kMaxX) / 2.0, (kMinY + kMaxY) / 2.0);
+        return Vec2((min_x + max_x) / 2.0, (min_y + max_y) / 2.0);
     }
 
     // Component dimensions (as potentially reported by the PCB file or calculated)
@@ -173,10 +173,9 @@ public:
         Vec2 center = GetCenter();
         double comp_cx = center.x_ax;
         double comp_cy = center.y_ax;
-        double comp_rot_rad;
-        comp_rot_rad = rotation * (kPi / 180.0);
-        double cos_r = std::cos(comp_rot_rad);
-        double sin_r = std::sin(comp_rot_rad);
+        double const kCompRotRad = rotation * (kPi / 180.0);
+        double const kCosR = std::cos(kCompRotRad);
+        double const kSinR = std::sin(kCompRotRad);
 
         // Local corners (relative to component's local origin 0,0 before rotation/translation)
         BLPoint local_corners[4] = {{-kCompW / 2.0, -kCompH / 2.0}, {kCompW / 2.0, -kCompH / 2.0}, {kCompW / 2.0, kCompH / 2.0}, {-kCompW / 2.0, kCompH / 2.0}};
@@ -184,8 +183,8 @@ public:
         BLPoint world_corners[4];
         for (int i = 0; i < 4; ++i) {
             // Rotate
-            double rx = (local_corners[i].x * cos_r) - (local_corners[i].y * sin_r);
-            double ry = (local_corners[i].x * sin_r) + (local_corners[i].y * cos_r);
+            double rx = (local_corners[i].x * kCosR) - (local_corners[i].y * kSinR);
+            double ry = (local_corners[i].x * kSinR) + (local_corners[i].y * kCosR);
             // Translate
             world_corners[i].x = rx + comp_cx;
             world_corners[i].y = ry + comp_cy;
@@ -219,10 +218,9 @@ public:
         // Transform mouse position to component's local space
         double const kCompCx = center_x;
         double const kCompCy = center_y;
-        double comp_rot_rad = NAN;
-        comp_rot_rad = -rotation * (kPi / 180.0);  // Negative rotation to transform back
-        double const kCosR = std::cos(comp_rot_rad);
-        double const kSinR = std::sin(comp_rot_rad);
+        double const kCompRotRad = -rotation * (kPi / 180.0);  // Negative rotation to transform back
+        double const kCosR = std::cos(kCompRotRad);
+        double const kSinR = std::sin(kCompRotRad);
 
         // Translate to origin, rotate, then translate back
         double local_x = NAN;

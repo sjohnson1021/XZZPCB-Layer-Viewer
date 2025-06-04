@@ -259,8 +259,8 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
             if (!layer_matches && !target_layer_ids.empty())
                 continue;  // If target_layer_ids is empty, process all visible layers (for type-based pass)
 
-            auto layer_elements_it = board.m_elementsByLayer.find(layer_info.GetId());
-            if (layer_elements_it == board.m_elementsByLayer.end())
+            auto layer_elements_it = board.m_elements_by_layer.find(layer_info.GetId());
+            if (layer_elements_it == board.m_elements_by_layer.end())
                 continue;
 
             const auto& elements_on_layer = layer_elements_it->second;
@@ -391,8 +391,8 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
 
     // Pass for Components (which includes their pins)
     // Components are on Board::kCompLayer
-    auto comp_layer_elements_it = board.m_elementsByLayer.find(Board::kCompLayer);
-    if (comp_layer_elements_it != board.m_elementsByLayer.end()) {
+    auto comp_layer_elements_it = board.m_elements_by_layer.find(Board::kCompLayer);
+    if (comp_layer_elements_it != board.m_elements_by_layer.end()) {
         const auto& elements_on_comp_layer = comp_layer_elements_it->second;
         for (const auto& element_ptr : elements_on_comp_layer) {
             if (element_ptr && element_ptr->GetElementType() == ElementType::kComponent && element_ptr->IsVisible()) {

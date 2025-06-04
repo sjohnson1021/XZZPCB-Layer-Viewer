@@ -103,7 +103,7 @@ void PcbDetailsWindow::displayPins(const Board* boardData, const std::vector<std
 
         std::string net_info_str = "Net ID: " + std::to_string(pin.GetNetId());
         if (boardData) {
-            const Net* net = boardData->getNetById(pin.GetNetId());
+            const Net* net = boardData->GetNetById(pin.GetNetId());
             if (net) {
                 net_info_str = "Net: " + (net->GetName().empty() ? "[Unnamed]" : net->GetName()) + " (ID: " + std::to_string(pin.GetNetId()) + ")";
             } else if (pin.GetNetId() != -1) {
@@ -139,8 +139,8 @@ void PcbDetailsWindow::displayGraphicalElements(const std::vector<LineSegment>& 
 void PcbDetailsWindow::displayComponents(const Board* boardData)
 {
     if (ImGui::TreeNodeEx("Components", ImGuiTreeNodeFlags_DefaultOpen)) {
-        auto comp_layer_it = boardData->m_elementsByLayer.find(Board::kCompLayer);
-        if (comp_layer_it != boardData->m_elementsByLayer.end()) {
+        auto comp_layer_it = boardData->m_elements_by_layer.find(Board::kCompLayer);
+        if (comp_layer_it != boardData->m_elements_by_layer.end()) {
             for (const auto& element_ptr : comp_layer_it->second) {
                 if (!element_ptr)
                     continue;
@@ -188,7 +188,7 @@ void PcbDetailsWindow::displayStandaloneElements(const Board* boardData)
     if (ImGui::TreeNodeEx("Standalone Elements", ImGuiTreeNodeFlags_DefaultOpen)) {
         int arc_count = 0, via_count = 0, trace_count = 0, label_count = 0;
         for (const auto& info : all_elements) {
-            if (info.parentComponent)
+            if (info.parent_component)
                 continue;  // Skip elements belonging to a component
             if (!info.element)
                 continue;
@@ -213,14 +213,14 @@ void PcbDetailsWindow::displayStandaloneElements(const Board* boardData)
 
         if (ImGui::TreeNodeEx(("Arcs (" + std::to_string(arc_count) + ")").c_str())) {
             for (const auto& info : all_elements) {
-                if (info.parentComponent || !info.element || info.element->GetElementType() != ElementType::kArc)
+                if (info.parent_component || !info.element || info.element->GetElementType() != ElementType::kArc)
                     continue;
                 const Arc* arc = dynamic_cast<const Arc*>(info.element);
                 if (!arc)
                     continue;
 
                 std::string net_info_str = "Net ID: " + std::to_string(arc->GetNetId());
-                const Net* net = boardData->getNetById(arc->GetNetId());
+                const Net* net = boardData->GetNetById(arc->GetNetId());
                 if (net)
                     net_info_str = "Net: " + (net->GetName().empty() ? "[Unnamed]" : net->GetName()) + " (ID: " + std::to_string(arc->GetNetId()) + ")";
                 else if (arc->GetNetId() != -1)
@@ -241,14 +241,14 @@ void PcbDetailsWindow::displayStandaloneElements(const Board* boardData)
 
         if (ImGui::TreeNodeEx(("Vias (" + std::to_string(via_count) + ")").c_str())) {
             for (const auto& info : all_elements) {
-                if (info.parentComponent || !info.element || info.element->GetElementType() != ElementType::kVia)
+                if (info.parent_component || !info.element || info.element->GetElementType() != ElementType::kVia)
                     continue;
                 const Via* via = dynamic_cast<const Via*>(info.element);
                 if (!via)
                     continue;
 
                 std::string net_info_str = "Net ID: " + std::to_string(via->GetNetId());
-                const Net* net = boardData->getNetById(via->GetNetId());
+                const Net* net = boardData->GetNetById(via->GetNetId());
                 if (net)
                     net_info_str = "Net: " + (net->GetName().empty() ? "[Unnamed]" : net->GetName()) + " (ID: " + std::to_string(via->GetNetId()) + ")";
                 else if (via->GetNetId() != -1)
@@ -272,14 +272,14 @@ void PcbDetailsWindow::displayStandaloneElements(const Board* boardData)
 
         if (ImGui::TreeNodeEx(("Traces (" + std::to_string(trace_count) + ")").c_str())) {
             for (const auto& info : all_elements) {
-                if (info.parentComponent || !info.element || info.element->GetElementType() != ElementType::kTrace)
+                if (info.parent_component || !info.element || info.element->GetElementType() != ElementType::kTrace)
                     continue;
                 const Trace* trace = dynamic_cast<const Trace*>(info.element);
                 if (!trace)
                     continue;
 
                 std::string net_info_str = "Net ID: " + std::to_string(trace->GetNetId());
-                const Net* net = boardData->getNetById(trace->GetNetId());
+                const Net* net = boardData->GetNetById(trace->GetNetId());
                 if (net)
                     net_info_str = "Net: " + (net->GetName().empty() ? "[Unnamed]" : net->GetName()) + " (ID: " + std::to_string(trace->GetNetId()) + ")";
                 else if (trace->GetNetId() != -1)
@@ -299,7 +299,7 @@ void PcbDetailsWindow::displayStandaloneElements(const Board* boardData)
 
         if (ImGui::TreeNodeEx(("Standalone Text Labels (" + std::to_string(label_count) + ")").c_str())) {
             for (const auto& info : all_elements) {
-                if (info.parentComponent || !info.element || info.element->GetElementType() != ElementType::kTextLabel)
+                if (info.parent_component || !info.element || info.element->GetElementType() != ElementType::kTextLabel)
                     continue;
                 const TextLabel* lbl = dynamic_cast<const TextLabel*>(info.element);
                 if (!lbl)
@@ -308,7 +308,7 @@ void PcbDetailsWindow::displayStandaloneElements(const Board* boardData)
                 std::string net_info_str = "Net ID: " + std::to_string(lbl->GetNetId());
                 // Text labels usually don't have nets, but handle if they do.
                 if (lbl->GetNetId() != -1) {
-                    const Net* net = boardData->getNetById(lbl->GetNetId());
+                    const Net* net = boardData->GetNetById(lbl->GetNetId());
                     if (net)
                         net_info_str = "Net: " + (net->GetName().empty() ? "[Unnamed]" : net->GetName()) + " (ID: " + std::to_string(lbl->GetNetId()) + ")";
                     else

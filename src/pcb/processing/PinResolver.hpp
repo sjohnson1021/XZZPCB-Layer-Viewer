@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstdio>
 #include <set>
 #include <vector>
 
@@ -24,7 +26,7 @@ public:
 
         ComponentBounds(const Component* comp)
         {
-            if (!comp || comp->pins.empty()) {
+            if ((comp == nullptr) || comp->pins.empty()) {
                 min_x = min_y = max_x = max_y = 0.0;
                 return;
             }
@@ -37,19 +39,20 @@ public:
             max_y = bounds.y + bounds.h;
         }
 
-        bool contains(double x, double y, double width, double height) const
+        [[nodiscard]] bool Contains(double x, double y, double width, double height) const
         {
-            double half_w = width / 2.0;
-            double half_h = height / 2.0;
-            return (x - half_w >= min_x && x + half_w <= max_x && y - half_h >= min_y && y + half_h <= max_y);
+            double const kHalfW = width / 2.0;
+            double const kHalfH = height / 2.0;
+            return (x - kHalfW >= min_x && x + kHalfW <= max_x && y - kHalfH >= min_y && y + kHalfH <= max_y);
         }
     };
 
     // Main entry point - resolves all pin orientations for a component
-    static bool resolveComponentPinOrientations(Component* component)
+    static bool ResolveComponentPinOrientations(Component* component)
     {
-        if (!component || component->pins.empty())
+        if ((component == nullptr) || component->pins.empty()) {
             return false;
+        }
 
         ComponentBounds bounds(component);
         bool overall_resolved = false;
@@ -61,8 +64,8 @@ public:
             std::vector<PinCollision> collisions;
             std::set<size_t> out_of_bounds_pins_indices;  // Store indices
 
-            detectCollisions(component->pins, collisions);
-            detectOutOfBounds(component->pins, bounds, out_of_bounds_pins_indices);
+            DetectCollisions(component->pins, collisions);
+            DetectOutOfBounds(component->pins, bounds, out_of_bounds_pins_indices);
 
             std::set<size_t> problematic_pin_indices;
             for (const auto& collision : collisions) {
@@ -82,8 +85,9 @@ public:
             // Sort by potential impact (larger pins first) - current heuristic
             std::sort(pins_to_try_rotating.begin(), pins_to_try_rotating.end(), [&component](size_t a, size_t b) {
                 // Ensure indices are valid before accessing pins
-                if (a >= component->pins.size() || b >= component->pins.size())
+                if (a >= component->pins.size() || b >= component->pins.size()) {
                     return false;  // Should not happen
+                }
                 auto [wa, ha] = component->pins[a]->GetDimensions();
                 auto [wb, hb] = component->pins[b]->GetDimensions();
                 return (wa * ha) > (wb * hb);
@@ -92,7 +96,7 @@ public:
             bool rotation_made_in_this_iteration = false;
             for (size_t pin_idx_to_rotate : pins_to_try_rotating) {
                 // Pass component directly to tryRotatePin, it can access component->pins
-                if (tryRotatePin(component, pin_idx_to_rotate, bounds)) {
+                if (TryRotatePin(component, pin_idx_to_rotate, bounds)) {
                     rotation_made_in_this_iteration = true;
                     // After a successful rotation, we should re-evaluate everything.
                     // Breaking here will cause the outer loop to re-detect problems and re-sort.
@@ -112,32 +116,37 @@ public:
 
 private:
     // Check if two axis-aligned rectangles overlap
-    static bool rectanglesOverlap(double x1, double y1, double w1, double h1, double x2, double y2, double w2, double h2, double tolerance = 1e-6)
+    static bool RectanglesOverlap(double x1, double y1, double w1, double h1, double x2, double y2, double w2, double h2, double tolerance = 1e-6)
     {
-        double half_w1 = w1 / 2.0, half_h1 = h1 / 2.0;
-        double half_w2 = w2 / 2.0, half_h2 = h2 / 2.0;
+        double const half_w1 = w1 / 2.0;
+        double const half_h1 = h1 / 2.0;
+        double const half_w2 = w2 / 2.0;
+        double const half_h2 = h2 / 2.0;
 
-        return !(x1 + half_w1 + tolerance < x2 - half_w2 || x2 + half_w2 + tolerance < x1 - half_w1 || y1 + half_h1 + tolerance < y2 - half_h2 || y2 + half_h2 + tolerance < y1 - half_h1);
+        return x1 + half_w1 + tolerance >= x2 - half_w2 && x2 + half_w2 + tolerance >= x1 - half_w1 && y1 + half_h1 + tolerance >= y2 - half_h2 && y2 + half_h2 + tolerance >= y1 - half_h1;
     }
 
     // Calculate overlap area between two rectangles
-    static double calculateOverlapArea(double x1, double y1, double w1, double h1, double x2, double y2, double w2, double h2)
+    static double CalculateOverlapArea(double x1, double y1, double w1, double h1, double x2, double y2, double w2, double h2)
     {
-        double half_w1 = w1 / 2.0, half_h1 = h1 / 2.0;
-        double half_w2 = w2 / 2.0, half_h2 = h2 / 2.0;
+        double const half_w1 = w1 / 2.0;
+        double const half_h1 = h1 / 2.0;
+        double const half_w2 = w2 / 2.0;
+        double const half_h2 = h2 / 2.0;
 
         double left = std::max(x1 - half_w1, x2 - half_w2);
         double right = std::min(x1 + half_w1, x2 + half_w2);
         double top = std::max(y1 - half_h1, y2 - half_h2);
         double bottom = std::min(y1 + half_h1, y2 + half_h2);
 
-        if (left >= right || top >= bottom)
+        if (left >= right || top >= bottom) {
             return 0.0;
+        }
         return (right - left) * (bottom - top);
     }
 
     // Detect all pin collisions in component
-    static void detectCollisions(const std::vector<std::unique_ptr<Pin>>& pins, std::vector<PinCollision>& collisions)
+    static void DetectCollisions(const std::vector<std::unique_ptr<Pin>>& pins, std::vector<PinCollision>& collisions)
     {
         collisions.clear();
 
@@ -147,14 +156,15 @@ private:
                 const Pin& pin2 = *pins[j];
 
                 // Skip if pins are on different layers
-                if (pin1.GetLayerId() != pin2.GetLayerId())
+                if (pin1.GetLayerId() != pin2.GetLayerId()) {
                     continue;
+                }
 
                 auto [w1, h1] = pin1.GetDimensions();
                 auto [w2, h2] = pin2.GetDimensions();
 
-                if (rectanglesOverlap(pin1.coords.x_ax, pin1.coords.y_ax, w1, h1, pin2.coords.x_ax, pin2.coords.y_ax, w2, h2)) {
-                    double overlap = calculateOverlapArea(pin1.coords.x_ax, pin1.coords.y_ax, w1, h1, pin2.coords.x_ax, pin2.coords.y_ax, w2, h2);
+                if (RectanglesOverlap(pin1.coords.x_ax, pin1.coords.y_ax, w1, h1, pin2.coords.x_ax, pin2.coords.y_ax, w2, h2)) {
+                    double overlap = CalculateOverlapArea(pin1.coords.x_ax, pin1.coords.y_ax, w1, h1, pin2.coords.x_ax, pin2.coords.y_ax, w2, h2);
                     if (overlap > 1e-6) {
                         collisions.push_back({i, j, overlap});
                     }
@@ -164,7 +174,7 @@ private:
     }
 
     // Detect pins that extend outside component bounds
-    static void detectOutOfBounds(const std::vector<std::unique_ptr<Pin>>& pins, const ComponentBounds& bounds,
+    static void DetectOutOfBounds(const std::vector<std::unique_ptr<Pin>>& pins, const ComponentBounds& bounds,
                                   std::set<size_t>& oob_pin_indices)  // Changed to oob_pin_indices
     {
         oob_pin_indices.clear();
@@ -173,25 +183,27 @@ private:
             const Pin& pin = *pins[i];
             auto [w, h] = pin.GetDimensions();
 
-            if (!bounds.contains(pin.coords.x_ax, pin.coords.y_ax, w, h)) {
+            if (!bounds.Contains(pin.coords.x_ax, pin.coords.y_ax, w, h)) {
                 oob_pin_indices.insert(i);  // Store index
             }
         }
     }
 
     // Try rotating a specific pin to resolve conflicts
-    static bool tryRotatePin(Component* component, size_t pin_idx_to_rotate, const ComponentBounds& bounds)
+    static bool TryRotatePin(Component* component, size_t pin_idx_to_rotate, const ComponentBounds& bounds)
     {
-        if (pin_idx_to_rotate >= component->pins.size())
+        if (pin_idx_to_rotate >= component->pins.size()) {
             return false;
+        }
 
         Pin& pin = *component->pins[pin_idx_to_rotate];
         auto [orig_w, orig_h] = pin.GetDimensions();
 
         // Skip if pin is square (rotation won't change its AABB significantly for this check)
         // or if pin is not rotatable (e.g. certain pad shapes if we add that logic)
-        if (std::abs(orig_w - orig_h) < 1e-6)
+        if (std::abs(orig_w - orig_h) < 1e-6) {
             return false;
+        }
 
         // Store original state
         PadShape original_shape = pin.pad_shape;
@@ -205,21 +217,23 @@ private:
         bool was_colliding_before = false;
 
         // Check OOB before rotation
-        if (!bounds.contains(pin.coords.x_ax, pin.coords.y_ax, cached_original_width, cached_original_height)) {
+        if (!bounds.Contains(pin.coords.x_ax, pin.coords.y_ax, cached_original_width, cached_original_height)) {
             printf("Pin %zu is out of bounds before rotation\n", pin_idx_to_rotate);
             was_oob_before = true;
         }
 
         // Check collisions before rotation for this specific pin
         for (size_t i = 0; i < component->pins.size(); ++i) {
-            if (i == pin_idx_to_rotate)
+            if (i == pin_idx_to_rotate) {
                 continue;
+            }
             const Pin& other_pin = *component->pins[i];
-            if (other_pin.GetLayerId() != pin.GetLayerId())
+            if (other_pin.GetLayerId() != pin.GetLayerId()) {
                 continue;
+            }
 
             auto [other_w, other_h] = other_pin.GetDimensions();
-            if (rectanglesOverlap(pin.coords.x_ax, pin.coords.y_ax, cached_original_width, cached_original_height, other_pin.coords.x_ax, other_pin.coords.y_ax, other_w, other_h)) {
+            if (RectanglesOverlap(pin.coords.x_ax, pin.coords.y_ax, cached_original_width, cached_original_height, other_pin.coords.x_ax, other_pin.coords.y_ax, other_w, other_h)) {
                 printf("Pin %zu is colliding with pin %zu before rotation\n", pin_idx_to_rotate, i);
                 was_colliding_before = true;
                 break;
@@ -237,7 +251,7 @@ private:
         }
 
         // --- Perform Rotation ---
-        swapPinDimensions(pin);  // This updates pin.width, pin.height internally via getDimensions()
+        SwapPinDimensions(pin);  // This updates pin.width, pin.height internally via getDimensions()
         // --- End Rotation ---
 
         // --- Check new state of the pin_idx_to_rotate ---
@@ -246,7 +260,7 @@ private:
         auto [rotated_w, rotated_h] = pin.GetDimensions();  // Get dimensions after swap
 
         // 1. Check Out-of-Bounds for the rotated pin
-        if (!bounds.contains(pin.coords.x_ax, pin.coords.y_ax, rotated_w, rotated_h)) {
+        if (!bounds.Contains(pin.coords.x_ax, pin.coords.y_ax, rotated_w, rotated_h)) {
             printf("Pin %zu will be out of bounds after rotation\n", pin_idx_to_rotate);
             is_now_oob = true;
         }
@@ -254,14 +268,16 @@ private:
         // 2. Check Collisions for the rotated pin with all other pins
         // Make sure not to cause new collisions or worsen existing ones for *this* pin.
         for (size_t i = 0; i < component->pins.size(); ++i) {
-            if (i == pin_idx_to_rotate)
+            if (i == pin_idx_to_rotate) {
                 continue;
+            }
             const Pin& other_pin = *component->pins[i];
-            if (other_pin.GetLayerId() != pin.GetLayerId())
+            if (other_pin.GetLayerId() != pin.GetLayerId()) {
                 continue;
+            }
 
             auto [other_w, other_h] = other_pin.GetDimensions();
-            if (rectanglesOverlap(pin.coords.x_ax, pin.coords.y_ax, rotated_w, rotated_h, other_pin.coords.x_ax, other_pin.coords.y_ax, other_w, other_h)) {
+            if (RectanglesOverlap(pin.coords.x_ax, pin.coords.y_ax, rotated_w, rotated_h, other_pin.coords.x_ax, other_pin.coords.y_ax, other_w, other_h)) {
                 printf("Pin %zu will be colliding with pin %zu after rotation\n", pin_idx_to_rotate, i);
                 is_now_colliding = true;
                 break;
@@ -330,7 +346,7 @@ private:
     }
 
     // Swap pin dimensions by updating its PadShape
-    static void swapPinDimensions(Pin& pin)
+    static void SwapPinDimensions(Pin& pin)
     {
         std::visit(
             [](auto& shape) {

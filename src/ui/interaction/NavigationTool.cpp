@@ -105,9 +105,9 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isVi
                 if (!item.element) {
                     continue;
                 }
-                if (item.element->IsHit(worldMousePos, pickTolerance, item.parentComponent)) {
+                if (item.element->IsHit(worldMousePos, pickTolerance, item.parent_component)) {
                     m_isHoveringElement = true;
-                    m_hoveredElementInfo = item.element->GetInfo(item.parentComponent);
+                    m_hoveredElementInfo = item.element->GetInfo(item.parent_component);
                     break;  // Found a hovered element
                 }
             }
@@ -116,7 +116,7 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isVi
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && isViewportFocused) {
                 int clickedNetId = -1;
                 for (const auto& item : interactiveElements) {
-                    if (item.element && item.element->IsHit(worldMousePos, pickTolerance, item.parentComponent)) {
+                    if (item.element && item.element->IsHit(worldMousePos, pickTolerance, item.parent_component)) {
                         clickedNetId = item.element->GetNetId();  // Assuming getNetId() is part of Element base or handled by derived.
                                                                   // If element is not associated with a net, it should return -1 or similar.
                         if (clickedNetId != -1)
