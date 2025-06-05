@@ -9,49 +9,49 @@
 // #include <glm/gtc/matrix_transform.hpp>
 
 // A common default zoom value
-const float DEFAULT_ZOOM = 3.0f;
-const Vec2 DEFAULT_POSITION = {0.0f, 0.0f};
-const float DEFAULT_ROTATION = 0.0f;
+const float kDefaultZoom = 3.0f;
+const Vec2 kDefaultPosition = {0.0f, 0.0f};
+const float kDefaultRotation = 0.0f;
 
 // Define zoom limits
-const float MIN_ZOOM_LEVEL = 0.25f;
-const float MAX_ZOOM_LEVEL = 100.0f;
+const float kMinZoomLevel = 0.25f;
+const float kMaxZoomLevel = 100.0f;
 
 // Define PI if not available from cmath or a math library
 #ifndef M_PI
 #    define M_PI 3.14159265358979323846
 #endif
 
-Camera::Camera() : m_position(DEFAULT_POSITION), m_zoom(DEFAULT_ZOOM), m_rotation(DEFAULT_ROTATION), m_viewChangedThisFrame(true)
+Camera::Camera() : m_position_(kDefaultPosition), m_zoom_(kDefaultZoom), m_rotation_(kDefaultRotation), m_view_changed_this_frame_(true)
 {
-    float rad = m_rotation * (static_cast<float>(M_PI) / 180.0f);
-    m_cachedCosRotation = std::cos(rad);
-    m_cachedSinRotation = std::sin(rad);
+    float rad = m_rotation_ * (static_cast<float>(M_PI) / 180.0f);
+    m_cached_cos_rotation_ = std::cos(rad);
+    m_cached_sin_rotation_ = std::sin(rad);
     // UpdateViewMatrix(); // If we had one
 }
 
 void Camera::SetPosition(const Vec2& position)
 {
-    if (m_position.x_ax != position.x_ax || m_position.y_ax != position.y_ax) {
-        m_position = position;
-        m_viewChangedThisFrame = true;
+    if (m_position_.x_ax != position.x_ax || m_position_.y_ax != position.y_ax) {
+        m_position_ = position;
+        m_view_changed_this_frame_ = true;
     }
     // UpdateViewMatrix();
 }
 
 const Vec2& Camera::GetPosition() const
 {
-    return m_position;
+    return m_position_;
 }
 
 void Camera::SetZoom(float zoom)
 {
     // Add constraints to zoom if necessary (e.g., min/max zoom)
-    float clampedZoom = std::max(MIN_ZOOM_LEVEL, std::min(zoom, MAX_ZOOM_LEVEL));
+    float clampedZoom = std::max(kMinZoomLevel, std::min(zoom, kMaxZoomLevel));
     if (clampedZoom > 0.0f) {  // Zoom must be positive
-        if (m_zoom != clampedZoom) {
-            m_zoom = clampedZoom;
-            m_viewChangedThisFrame = true;
+        if (m_zoom_ != clampedZoom) {
+            m_zoom_ = clampedZoom;
+            m_view_changed_this_frame_ = true;
         }
     }
     // UpdateViewMatrix();
@@ -59,49 +59,49 @@ void Camera::SetZoom(float zoom)
 
 float Camera::GetZoom() const
 {
-    return m_zoom;
+    return m_zoom_;
 }
 
-void Camera::SetRotation(float angleDegrees)
+void Camera::SetRotation(float angle_degrees)
 {
-    if (m_rotation != angleDegrees) {
-        m_rotation = angleDegrees;
+    if (m_rotation_ != angle_degrees) {
+        m_rotation_ = angle_degrees;
         // Normalize angle if desired (e.g., to [0, 360) or [-180, 180))
-        float rad = m_rotation * (static_cast<float>(M_PI) / 180.0f);
-        m_cachedCosRotation = std::cos(rad);
-        m_cachedSinRotation = std::sin(rad);
-        m_viewChangedThisFrame = true;
+        float rad = m_rotation_ * (static_cast<float>(M_PI) / 180.0f);
+        m_cached_cos_rotation_ = std::cos(rad);
+        m_cached_sin_rotation_ = std::sin(rad);
+        m_view_changed_this_frame_ = true;
     }
     // UpdateViewMatrix();
 }
 
 float Camera::GetRotation() const
 {
-    return m_rotation;
+    return m_rotation_;
 }
 
 void Camera::Pan(const Vec2& delta)
 {
     if (delta.x_ax != 0.0f || delta.y_ax != 0.0f) {
-        m_position -= delta;
-        m_viewChangedThisFrame = true;
+        m_position_ -= delta;
+        m_view_changed_this_frame_ = true;
     }
     // UpdateViewMatrix();
 }
 
-void Camera::ZoomAt(const Vec2& screenPoint, float zoomFactor)
+void Camera::ZoomAt(const Vec2& screen_point, float zoom_factor)
 {
-    float oldZoom = m_zoom;
-    float newZoom = m_zoom * zoomFactor;
-    SetZoom(newZoom);  // SetZoom will handle clamping and setting m_viewChangedThisFrame if zoom actually changes
-    // If SetZoom resulted in a change, m_viewChangedThisFrame is already true.
-    // The more complex position adjustment logic would also set m_viewChangedThisFrame if SetPosition is called.
+    float old_zoom = m_zoom_;
+    float new_zoom = m_zoom_ * zoom_factor;
+    SetZoom(new_zoom);  // SetZoom will handle clamping and setting m_view_changed_this_frame_ if zoom actually changes
+    // If SetZoom resulted in a change, m_view_changed_this_frame_ is already true.
+    // The more complex position adjustment logic would also set m_view_changed_this_frame_ if SetPosition is called.
 }
 
-void Camera::AdjustZoom(float zoomMultiplier)
+void Camera::AdjustZoom(float zoom_multiplier)
 {
-    if (zoomMultiplier != 1.0f) {
-        SetZoom(m_zoom * zoomMultiplier);  // SetZoom handles the flag
+    if (zoom_multiplier != 1.0f) {
+        SetZoom(m_zoom_ * zoom_multiplier);  // SetZoom handles the flag
     }
 }
 
@@ -117,40 +117,40 @@ Vec2 Camera::GetWorldToViewOffset() const
     // So the offset part for the initial translation is -m_position.
     // However, this function might be interpreted as part of a matrix.
     // If view matrix = Scale * Rotate * Translate, then Translate is by -m_position.
-    return Vec2(-m_position.x_ax, -m_position.y_ax);
+    return Vec2(-m_position_.x_ax, -m_position_.y_ax);
 }
 
 float Camera::GetWorldToViewScale() const
 {
-    return m_zoom;
+    return m_zoom_;
 }
 
 float Camera::GetWorldToViewRotation() const
 {
     // Rotation for the view transform is typically the negative of camera's world rotation.
-    return -m_rotation;
+    return -m_rotation_;
 }
 
 void Camera::Reset()
 {
     bool changed = false;
-    if (m_position.x_ax != DEFAULT_POSITION.x_ax || m_position.y_ax != DEFAULT_POSITION.y_ax) {
-        m_position = DEFAULT_POSITION;
+    if (m_position_.x_ax != kDefaultPosition.x_ax || m_position_.y_ax != kDefaultPosition.y_ax) {
+        m_position_ = kDefaultPosition;
         changed = true;
     }
-    if (m_zoom != DEFAULT_ZOOM) {
-        m_zoom = DEFAULT_ZOOM;
+    if (m_zoom_ != kDefaultZoom) {
+        m_zoom_ = kDefaultZoom;
         changed = true;
     }
-    if (m_rotation != DEFAULT_ROTATION) {
-        m_rotation = DEFAULT_ROTATION;
-        float rad = m_rotation * (static_cast<float>(M_PI) / 180.0f);
-        m_cachedCosRotation = std::cos(rad);
-        m_cachedSinRotation = std::sin(rad);
+    if (m_rotation_ != kDefaultRotation) {
+        m_rotation_ = kDefaultRotation;
+        float rad = m_rotation_ * (static_cast<float>(M_PI) / 180.0f);
+        m_cached_cos_rotation_ = std::cos(rad);
+        m_cached_sin_rotation_ = std::sin(rad);
         changed = true;
     }
     if (changed) {
-        m_viewChangedThisFrame = true;
+        m_view_changed_this_frame_ = true;
     }
     // UpdateViewMatrix();
 }
@@ -164,28 +164,28 @@ void Camera::Reset()
 // Then usually invert it for the actual view matrix: m_viewMatrix = glm::inverse(m_viewMatrix);
 // }
 
-void Camera::FocusOnRect(const BLRect& worldRect, const Viewport& viewport, float padding)
+void Camera::FocusOnRect(const BLRect& world_rect, const Viewport& viewport, float padding)
 {
-    if (worldRect.w <= 0 || worldRect.h <= 0 || viewport.GetWidth() <= 0 || viewport.GetHeight() <= 0) {
+    if (world_rect.w <= 0 || world_rect.h <= 0 || viewport.GetWidth() <= 0 || viewport.GetHeight() <= 0) {
         // Cannot focus on an empty rect or with an invalid viewport
         // Optionally, could reset to default view here or log a warning.
         // For now, do nothing to prevent division by zero or nonsensical state.
         return;
     }
 
-    float old_target_pan_x = m_position.x_ax;
-    float old_target_pan_y = m_position.y_ax;
-    float old_zoom = m_zoom;
+    float old_target_pan_x = m_position_.x_ax;
+    float old_target_pan_y = m_position_.y_ax;
+    float old_zoom = m_zoom_;
 
-    float target_pan_x = static_cast<float>(worldRect.x + worldRect.w / 2.0);
-    float target_pan_y = static_cast<float>(worldRect.y + worldRect.h / 2.0);
+    float target_pan_x = static_cast<float>(world_rect.x + world_rect.w / 2.0);
+    float target_pan_y = static_cast<float>(world_rect.y + world_rect.h / 2.0);
     // SetPosition will set m_viewChangedThisFrame if position actually changes
     SetPosition({target_pan_x, target_pan_y});
 
     // Calculate the required zoom to fit the worldRect into the viewport dimensions with padding.
     // The padding is a percentage of the rect's width/height added to each side.
-    float padded_rect_width = static_cast<float>(worldRect.w * (1.0f + padding));
-    float padded_rect_height = static_cast<float>(worldRect.h * (1.0f + padding));
+    float padded_rect_width = static_cast<float>(world_rect.w * (1.0f + padding));
+    float padded_rect_height = static_cast<float>(world_rect.h * (1.0f + padding));
 
     // Ensure padded dimensions are not zero to avoid division by zero if original w/h was tiny.
     if (padded_rect_width <= 0)
@@ -199,9 +199,7 @@ void Camera::FocusOnRect(const BLRect& worldRect, const Viewport& viewport, floa
     // Use the smaller of the two zoom factors to ensure the entire rect fits.
     SetZoom(std::max(.001f, std::min(zoom_x, zoom_y)));
 
-    // Rotation is not affected by focusing on a rect, typically.
-    // If you want to reset rotation too, you could call SetRotation(DEFAULT_ROTATION);
-
+    SetRotation(kDefaultRotation);
     // Ensure flag is set if either position or zoom might have changed, even if SetPosition/SetZoom didn't detect a change
     // due to floating point comparisons but the intent was to change.
     // However, SetPosition and SetZoom already compare old/new values.

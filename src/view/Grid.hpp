@@ -8,6 +8,7 @@
 #include "Camera.hpp"
 #include "GridSettings.hpp"
 
+
 // Forward declarations
 class GridSettings;
 class Camera;
@@ -68,7 +69,7 @@ private:
     mutable bool m_font_load_failed_ = false;
 
     // Helper methods
-    void initializeFont() const;
+    void InitializeFont() const;
     static void GetVisibleWorldBounds(const Camera& camera, const Viewport& viewport, Vec2& out_min_world, Vec2& out_max_world);
 
     void DrawLinesStyle(BLContext& bl_ctx,
@@ -98,7 +99,7 @@ private:
                        const Camera& camera,
                        const Viewport& viewport,
                        float spacing,
-                       const GridColor& color,
+                       const BLRgba32& color,
                        const Vec2& world_min,
                        const Vec2& world_max,
                        bool is_major,
@@ -107,7 +108,7 @@ private:
                       const Camera& camera,
                       const Viewport& viewport,
                       float spacing,
-                      const GridColor& color,
+                      const BLRgba32& color,
                       const Vec2& world_min,
                       const Vec2& world_max,
                       bool is_major,

@@ -4,16 +4,17 @@
 
 class ImGuiManager;
 
-class Events {
+class Events
+{
 public:
     Events();
     ~Events();
 
     void ProcessEvents();
     bool ShouldQuit() const;
-    void SetImGuiManager(ImGuiManager* imgui);
+    void SetImGuiManager(ImGuiManager* imgui_manager);
 
 private:
-    bool m_shouldQuit;
-    ImGuiManager* m_imguiManager;
-}; 
+    bool m_should_quit_;
+    ImGuiManager* m_imgui_manager_;
+};

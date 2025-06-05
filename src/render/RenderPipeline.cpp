@@ -2,9 +2,7 @@
 
 #include <algorithm>  // For std::min/max for AABB checks
 #include <cmath>      // For std::cos and std::sin
-#include <iomanip>    // For std::hex/std::dec output manipulator
-#include <iostream>   // For logging
-#include <limits>     // For std::numeric_limits
+#include <iostream>
 
 #include <blend2d.h>
 
@@ -35,9 +33,9 @@ static constexpr int kSilkscreenLayerId = 17;
 static constexpr int kBoardOutlineLayerId = 28;  // Example, adjust as needed
 
 // Forward declaration for use in RenderPin's lambda
-static void renderCapsule(BLContext& ctx, double width, double height, double x_coord, double y_coord);
+static void RenderCapsule(BLContext& ctx, double width, double height, double x_coord, double y_coord);
 
-RenderPipeline::RenderPipeline() : m_renderContext(nullptr), m_initialized(false)
+RenderPipeline::RenderPipeline() : m_render_context_(nullptr), m_initialized_(false)
 {
     // std::cout << "RenderPipeline created." << std::endl;
 }
@@ -45,7 +43,7 @@ RenderPipeline::RenderPipeline() : m_renderContext(nullptr), m_initialized(false
 RenderPipeline::~RenderPipeline()
 {
     // Ensure Shutdown is called if not already.
-    if (m_initialized) {
+    if (m_initialized_) {
         // std::cerr << "RenderPipeline destroyed without calling Shutdown() first!" << std::endl;
         Shutdown();
     }
@@ -54,32 +52,32 @@ RenderPipeline::~RenderPipeline()
 
 bool RenderPipeline::Initialize(RenderContext& context)
 {
-    m_renderContext = &context;  // Store pointer to the context
+    m_render_context_ = &context;  // Store pointer to the context
     // Initialize any pipeline-specific resources if needed.
     // For now, it mainly relies on the context passed during Execute.
     std::cout << "RenderPipeline initialized." << std::endl;
-    m_initialized = true;
+    m_initialized_ = true;
     return true;
 }
 
 void RenderPipeline::Shutdown()
 {
     // Release any pipeline-specific resources.
-    m_renderContext = nullptr;
+    m_render_context_ = nullptr;
     // Release all pipeline resources, clear stages.
     // for (auto& stage : m_stages) {
     //     if (stage) stage->Shutdown();
     // }
     // m_stages.clear();
-    m_fontFaceCache.clear();
+    m_font_face_cache_.clear();
 
     std::cout << "RenderPipeline shutdown." << std::endl;
-    m_initialized = false;
+    m_initialized_ = false;
 }
 
 void RenderPipeline::BeginScene(BLContext& bl_ctx)
 {
-    if (!m_initialized)
+    if (!m_initialized_)
         return;
     // This method is called by PcbRenderer.
     // It can be used to set up any per-scene state on the bl_ctx if necessary.
@@ -90,7 +88,7 @@ void RenderPipeline::BeginScene(BLContext& bl_ctx)
 
 void RenderPipeline::EndScene()
 {
-    if (!m_initialized)
+    if (!m_initialized_)
         return;
     // Called by PcbRenderer after Execute.
     // Can be used to restore context state if saved in BeginScene.
@@ -109,7 +107,7 @@ void RenderPipeline::Execute(BLContext& bl_ctx,
                              bool render_board  // Parameter name matching declaration
 )
 {
-    if (!m_initialized) {
+    if (!m_initialized_) {
         std::cerr << "RenderPipeline::Execute Error: Not initialized." << std::endl;
         return;
     }
@@ -156,12 +154,12 @@ static bool ArePointsClose(const BLPoint& p1, const BLPoint& p2, double epsilon 
 }
 
 // Helper function to transform an AABB by a matrix
-BLRect TransformAABB(const BLRect& localAABB, const BLMatrix2D& transform)
+BLRect TransformAABB(const BLRect& local_aabb, const BLMatrix2D& transform)
 {
-    BLPoint p1 = {localAABB.x, localAABB.y};
-    BLPoint p2 = {localAABB.x + localAABB.w, localAABB.y};
-    BLPoint p3 = {localAABB.x, localAABB.y + localAABB.h};
-    BLPoint p4 = {localAABB.x + localAABB.w, localAABB.y + localAABB.h};
+    BLPoint p1 = {local_aabb.x, local_aabb.y};
+    BLPoint p2 = {local_aabb.x + local_aabb.w, local_aabb.y};
+    BLPoint p3 = {local_aabb.x, local_aabb.y + local_aabb.h};
+    BLPoint p4 = {local_aabb.x + local_aabb.w, local_aabb.y + local_aabb.h};
 
     BLPoint tp1 = transform.mapPoint(p1);
     BLPoint tp2 = transform.mapPoint(p2);
@@ -210,8 +208,8 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
     int selected_net_id = -1;
 
     // Populate color caches and selected_net_id
-    if (m_renderContext && m_renderContext->GetBoardDataManager()) {
-        auto bdm = m_renderContext->GetBoardDataManager();
+    if (m_render_context_ && m_render_context_->GetBoardDataManager()) {
+        auto bdm = m_render_context_->GetBoardDataManager();
         selected_net_id = bdm->GetSelectedNetId();
         theme_color_cache[BoardDataManager::ColorType::kNetHighlight] = bdm->GetColor(BoardDataManager::ColorType::kNetHighlight);
         theme_color_cache[BoardDataManager::ColorType::kComponent] = bdm->GetColor(BoardDataManager::ColorType::kComponent);
@@ -656,15 +654,15 @@ void RenderPipeline::RenderTextLabel(BLContext& bl_ctx, const TextLabel& text_la
     BLResult err = BL_SUCCESS;
 
     // Try to find cached font face
-    auto it = m_fontFaceCache.find(text_label.font_family);
-    if (it != m_fontFaceCache.end()) {
+    auto it = m_font_face_cache_.find(text_label.font_family);
+    if (it != m_font_face_cache_.end()) {
         face = it->second;
         // Optional: Check if face is valid, though it should be if cached.
         // if (!face.isValid()) { /* Handle error or remove from cache */ }
     } else if (!text_label.font_family.empty()) {
         err = face.createFromFile(text_label.font_family.c_str());
         if (err == BL_SUCCESS) {
-            m_fontFaceCache[text_label.font_family] = face;  // Cache successfully loaded font
+            m_font_face_cache_[text_label.font_family] = face;  // Cache successfully loaded font
         }
     }
 
@@ -674,8 +672,8 @@ void RenderPipeline::RenderTextLabel(BLContext& bl_ctx, const TextLabel& text_la
         bool loadedFallback = false;
         for (const char* fontName : fallbackFonts) {
             // Check cache first for fallback fonts
-            auto fallback_it = m_fontFaceCache.find(fontName);
-            if (fallback_it != m_fontFaceCache.end()) {
+            auto fallback_it = m_font_face_cache_.find(fontName);
+            if (fallback_it != m_font_face_cache_.end()) {
                 face = fallback_it->second;
                 if (face.isValid()) {
                     loadedFallback = true;
@@ -685,7 +683,7 @@ void RenderPipeline::RenderTextLabel(BLContext& bl_ctx, const TextLabel& text_la
             // If not in cache, try to load and then cache it
             err = face.createFromFile(fontName);
             if (err == BL_SUCCESS) {
-                m_fontFaceCache[fontName] = face;  // Cache successfully loaded fallback font
+                m_font_face_cache_[fontName] = face;  // Cache successfully loaded fallback font
                 loadedFallback = true;
                 break;
             }
@@ -883,7 +881,7 @@ void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* 
                 } else if constexpr (std::is_same_v<T, CapsulePad>) {
                     // Call renderCapsule, which expects to draw centered at (0,0)
                     // with the pin's local width and height.
-                    renderCapsule(ctx, local_width, local_height, x_coord, y_coord);
+                    RenderCapsule(ctx, local_width, local_height, x_coord, y_coord);
                 }
             } else if (orientation == PinOrientation::kHorizontal) {
                 if constexpr (std::is_same_v<T, RectanglePad>) {
@@ -892,7 +890,7 @@ void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* 
                 } else if constexpr (std::is_same_v<T, CapsulePad>) {
                     // Call renderCapsule, which expects to draw centered at (0,0)
                     // with the pin's local width and height.
-                    renderCapsule(ctx, local_width, local_height, x_coord, y_coord);
+                    RenderCapsule(ctx, local_width, local_height, x_coord, y_coord);
                 }
             } else if (orientation == PinOrientation::kNatural) {
                 if constexpr (std::is_same_v<T, RectanglePad>) {
@@ -906,11 +904,11 @@ void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* 
 
 // ctx.restore(); // DO NOT RESTORE HERE. THIS BREAKS THE RENDERING OF PINS. LEAVE IT COMMENTED, SO WE KNOW NOT TO RESTORE HERE.
 
-static void renderCapsule(BLContext& ctx, double width, double height, double x_coord, double y_coord)
+static void RenderCapsule(BLContext& ctx, double width, double height, double x_coord, double y_coord)
 {
     double radius = std::min(width, height) / 2.0;  // Radius is half the smaller dimension
 
     // Create a rounded rectangle centered at x_coord, y_coord
-    BLRoundRect capsule(x_coord - width / 2.0, y_coord - height / 2.0, width, height, radius);
+    BLRoundRect capsule(x_coord - (width / 2.0), y_coord - (height / 2.0), width, height, radius);
     ctx.fillRoundRect(capsule);
 }

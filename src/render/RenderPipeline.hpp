@@ -1,10 +1,6 @@
 #pragma once
 
-#include <map>  // Added for std::map
-#include <memory>
 #include <string>  // Added for std::string
-#include <unordered_map>
-#include <vector>
 
 #include <blend2d.h>  // Include for BLContext
 
@@ -93,7 +89,7 @@ private:
     BLResult GetOrCreateFontFace(const std::string& font_family_path, BLFontFace& out_face);
 
     // Helper function to get the visible area in world coordinates
-    BLRect GetVisibleWorldBounds(const Camera& camera, const Viewport& viewport) const;
+    [[nodiscard]] BLRect GetVisibleWorldBounds(const Camera& camera, const Viewport& viewport) const;
 
     // std::vector<std::unique_ptr<RenderStage>> m_stages;
     // Or a more direct approach if stages are fixed:
@@ -105,10 +101,10 @@ private:
     // Helper methods for drawing specific parts, called from Execute
     void RenderBoard(BLContext& bl_ctx, const Board& board, const Camera& camera, const Viewport& viewport, const BLRect& world_view_rect);
 
-    RenderContext* m_renderContext = nullptr;  // Store a pointer to the context if needed by multiple methods
-    bool m_initialized = false;
+    RenderContext* m_render_context_ = nullptr;  // Store a pointer to the context if needed by multiple methods
+    bool m_initialized_ = false;
 
     // Cache for loaded font faces
-    std::map<std::string, BLFontFace> m_fontFaceCache;
+    std::map<std::string, BLFontFace> m_font_face_cache_;
     // Add any other members needed for managing rendering state or resources for the pipeline
 };

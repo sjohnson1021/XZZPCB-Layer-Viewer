@@ -1,35 +1,31 @@
-#include "ui/interaction/InteractionManager.hpp"
-#include "ui/interaction/NavigationTool.hpp"
-#include "ui/interaction/InteractionTool.hpp"
+#include "InteractionManager.hpp"
+
+#include <iostream>
+
+#include "InteractionTool.hpp"
+#include "NavigationTool.hpp"
+
+#include "core/BoardDataManager.hpp"
+#include "core/ControlSettings.hpp"
+#include "render/PcbRenderer.hpp"
 #include "view/Camera.hpp"
 #include "view/Viewport.hpp"
-#include "core/ControlSettings.hpp"
-#include "core/BoardDataManager.hpp"
-#include "render/PcbRenderer.hpp"
-#include <iostream>
 
 InteractionManager::InteractionManager(std::shared_ptr<Camera> camera,
                                        std::shared_ptr<Viewport> viewport,
                                        std::shared_ptr<ControlSettings> controlSettings,
                                        std::shared_ptr<BoardDataManager> boardDataManager)
-    : m_camera(camera),
-      m_viewport(viewport),
-      m_controlSettings(controlSettings),
-      m_boardDataManager(boardDataManager),
-      m_activeTool(nullptr)
+    : m_camera_(camera), m_viewport_(viewport), m_control_settings_(controlSettings), m_board_data_manager_(boardDataManager), m_active_tool_(nullptr)
 {
-    auto navigationTool = std::make_shared<NavigationTool>(m_camera, m_viewport, m_controlSettings, m_boardDataManager);
+    auto navigationTool = std::make_shared<NavigationTool>(m_camera_, m_viewport_, m_control_settings_, m_board_data_manager_);
     AddTool(navigationTool);
 
     // Ensure an active tool is set if any tools were added.
-    if (!m_tools.empty() && !m_activeTool)
-    {
+    if (!m_tools_.empty() && !m_active_tool_) {
         // This condition should ideally not be met if AddTool correctly activates the first tool.
         // However, as a fallback or explicit confirmation:
-        SetActiveTool(m_tools[0]->GetName());
-    }
-    else if (m_tools.empty())
-    {
+        SetActiveTool(m_tools_[0]->GetName());
+    } else if (m_tools_.empty()) {
         // This case should ideally not happen if NavigationTool is always added.
         std::cerr << "InteractionManager Error: No tools were added during construction!" << std::endl;
     }
@@ -37,71 +33,60 @@ InteractionManager::InteractionManager(std::shared_ptr<Camera> camera,
 
 InteractionManager::~InteractionManager()
 {
-    if (m_activeTool)
-    {
-        m_activeTool->OnDeactivated();
+    if (m_active_tool_) {
+        m_active_tool_->OnDeactivated();
     }
-    m_tools.clear();
+    m_tools_.clear();
 }
 
-void InteractionManager::ProcessInput(ImGuiIO &io, bool isViewportFocused, bool isViewportHovered, ImVec2 viewportTopLeft, ImVec2 viewportSize, PcbRenderer *pcbRenderer)
+void InteractionManager::ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isViewportHovered, ImVec2 viewportTopLeft, ImVec2 viewportSize, PcbRenderer* pcbRenderer)
 {
-    if (m_activeTool)
-    {
-        m_activeTool->ProcessInput(io, isViewportFocused, isViewportHovered, viewportTopLeft, viewportSize);
+    if (m_active_tool_) {
+        m_active_tool_->ProcessInput(io, isViewportFocused, isViewportHovered, viewportTopLeft, viewportSize);
     }
 
-    if (m_camera && m_camera->WasViewChangedThisFrame())
-    {
-        if (pcbRenderer)
-        {
+    if (GetCamera() && GetCamera()->WasViewChangedThisFrame()) {
+        if (pcbRenderer) {
             pcbRenderer->MarkGridDirty();
             pcbRenderer->MarkBoardDirty();
         }
-        m_camera->ClearViewChangedFlag();
+        GetCamera()->ClearViewChangedFlag();
     }
 }
 
 void InteractionManager::AddTool(std::shared_ptr<InteractionTool> tool)
 {
-    if (tool)
-    {
-        m_tools.push_back(tool);
-        if (!m_activeTool) // Activate the first tool added by default
+    if (tool) {
+        m_tools_.push_back(std::move(tool));
+        if (!m_active_tool_)  // Activate the first tool added by default
         {
-            m_activeTool = tool.get();
-            if (m_activeTool) // Call OnActivated only if successfully set
+            m_active_tool_ = tool.get();
+            if (m_active_tool_)  // Call OnActivated only if successfully set.
             {
-                std::cout << "InteractionManager: Activating initial tool: " << m_activeTool->GetName() << std::endl;
-                m_activeTool->OnActivated();
+                std::cout << "InteractionManager: Activating initial tool: " << m_active_tool_->GetName() << std::endl;
+                m_active_tool_->OnActivated();
             }
         }
     }
 }
 
-bool InteractionManager::SetActiveTool(const std::string &toolName)
+bool InteractionManager::SetActiveTool(const std::string& toolName)
 {
-    auto it = std::find_if(m_tools.begin(), m_tools.end(),
-                           [&toolName](const std::shared_ptr<InteractionTool> &tool)
-                           {
-                               return tool->GetName() == toolName;
-                           });
+    auto it = std::find_if(m_tools_.begin(), m_tools_.end(), [&toolName](const std::shared_ptr<InteractionTool>& tool) { return tool->GetName() == toolName; });
 
-    if (it != m_tools.end())
-    {
-        InteractionTool *newTool = it->get();
-        if (m_activeTool != newTool) // Only switch if it's a different tool
+    if (it != m_tools_.end()) {
+        InteractionTool* newTool = it->get();
+        if (m_active_tool_ != newTool)  // Only switch if it's a different tool
         {
-            if (m_activeTool)
-            {
-                std::cout << "InteractionManager: Deactivating tool: " << m_activeTool->GetName() << std::endl;
-                m_activeTool->OnDeactivated();
+            if (m_active_tool_) {
+                std::cout << "InteractionManager: Deactivating tool: " << m_active_tool_->GetName() << std::endl;
+                m_active_tool_->OnDeactivated();
             }
-            m_activeTool = newTool;
-            if (m_activeTool) // Call OnActivated only if successfully set
+            m_active_tool_ = newTool;
+            if (m_active_tool_)  // Call OnActivated only if successfully set
             {
-                std::cout << "InteractionManager: Activating tool: " << m_activeTool->GetName() << std::endl;
-                m_activeTool->OnActivated();
+                std::cout << "InteractionManager: Activating tool: " << m_active_tool_->GetName() << std::endl;
+                m_active_tool_->OnActivated();
             }
         }
         return true;
@@ -110,12 +95,32 @@ bool InteractionManager::SetActiveTool(const std::string &toolName)
     return false;
 }
 
-InteractionTool *InteractionManager::GetActiveTool() const
+const std::shared_ptr<Camera>& InteractionManager::GetCamera() const
 {
-    return m_activeTool;
+    return m_camera_;
 }
 
-const std::vector<std::shared_ptr<InteractionTool>> &InteractionManager::GetTools() const
+const std::shared_ptr<Viewport>& InteractionManager::GetViewport() const
 {
-    return m_tools;
+    return m_viewport_;
+}
+
+const std::shared_ptr<ControlSettings>& InteractionManager::GetControlSettings() const
+{
+    return m_control_settings_;
+}
+
+const std::shared_ptr<BoardDataManager>& InteractionManager::GetBoardDataManager() const
+{
+    return m_board_data_manager_;
+}
+
+InteractionTool* InteractionManager::GetActiveTool() const
+{
+    return m_active_tool_;
+}
+
+const std::vector<std::shared_ptr<InteractionTool>>& InteractionManager::GetTools() const
+{
+    return m_tools_;
 }

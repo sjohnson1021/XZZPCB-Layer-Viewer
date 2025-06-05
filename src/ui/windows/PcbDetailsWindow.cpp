@@ -1,24 +1,25 @@
 #include "PcbDetailsWindow.hpp"
 
-#include <string>  // For std::to_string
+#include <cstddef>
+#include <memory>
 #include <variant>
 #include <vector>
 
 #include "imgui.h"
 
-#include "../../pcb/Board.hpp"
-#include "../../pcb/elements/Arc.hpp"
-#include "../../pcb/elements/Component.hpp"
-#include "../../pcb/elements/Pin.hpp"
-#include "../../pcb/elements/TextLabel.hpp"
-#include "../../pcb/elements/Trace.hpp"
-#include "../../pcb/elements/Via.hpp"
+#include "pcb/Board.hpp"
+#include "pcb/elements/Arc.hpp"
+#include "pcb/elements/Component.hpp"
+#include "pcb/elements/Pin.hpp"
+#include "pcb/elements/TextLabel.hpp"
+#include "pcb/elements/Trace.hpp"
+#include "pcb/elements/Via.hpp"
 
 // Constructor
-PcbDetailsWindow::PcbDetailsWindow() : current_board_(nullptr), is_visible_(false) {}
+PcbDetailsWindow::PcbDetailsWindow() : current_board_(nullptr) {}
 
 // Added methods
-void PcbDetailsWindow::setBoard(std::shared_ptr<Board> board)
+void PcbDetailsWindow::SetBoard(std::shared_ptr<Board> board)
 {
     current_board_ = board;
 }
@@ -33,44 +34,45 @@ bool PcbDetailsWindow::IsWindowVisible() const
     return is_visible_;
 }
 
-void PcbDetailsWindow::render()
+void PcbDetailsWindow::Render()
 {
     if (!is_visible_ || !current_board_) {
         return;
     }
 
-    bool window_open = ImGui::Begin("PCB Details", &is_visible_);
+    bool window_open = false;
+    window_open = ImGui::Begin("PCB Details", &is_visible_);
 
     if (window_open) {
-        displayBasicInfo(current_board_.get());
-        displayLayers(current_board_.get());
-        displayNets(current_board_.get());
-        displayComponents(current_board_.get());
-        displayStandaloneElements(current_board_.get());
+        DisplayBasicInfo(current_board_.get());
+        DisplayLayers(current_board_.get());
+        DisplayNets(current_board_.get());
+        DisplayComponents(current_board_.get());
+        DisplayStandaloneElements(current_board_.get());
     }
 
     ImGui::End();  // Always call End() to match Begin()
 }
 
-void PcbDetailsWindow::displayBasicInfo(const Board* boardData)
+void PcbDetailsWindow::DisplayBasicInfo(const Board* board_data)
 {
-    ImGui::Text("Board Name: %s", boardData->board_name.c_str());
-    ImGui::Text("File Path: %s", boardData->file_path.c_str());
-    ImGui::Text("Dimensions: %.2f x %.2f", boardData->width, boardData->height);  // Assuming width/height get populated
+    ImGui::Text("Board Name: %s", board_data->board_name.c_str());
+    ImGui::Text("File Path: %s", board_data->file_path.c_str());
+    ImGui::Text("Dimensions: %.2f x %.2f", board_data->width, board_data->height);  // Assuming width/height get populated
     ImGui::Separator();
 }
 
-void PcbDetailsWindow::displayLayers(const Board* boardData)
+void PcbDetailsWindow::DisplayLayers(const Board* board_data)
 {
-    for (const auto& layer : boardData->layers) {
+    for (const auto& layer : board_data->layers) {
         ImGui::Text("ID: %d, Name: %s, Type: %d, Visible: %s", layer.id, layer.name.c_str(), static_cast<int>(layer.type), layer.is_visible ? "Yes" : "No");
     }
 }
 
-void PcbDetailsWindow::displayNets(const Board* boardData)
+void PcbDetailsWindow::DisplayNets(const Board* board_data)
 {
     if (ImGui::TreeNodeEx("Nets", ImGuiTreeNodeFlags_DefaultOpen)) {
-        for (const auto& pair : boardData->m_nets) {
+        for (const auto& pair : board_data->m_nets) {
             const Net& net = pair.second;
             ImGui::Text("ID: %d, Name: %s", net.GetId(), net.GetName().c_str());
         }
@@ -78,7 +80,7 @@ void PcbDetailsWindow::displayNets(const Board* boardData)
     }
 }
 
-void PcbDetailsWindow::displayPadShape(const PadShape& shape)
+void PcbDetailsWindow::DisplayPadShape(const PadShape& shape)
 {
     std::visit(
         [](const auto& s) {
@@ -94,7 +96,7 @@ void PcbDetailsWindow::displayPadShape(const PadShape& shape)
         shape);
 }
 
-void PcbDetailsWindow::displayPins(const Board* boardData, const std::vector<std::unique_ptr<Pin>>& pins)
+void PcbDetailsWindow::DisplayPins(const Board* board_data, const std::vector<std::unique_ptr<Pin>>& pins)
 {
     for (const auto& pin_ptr : pins) {
         if (!pin_ptr)
@@ -102,8 +104,8 @@ void PcbDetailsWindow::displayPins(const Board* boardData, const std::vector<std
         const Pin& pin = *pin_ptr;
 
         std::string net_info_str = "Net ID: " + std::to_string(pin.GetNetId());
-        if (boardData) {
-            const Net* net = boardData->GetNetById(pin.GetNetId());
+        if (board_data) {
+            const Net* net = board_data->GetNetById(pin.GetNetId());
             if (net) {
                 net_info_str = "Net: " + (net->GetName().empty() ? "[Unnamed]" : net->GetName()) + " (ID: " + std::to_string(pin.GetNetId()) + ")";
             } else if (pin.GetNetId() != -1) {
@@ -115,7 +117,7 @@ void PcbDetailsWindow::displayPins(const Board* boardData, const std::vector<std
 
         if (ImGui::TreeNodeEx(("Pin: " + pin.pin_name + " (" + net_info_str + ")").c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::Text("Coords: (%.2f, %.2f), Layer: %d, Side: %d", pin.coords.x_ax, pin.coords.y_ax, pin.GetLayerId(), pin.side);
-            displayPadShape(pin.pad_shape);
+            DisplayPadShape(pin.pad_shape);
             if (!pin.diode_reading.empty()) {
                 ImGui::Text("Diode: %s", pin.diode_reading.c_str());
             }
@@ -124,7 +126,7 @@ void PcbDetailsWindow::displayPins(const Board* boardData, const std::vector<std
     }
 }
 
-void PcbDetailsWindow::displayGraphicalElements(const std::vector<LineSegment>& elements)
+void PcbDetailsWindow::DisplayGraphicalElements(const std::vector<LineSegment>& elements)
 {
     for (size_t i = 0; i < elements.size(); ++i) {
         const auto& seg = elements[i];
@@ -136,11 +138,11 @@ void PcbDetailsWindow::displayGraphicalElements(const std::vector<LineSegment>& 
     }
 }
 
-void PcbDetailsWindow::displayComponents(const Board* boardData)
+void PcbDetailsWindow::DisplayComponents(const Board* board_data)
 {
     if (ImGui::TreeNodeEx("Components", ImGuiTreeNodeFlags_DefaultOpen)) {
-        auto comp_layer_it = boardData->m_elements_by_layer.find(Board::kCompLayer);
-        if (comp_layer_it != boardData->m_elements_by_layer.end()) {
+        auto comp_layer_it = board_data->m_elements_by_layer.find(Board::kCompLayer);
+        if (comp_layer_it != board_data->m_elements_by_layer.end()) {
             for (const auto& element_ptr : comp_layer_it->second) {
                 if (!element_ptr)
                     continue;
@@ -154,7 +156,7 @@ void PcbDetailsWindow::displayComponents(const Board* boardData)
                     ImGui::Text("Type: %d, Side: %d", static_cast<int>(comp->type), static_cast<int>(comp->side));
 
                     if (ImGui::TreeNodeEx("Pins", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed)) {
-                        displayPins(boardData, comp->pins);
+                        DisplayPins(board_data, comp->pins);
                         ImGui::TreePop();
                     }
                     if (ImGui::TreeNodeEx("Labels", ImGuiTreeNodeFlags_Framed)) {
@@ -167,7 +169,7 @@ void PcbDetailsWindow::displayComponents(const Board* boardData)
                         ImGui::TreePop();
                     }
                     if (ImGui::TreeNodeEx("Graphical Elements", ImGuiTreeNodeFlags_Framed)) {
-                        displayGraphicalElements(comp->graphical_elements);
+                        DisplayGraphicalElements(comp->graphical_elements);
                         ImGui::TreePop();
                     }
                     ImGui::TreePop();
@@ -178,15 +180,19 @@ void PcbDetailsWindow::displayComponents(const Board* boardData)
     }
 }
 
-void PcbDetailsWindow::displayStandaloneElements(const Board* boardData)
+void PcbDetailsWindow::DisplayStandaloneElements(const Board* board_data)
 {
-    if (!boardData)
+    if (board_data == nullptr) {
         return;
+    }
 
-    std::vector<ElementInteractionInfo> all_elements = boardData->GetAllVisibleElementsForInteraction();
+    std::vector<ElementInteractionInfo> all_elements = board_data->GetAllVisibleElementsForInteraction();
 
     if (ImGui::TreeNodeEx("Standalone Elements", ImGuiTreeNodeFlags_DefaultOpen)) {
-        int arc_count = 0, via_count = 0, trace_count = 0, label_count = 0;
+        int arc_count = 0;
+        int via_count = 0;
+        int trace_count = 0;
+        int label_count = 0;
         for (const auto& info : all_elements) {
             if (info.parent_component)
                 continue;  // Skip elements belonging to a component
@@ -220,7 +226,7 @@ void PcbDetailsWindow::displayStandaloneElements(const Board* boardData)
                     continue;
 
                 std::string net_info_str = "Net ID: " + std::to_string(arc->GetNetId());
-                const Net* net = boardData->GetNetById(arc->GetNetId());
+                const Net* net = board_data->GetNetById(arc->GetNetId());
                 if (net)
                     net_info_str = "Net: " + (net->GetName().empty() ? "[Unnamed]" : net->GetName()) + " (ID: " + std::to_string(arc->GetNetId()) + ")";
                 else if (arc->GetNetId() != -1)
@@ -248,7 +254,7 @@ void PcbDetailsWindow::displayStandaloneElements(const Board* boardData)
                     continue;
 
                 std::string net_info_str = "Net ID: " + std::to_string(via->GetNetId());
-                const Net* net = boardData->GetNetById(via->GetNetId());
+                const Net* net = board_data->GetNetById(via->GetNetId());
                 if (net)
                     net_info_str = "Net: " + (net->GetName().empty() ? "[Unnamed]" : net->GetName()) + " (ID: " + std::to_string(via->GetNetId()) + ")";
                 else if (via->GetNetId() != -1)
@@ -279,7 +285,7 @@ void PcbDetailsWindow::displayStandaloneElements(const Board* boardData)
                     continue;
 
                 std::string net_info_str = "Net ID: " + std::to_string(trace->GetNetId());
-                const Net* net = boardData->GetNetById(trace->GetNetId());
+                const Net* net = board_data->GetNetById(trace->GetNetId());
                 if (net)
                     net_info_str = "Net: " + (net->GetName().empty() ? "[Unnamed]" : net->GetName()) + " (ID: " + std::to_string(trace->GetNetId()) + ")";
                 else if (trace->GetNetId() != -1)
@@ -308,7 +314,7 @@ void PcbDetailsWindow::displayStandaloneElements(const Board* boardData)
                 std::string net_info_str = "Net ID: " + std::to_string(lbl->GetNetId());
                 // Text labels usually don't have nets, but handle if they do.
                 if (lbl->GetNetId() != -1) {
-                    const Net* net = boardData->GetNetById(lbl->GetNetId());
+                    const Net* net = board_data->GetNetById(lbl->GetNetId());
                     if (net)
                         net_info_str = "Net: " + (net->GetName().empty() ? "[Unnamed]" : net->GetName()) + " (ID: " + std::to_string(lbl->GetNetId()) + ")";
                     else

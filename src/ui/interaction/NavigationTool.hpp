@@ -1,31 +1,30 @@
 #pragma once
 
-#include "ui/interaction/InteractionTool.hpp"
-#include "pcb/Board.hpp"
+#include <string>  // For m_hoveredElementInfo
+
 #include "imgui.h"
-#include <string> // For m_hoveredElementInfo
+
+#include "pcb/Board.hpp"
+#include "ui/interaction/InteractionTool.hpp"
 #include "utils/Vec2.hpp"
 // Forward declaration
 class ControlSettings;
-class BoardDataManager; // Forward Declaration
-class Board;            // Forward needed if we pass Board directly, but DataManager is better
+class BoardDataManager;  // Forward Declaration
+class Board;             // Forward needed if we pass Board directly, but DataManager is better
 
 class NavigationTool : public InteractionTool
 {
 public:
-    NavigationTool(std::shared_ptr<Camera> camera,
-                   std::shared_ptr<Viewport> viewport,
-                   std::shared_ptr<ControlSettings> controlSettings,
-                   std::shared_ptr<BoardDataManager> boardDataManager);
+    NavigationTool(std::shared_ptr<Camera> camera, std::shared_ptr<Viewport> viewport, std::shared_ptr<ControlSettings> control_settings, std::shared_ptr<BoardDataManager> board_data_manager);
     ~NavigationTool() override = default;
 
-    void ProcessInput(ImGuiIO &io, bool isViewportFocused, bool isViewportHovered, ImVec2 viewportTopLeft, ImVec2 viewportSize) override;
+    void ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is_viewport_hovered, ImVec2 viewport_top_left, ImVec2 viewport_size) override;
 
     void OnActivated() override;
     void OnDeactivated() override;
 
     // Selection specific methods
-    int GetSelectedNetId() const;
+    [[nodiscard]] int GetSelectedNetId() const;
     void ClearSelection();
 
     // Configuration for the tool, if any
@@ -33,12 +32,12 @@ public:
     // void SetZoomSensitivity(float sensitivity) { m_zoomSensitivity = sensitivity; }
 
 private:
-    std::shared_ptr<ControlSettings> m_controlSettings;
-    std::shared_ptr<BoardDataManager> m_boardDataManager;
+    std::shared_ptr<ControlSettings> m_control_settings_;
+    std::shared_ptr<BoardDataManager> m_board_data_manager_;
     // --- New members for hover and selection ---
-    std::string m_hoveredElementInfo;
-    bool m_isHoveringElement = false;
-    int m_selectedNetId = -1; // -1 indicates no net is selected
+    std::string m_hovered_element_info_;
+    bool m_is_hovering_element_ = false;
+    int m_selected_net_id_ = -1;  // -1 indicates no net is selected
     // Potentially store more info about the selected element if needed
     // --- End new members ---
 

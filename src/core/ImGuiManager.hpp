@@ -1,10 +1,11 @@
 #pragma once
 
-#include <SDL3/SDL.h>
+#include <SDL3/SDL_events.h>
 
 class Renderer;
 
-class ImGuiManager {
+class ImGuiManager
+{
 public:
     ImGuiManager(Renderer* renderer);
     ~ImGuiManager();
@@ -21,7 +22,7 @@ public:
     void ShowConfigWindow(bool* p_open = nullptr);
 
 private:
-    Renderer* m_renderer;
-    bool m_initialized;
-    bool m_showConfigWindow;
-}; 
+    Renderer* m_renderer_ {};
+    bool m_initialized_ {};
+    bool m_show_config_window_ {};
+};

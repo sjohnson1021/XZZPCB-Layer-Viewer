@@ -427,7 +427,7 @@ void Application::RenderUI()
 
     if (m_pcbDetailsWindow) {
         if (m_pcbDetailsWindow->IsWindowVisible()) {
-            m_pcbDetailsWindow->render();
+            m_pcbDetailsWindow->Render();
         }
     }
 
@@ -481,7 +481,7 @@ void Application::OpenPcbFile(const std::string& filePath)
     if (newBoard) {
         m_currentBoard = std::move(newBoard);
         if (m_boardDataManager) {
-            m_boardDataManager->setBoard(m_currentBoard);
+            m_boardDataManager->SetBoard(m_currentBoard);
             m_boardDataManager->RegenerateLayerColors(m_currentBoard);
         }
 
@@ -494,7 +494,7 @@ void Application::OpenPcbFile(const std::string& filePath)
             // m_pcbViewerWindow->SetBoard(m_currentBoard); // Or similar method
         }
         if (m_pcbDetailsWindow) {
-            m_pcbDetailsWindow->setBoard(m_currentBoard);  // Update details window
+            m_pcbDetailsWindow->SetBoard(m_currentBoard);  // Update details window
         }
 
         if (m_camera && m_viewport && m_currentBoard) {
@@ -518,7 +518,7 @@ void Application::OpenPcbFile(const std::string& filePath)
         // Apply layer properties (colors, etc.) using BoardDataManager
         if (m_boardDataManager) {
             m_boardDataManager->RegenerateLayerColors(m_currentBoard);
-            m_boardDataManager->setBoard(m_currentBoard);
+            m_boardDataManager->SetBoard(m_currentBoard);
         } else {
             std::cerr << "Application::OpenPcbFile: BoardDataManager is null, cannot apply layer properties or set board." << std::endl;
             // Decide if a board should be considered valid if BoardDataManager is missing
@@ -531,7 +531,7 @@ void Application::OpenPcbFile(const std::string& filePath)
         }
         m_currentBoard = nullptr;  // Ensure current board is null if load failed
         if (m_boardDataManager) {
-            m_boardDataManager->setBoard(nullptr);
+            m_boardDataManager->SetBoard(nullptr);
         }
         // TODO: Inform UI or user about the failure
     }

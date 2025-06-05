@@ -18,11 +18,10 @@ class Board; // Forward declare Board
 class SettingsWindow {
 public:
     // It will need access to the settings objects it can modify.
-    SettingsWindow(
-        std::shared_ptr<GridSettings> gridSettings,
-        std::shared_ptr<ControlSettings> controlSettings,
-        std::shared_ptr<BoardDataManager> boardDataManager,
-        float* applicationClearColor // Added pointer to application's clear color
+    SettingsWindow(std::shared_ptr<GridSettings> grid_settings,
+                   std::shared_ptr<ControlSettings> control_settings,
+                   std::shared_ptr<BoardDataManager> board_data_manager,
+                   float* application_clear_color  // Added pointer to application's clear color
     );
     ~SettingsWindow();
 
@@ -31,22 +30,22 @@ public:
     SettingsWindow(SettingsWindow&&) = delete;
     SettingsWindow& operator=(SettingsWindow&&) = delete;
 
-    void RenderUI(const std::shared_ptr<Board>& currentBoard);
+    void RenderUI(const std::shared_ptr<Board>& current_board);
 
-    bool IsWindowVisible() const { return m_isOpen; }
-    void SetVisible(bool visible) { m_isOpen = visible; }
+    [[nodiscard]] bool IsWindowVisible() const { return m_is_open_; }
+    void SetVisible(bool visible) { m_is_open_ = visible; }
 
-    void ToggleVisibility() { m_isOpen = !m_isOpen; }
-    bool IsOpen() const { return m_isOpen; }
+    void ToggleVisibility() { m_is_open_ = !m_is_open_; }
+    [[nodiscard]] bool IsOpen() const { return m_is_open_; }
 
 private:
-    std::string m_windowName = "Settings";
-    bool m_isOpen = false; // Default to closed, opened via a menu typically
+    std::string m_window_name = "Settings";
+    bool m_is_open_ = false;  // Default to closed, opened via a menu typically
 
-    std::shared_ptr<GridSettings> m_gridSettings;
-    std::shared_ptr<ControlSettings> m_controlSettings;
-    float* m_appClearColor; // Pointer to Application's clear color
-    std::shared_ptr<BoardDataManager> m_boardDataManager;
+    std::shared_ptr<GridSettings> m_grid_settings_;
+    std::shared_ptr<ControlSettings> m_control_settings_;
+    float* m_app_clear_color_;  // Pointer to Application's clear color
+    std::shared_ptr<BoardDataManager> m_board_data_manager_;
     // std::shared_ptr<ThemeSettings> m_themeSettings;
     // std::shared_ptr<ApplicationSettings> m_appSettings;
 
@@ -55,6 +54,6 @@ private:
     // void ShowThemeSettings();
     // void ShowApplicationSettings();
     void ShowControlSettings();
-    void ShowAppearanceSettings(const std::shared_ptr<Board>& currentBoard);
-    void ShowLayerControls(const std::shared_ptr<Board>& currentBoard);
+    void ShowAppearanceSettings(const std::shared_ptr<Board>& current_board);
+    void ShowLayerControls(const std::shared_ptr<Board>& current_board);
 }; 

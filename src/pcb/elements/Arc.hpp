@@ -46,11 +46,11 @@ public:
     // layer and net_id are in Element
 
     // --- Arc-specific Getters ---
-    double GetCenterX() const { return center.x_ax; }
-    double GetCenterY() const { return center.y_ax; }
-    double GetRadius() const { return radius; }
-    double GetStartAngle() const { return start_angle; }
-    double GetEndAngle() const { return end_angle; }
-    double GetThickness() const { return thickness; }
+    [[nodiscard]] double GetCenterX() const { return center.x_ax; }
+    [[nodiscard]] double GetCenterY() const { return center.y_ax; }
+    [[nodiscard]] double GetRadius() const { return radius; }
+    [[nodiscard]] double GetStartAngle() const { return start_angle; }
+    [[nodiscard]] double GetEndAngle() const { return end_angle; }
+    [[nodiscard]] double GetThickness() const { return thickness; }
     // GetLayerId() and GetNetId() are inherited
 };

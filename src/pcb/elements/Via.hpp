@@ -40,9 +40,9 @@ public:
     }
 
     // --- Overridden virtual methods ---
-    BLRect GetBoundingBox(const Component* parentComponent = nullptr) const override;
-    bool IsHit(const Vec2& worldMousePos, float tolerance, const Component* parentComponent = nullptr) const override;
-    std::string GetInfo(const Component* parentComponent = nullptr) const override;
+    BLRect GetBoundingBox(const Component* parent_component = nullptr) const override;
+    bool IsHit(const Vec2& world_mouse_pos, float tolerance, const Component* parent_component = nullptr) const override;
+    std::string GetInfo(const Component* parent_component = nullptr) const override;
     void Translate(double dx, double dy) override;  // Declaration only
 
     // --- Via-specific Member Data ---
@@ -58,15 +58,15 @@ public:
     // net_id is in Element
 
     // --- Via-specific Getters ---
-    double GetX() const { return x; }
-    double GetY() const { return y; }
-    int GetLayerFrom() const { return layer_from; }
-    int GetLayerTo() const { return layer_to; }
-    double GetPadRadiusFrom() const { return pad_radius_from; }
-    double GetPadRadiusTo() const { return pad_radius_to; }
-    double GetDrillDiameter() const { return drill_diameter; }
-    const std::string& GetOptionalText() const { return optional_text; }
+    [[nodiscard]] double GetX() const { return x; }
+    [[nodiscard]] double GetY() const { return y; }
+    [[nodiscard]] int GetLayerFrom() const { return layer_from; }
+    [[nodiscard]] int GetLayerTo() const { return layer_to; }
+    [[nodiscard]] double GetPadRadiusFrom() const { return pad_radius_from; }
+    [[nodiscard]] double GetPadRadiusTo() const { return pad_radius_to; }
+    [[nodiscard]] double GetDrillDiameter() const { return drill_diameter; }
+    [[nodiscard]] const std::string& GetOptionalText() const { return optional_text; }
     // GetLayerId() (primary) and GetNetId() are inherited
 
-    bool IsOnLayer(int query_layer_id) const { return query_layer_id >= layer_from && query_layer_id <= layer_to; }
+    [[nodiscard]] bool IsOnLayer(int query_layer_id) const { return query_layer_id >= layer_from && query_layer_id <= layer_to; }
 };

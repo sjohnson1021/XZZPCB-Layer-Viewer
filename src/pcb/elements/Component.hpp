@@ -239,18 +239,18 @@ public:
     std::string GetInfo(const Component* parentComponent = nullptr) const override
     {
         // For a component, we don't need the parent component parameter since it is the parent
-        std::stringstream ss = {};
-        ss << "Component: " << reference_designator << "\n";
-        ss << "Value: " << value << "\n";
-        ss << "Footprint: " << footprint_name << "\n";
-        ss << "Position: (" << center_x << ", " << center_y << ")\n";
-        ss << "Rotation: " << rotation << "°\n";
-        ss << "Size: " << width << " x " << height << "\n";
-        ss << "Layer: " << layer << "\n";
-        ss << "Side: " << (side == MountingSide::kTop ? "Top" : "Bottom") << "\n";
-        ss << "Type: " << (type == ComponentElementType::kSmd ? "SMD" : type == ComponentElementType::kThroughHole ? "Through Hole" : "Other") << "\n";
-        ss << "Pins: " << pins.size() << "\n";
-        return ss.str();
+        std::stringstream k_ss = {};
+        k_ss << "Component: " << reference_designator << "\n";
+        k_ss << "Value: " << value << "\n";
+        k_ss << "Footprint: " << footprint_name << "\n";
+        k_ss << "Position: (" << center_x << ", " << center_y << ")\n";
+        k_ss << "Rotation: " << rotation << "°\n";
+        k_ss << "Size: " << width << " x " << height << "\n";
+        k_ss << "Layer: " << layer << "\n";
+        k_ss << "Side: " << (side == MountingSide::kTop ? "Top" : "Bottom") << "\n";
+        k_ss << "Type: " << (type == ComponentElementType::kSmd ? "SMD" : type == ComponentElementType::kThroughHole ? "Through Hole" : "Other") << "\n";
+        k_ss << "Pins: " << pins.size() << "\n";
+        return k_ss.str();
     }
 
     // Method to translate the component and its owned elements

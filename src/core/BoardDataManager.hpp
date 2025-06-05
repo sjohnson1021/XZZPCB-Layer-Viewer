@@ -21,28 +21,28 @@ public:
 
     // Retrieves the currently loaded board
     // Returns a shared_ptr to the board, which might be nullptr if no board is loaded
-    std::shared_ptr<const Board> getBoard() const;
+    std::shared_ptr<const Board> GetBoard() const;
 
     // Sets the currently loaded board
-    void setBoard(std::shared_ptr<Board> board);
+    void SetBoard(std::shared_ptr<Board> board);
 
     // Clears the currently loaded board
-    void clearBoard();
+    void ClearBoard();
 
     // --- Layer Color Management ---
-    void SetLayerHueStep(float hueStep);
+    void SetLayerHueStep(float hue_step);
     float GetLayerHueStep() const;
 
     void RegenerateLayerColors(const std::shared_ptr<Board> &board); // Re-applies coloring to the given board
     BLRgba32 GetLayerColor(int layer_id) const;
-    void SetLayerColor(int layerId, BLRgba32 color);
-    bool IsLayerVisible(int layerId) const;
-    void SetLayerVisible(int layerId, bool visible);
-    void ToggleLayerVisibility(int layerId);
+    void SetLayerColor(int layer_id, BLRgba32 color);
+    bool IsLayerVisible(int layer_id) const;
+    void SetLayerVisible(int layer_id, bool visible);
+    void ToggleLayerVisibility(int layer_id);
     std::vector<int> GetVisibleLayers() const;
 
     // --- Net Highlighting ---
-    void SetSelectedNetId(int netId);
+    void SetSelectedNetId(int net_id);
     int GetSelectedNetId() const;
 
     // Callback system for NetID changes
@@ -73,7 +73,7 @@ public:
     void SetColor(ColorType type, BLRgba32 color);
     BLRgba32 GetColor(ColorType type) const;
 
-    std::unordered_map<ColorType, BLRgba32> color_map_;
+    std::unordered_map<ColorType, BLRgba32> color_map;
     void LoadColorsFromConfig(const class Config &config);
     void SaveColorsToConfig(class Config &config) const;
 
@@ -82,7 +82,7 @@ private:
     PcbLoader pcb_loader_;                 // Renamed from m_pcbLoader
     mutable std::mutex board_mutex_;       // Renamed from m_boardMutex
 
-    float layer_hue_step_ = 15.0f; // Renamed from m_layerHueStep
+    float layer_hue_step_ = 15.0F;  // Renamed from m_layerHueStep
 
     int selected_net_id_ = -1;     // Renamed from m_selectedNetId
     mutable std::mutex net_mutex_; // Renamed from m_netMutex

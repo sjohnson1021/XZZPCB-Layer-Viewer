@@ -8,9 +8,11 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <math.h>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include <blend2d.h>  // Include for BLContext and BLRgba32 etc.
 
@@ -20,7 +22,7 @@
 #include "view/GridSettings.hpp"
 #include "view/Viewport.hpp"
 
-Grid::Grid(std::shared_ptr<GridSettings> settings) : m_settings_(settings), m_font_initialized_(false), m_font_load_failed_(false) {}
+Grid::Grid(std::shared_ptr<GridSettings> settings) : m_settings_(settings) {}
 
 Grid::~Grid() = default;
 
@@ -63,7 +65,7 @@ void Grid::GetEffectiveSpacings(const Camera& camera, float& out_major_spacing_w
     // --- 1. Dynamic Spacing Mode ---
     if (m_settings_->m_is_dynamic) {
         // 1a. Determine Ideal Major Spacing based on zoom and pixel steps
-        float current_major_screen_px = out_major_spacing_world * zoom;
+        float const current_major_screen_px = out_major_spacing_world * zoom;
 
         if (current_major_screen_px < min_px_step || current_major_screen_px > max_px_step) {
             float best_fit_major_spacing = out_major_spacing_world;
@@ -90,7 +92,7 @@ void Grid::GetEffectiveSpacings(const Camera& camera, float& out_major_spacing_w
 
             // Try different powers around the base scale
             for (int i = -2; i <= 2; ++i) {
-                float power_of10 = std::pow(10.0F, i);
+                float const power_of10 = std::pow(10.0F, i);
                 for (float factor : nice_factors) {
                     float candidate_spacing_world = base_scale * power_of10 * factor;
                     if (candidate_spacing_world < 1e-6F)
@@ -127,8 +129,8 @@ void Grid::GetEffectiveSpacings(const Camera& camera, float& out_major_spacing_w
 
         // 1b. Determine Effective Subdivisions based on the new outMajorSpacing_world
         if (base_subdivisions > 1) {
-            float potential_minor_world_spacing = out_major_spacing_world / base_subdivisions;
-            float potential_minor_screen_px = potential_minor_world_spacing * zoom;
+            float const potential_minor_world_spacing = out_major_spacing_world / base_subdivisions;
+            float const potential_minor_screen_px = potential_minor_world_spacing * zoom;
 
             if (potential_minor_screen_px < min_px_step) {
                 // Try to find appropriate subdivision count based on unit system
@@ -212,20 +214,20 @@ void Grid::EnforceRenderingLimits(
     }
 
     // Calculate how many horizontal and vertical lines would be drawn
-    long long i_start_x = static_cast<long long>(std::ceil(world_min.x_ax / spacing));
-    long long i_end_x = static_cast<long long>(std::floor(world_max.x_ax / spacing));
-    int kNumHorizontalLines = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
+    auto i_start_x = static_cast<long long>(std::ceil(world_min.x_ax / spacing));
+    auto i_end_x = static_cast<long long>(std::floor(world_max.x_ax / spacing));
+    int const k_num_horizontal_lines = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
 
-    long long i_start_y = static_cast<long long>(std::ceil(world_min.y_ax / spacing));
-    long long i_end_y = static_cast<long long>(std::floor(world_max.y_ax / spacing));
-    int kNumVerticalLines = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
+    auto i_start_y = static_cast<long long>(std::ceil(world_min.y_ax / spacing));
+    auto i_end_y = static_cast<long long>(std::floor(world_max.y_ax / spacing));
+    int const k_num_vertical_lines = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
 
     // Total number of lines
-    out_estimated_line_count = kNumHorizontalLines + kNumVerticalLines;
+    out_estimated_line_count = k_num_horizontal_lines + k_num_vertical_lines;
 
     // For dots, the estimate would be numHorizontalLines * numVerticalLines
     // We'll use the same mechanism for both since dots also require two nested loops
-    int kDotEstimate = kNumHorizontalLines * kNumVerticalLines;
+    int const k_dot_estimate = k_num_horizontal_lines * k_num_vertical_lines;
 
     // Determine if we should render based on limits
     int max_renderable_items = 0;
@@ -234,7 +236,7 @@ void Grid::EnforceRenderingLimits(
         out_should_render = (out_estimated_line_count <= max_renderable_items);
     } else {  // DOTS
         max_renderable_items = GridSettings::kMaxRenderableDots;
-        out_should_render = (kDotEstimate <= max_renderable_items);
+        out_should_render = (k_dot_estimate <= max_renderable_items);
     }
 }
 
@@ -246,13 +248,13 @@ Grid::GridMeasurementInfo Grid::GetMeasurementInfo(const Camera& camera, const V
     GetEffectiveSpacings(camera, info.major_spacing, info.minor_spacing, info.subdivisions);
 
     // Determine visibility based on screen pixel step
-    float current_zoom = camera.GetZoom();
+    float const current_zoom = camera.GetZoom();
     float min_px_step = std::max(1.0F, m_settings_->m_min_pixel_step);
 
-    float major_screen_px = info.major_spacing * current_zoom;
+    float const major_screen_px = info.major_spacing * current_zoom;
     info.major_lines_visible = (major_screen_px >= min_px_step);
 
-    float minor_screen_px = info.minor_spacing * current_zoom;
+    float const minor_screen_px = info.minor_spacing * current_zoom;
     info.minor_lines_visible =
         info.major_lines_visible && info.subdivisions > 1 && (minor_screen_px >= min_px_step) && (std::abs(info.major_spacing - info.minor_spacing) > 1e-6F) && (info.minor_spacing > 1e-6F);
 
@@ -269,7 +271,7 @@ void Grid::RenderMeasurementReadout(BLContext& bl_ctx, const Viewport& viewport,
     }
 
     // Ensure font is initialized
-    initializeFont();
+    InitializeFont();
 
     // Create the measurement text
     std::stringstream ss;
@@ -329,7 +331,7 @@ void Grid::DrawGridLines(BLContext& bl_ctx,
                          const Camera& camera,
                          const Viewport& viewport,
                          float spacing,
-                         const GridColor& color,
+                         const BLRgba32& color,
                          const Vec2& world_min,
                          const Vec2& world_max,
                          bool is_major,
@@ -350,16 +352,16 @@ void Grid::DrawGridLines(BLContext& bl_ctx,
     }
 
     try {
-        BLRgba32 line_color(static_cast<uint32_t>(color.r * 255.0F), static_cast<uint32_t>(color.g * 255.0F), static_cast<uint32_t>(color.b * 255.0F), static_cast<uint32_t>(color.a * 255.0F));
+        BLRgba32 line_color(static_cast<uint32_t>(color.r()), static_cast<uint32_t>(color.g()), static_cast<uint32_t>(color.b()), static_cast<uint32_t>(color.a()));
 
         BLPath lines_path;
 
-        long long i_start_x = static_cast<long long>(std::ceil(world_min.x_ax / spacing));
-        long long i_end_x = static_cast<long long>(std::floor(world_max.x_ax / spacing));
+        auto i_start_x = static_cast<long long>(std::ceil(world_min.x_ax / spacing));
+        auto i_end_x = static_cast<long long>(std::floor(world_max.x_ax / spacing));
         int const kReserveHorizLines = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
 
-        long long i_start_y = static_cast<long long>(std::ceil(world_min.y_ax / spacing));
-        long long i_end_y = static_cast<long long>(std::floor(world_max.y_ax / spacing));
+        auto i_start_y = static_cast<long long>(std::ceil(world_min.y_ax / spacing));
+        auto i_end_y = static_cast<long long>(std::floor(world_max.y_ax / spacing));
         int const kReserveVertLines = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
 
         const int kMaxReservePerAxis = std::min(estimated_line_count, 10000);  // Respect the calculated limit
@@ -376,12 +378,12 @@ void Grid::DrawGridLines(BLContext& bl_ctx,
         horizontal_end_points.reserve(std::min(kReserveVertLines, kMaxReservePerAxis));
 
         for (long long i = i_start_x; i <= i_end_x; ++i) {
-            float const x = static_cast<float>(i) * spacing;
-            if (is_major && m_settings_->m_show_axis_lines && std::abs(x) < major_spacing_for_axis_check * 0.1F) {
+            float const kX = static_cast<float>(i) * spacing;
+            if (is_major && m_settings_->m_show_axis_lines && std::abs(kX) < major_spacing_for_axis_check * 0.1F) {
                 continue;
             }
-            Vec2 screen_p1 = viewport.WorldToScreen({x, world_min.y_ax}, camera);
-            Vec2 screen_p2 = viewport.WorldToScreen({x, world_max.y_ax}, camera);
+            Vec2 screen_p1 = viewport.WorldToScreen({kX, world_min.y_ax}, camera);
+            Vec2 screen_p2 = viewport.WorldToScreen({kX, world_max.y_ax}, camera);
             if (std::isfinite(screen_p1.x_ax) && std::isfinite(screen_p1.y_ax) && std::isfinite(screen_p2.x_ax) && std::isfinite(screen_p2.y_ax)) {
                 vertical_start_points.push_back(screen_p1);
                 vertical_end_points.push_back(screen_p2);
@@ -389,12 +391,12 @@ void Grid::DrawGridLines(BLContext& bl_ctx,
         }
 
         for (long long i = i_start_y; i <= i_end_y; ++i) {
-            float const y = static_cast<float>(i) * spacing;
-            if (is_major && m_settings_->m_show_axis_lines && std::abs(y) < major_spacing_for_axis_check * 0.1F) {
+            float const kY = static_cast<float>(i) * spacing;
+            if (is_major && m_settings_->m_show_axis_lines && std::abs(kY) < major_spacing_for_axis_check * 0.1F) {
                 continue;
             }
-            Vec2 screen_p1 = viewport.WorldToScreen({world_min.x_ax, y}, camera);
-            Vec2 screen_p2 = viewport.WorldToScreen({world_max.x_ax, y}, camera);
+            Vec2 screen_p1 = viewport.WorldToScreen({world_min.x_ax, kY}, camera);
+            Vec2 screen_p2 = viewport.WorldToScreen({world_max.x_ax, kY}, camera);
             if (std::isfinite(screen_p1.x_ax) && std::isfinite(screen_p1.y_ax) && std::isfinite(screen_p2.x_ax) && std::isfinite(screen_p2.y_ax)) {
                 horizontal_start_points.push_back(screen_p1);
                 horizontal_end_points.push_back(screen_p2);
@@ -434,7 +436,7 @@ void Grid::DrawGridDots(BLContext& bl_ctx,
                         const Camera& camera,
                         const Viewport& viewport,
                         float spacing,
-                        const GridColor& color,
+                        const BLRgba32& color,
                         const Vec2& world_min,
                         const Vec2& world_max,
                         bool is_major,
@@ -455,19 +457,19 @@ void Grid::DrawGridDots(BLContext& bl_ctx,
     }
 
     try {
-        BLRgba32 dot_color(static_cast<uint32_t>(color.r * 255.0F), static_cast<uint32_t>(color.g * 255.0F), static_cast<uint32_t>(color.b * 255.0F), static_cast<uint32_t>(color.a * 255.0F));
+        BLRgba32 dot_color(static_cast<uint32_t>(color.r()), static_cast<uint32_t>(color.g()), static_cast<uint32_t>(color.b()), static_cast<uint32_t>(color.a()));
 
         float dot_radius = m_settings_->m_dot_radius;
         BLPath dots_path;
         int dots_count = 0;
 
-        long long i_start_x = static_cast<long long>(std::ceil(world_min.x_ax / spacing));
-        long long i_end_x = static_cast<long long>(std::floor(world_max.x_ax / spacing));
-        long long i_start_y = static_cast<long long>(std::ceil(world_min.y_ax / spacing));
-        long long i_end_y = static_cast<long long>(std::floor(world_max.y_ax / spacing));
+        auto i_start_x = static_cast<long long>(std::ceil(world_min.x_ax / spacing));
+        auto i_end_x = static_cast<long long>(std::floor(world_max.x_ax / spacing));
+        auto i_start_y = static_cast<long long>(std::ceil(world_min.y_ax / spacing));
+        auto i_end_y = static_cast<long long>(std::floor(world_max.y_ax / spacing));
 
-        int num_potential_dots_x = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
-        int num_potential_dots_y = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
+        int const num_potential_dots_x = (i_end_x >= i_start_x) ? static_cast<int>(i_end_x - i_start_x + 1) : 0;
+        int const num_potential_dots_y = (i_end_y >= i_start_y) ? static_cast<int>(i_end_y - i_start_y + 1) : 0;
 
         // Use MAX_RENDERABLE_DOTS as the cap for dot reservation
         constexpr int kMaxReserveTotalDots = GridSettings::kMaxRenderableDots;
@@ -567,10 +569,10 @@ void Grid::DrawAxis(BLContext& bl_ctx, const Camera& camera, const Viewport& vie
 
         // X-Axis (y=0)
         if (0.0F >= world_min.y_ax && 0.0F <= world_max.y_ax) {
-            BLRgba32 x_axis_color(static_cast<uint32_t>(m_settings_->m_x_axis_color.r * 255.0F),
-                                  static_cast<uint32_t>(m_settings_->m_x_axis_color.g * 255.0F),
-                                  static_cast<uint32_t>(m_settings_->m_x_axis_color.b * 255.0F),
-                                  static_cast<uint32_t>(m_settings_->m_x_axis_color.a * 255.0F));
+            BLRgba32 x_axis_color(static_cast<uint32_t>(m_settings_->m_x_axis_color.r()),
+                                  static_cast<uint32_t>(m_settings_->m_x_axis_color.g()),
+                                  static_cast<uint32_t>(m_settings_->m_x_axis_color.b()),
+                                  static_cast<uint32_t>(m_settings_->m_x_axis_color.a()));
             bl_ctx.setStrokeStyle(x_axis_color);
 
             Vec2 screen_start = viewport.WorldToScreen({world_min.x_ax, 0.0F}, camera);
@@ -583,10 +585,10 @@ void Grid::DrawAxis(BLContext& bl_ctx, const Camera& camera, const Viewport& vie
 
         // Y-Axis (x=0)
         if (0.0F >= world_min.x_ax && 0.0F <= world_max.x_ax) {
-            BLRgba32 y_axis_color(static_cast<uint32_t>(m_settings_->m_y_axis_color.r * 255.0F),
-                                  static_cast<uint32_t>(m_settings_->m_y_axis_color.g * 255.0F),
-                                  static_cast<uint32_t>(m_settings_->m_y_axis_color.b * 255.0F),
-                                  static_cast<uint32_t>(m_settings_->m_y_axis_color.a * 255.0F));
+            BLRgba32 y_axis_color(static_cast<uint32_t>(m_settings_->m_y_axis_color.r()),
+                                  static_cast<uint32_t>(m_settings_->m_y_axis_color.g()),
+                                  static_cast<uint32_t>(m_settings_->m_y_axis_color.b()),
+                                  static_cast<uint32_t>(m_settings_->m_y_axis_color.a()));
             bl_ctx.setStrokeStyle(y_axis_color);
 
             Vec2 screen_start = viewport.WorldToScreen({0.0F, world_min.y_ax}, camera);
@@ -613,11 +615,11 @@ void Grid::Render(BLContext& bl_ctx, const Camera& camera, const Viewport& viewp
         bl_ctx.save();
 
         // Draw background if needed
-        if (m_settings_->m_background_color.a > 0.0f) {
-            bl_ctx.setFillStyle(BLRgba32(static_cast<uint32_t>(m_settings_->m_background_color.r * 255.0F),
-                                         static_cast<uint32_t>(m_settings_->m_background_color.g * 255.0F),
-                                         static_cast<uint32_t>(m_settings_->m_background_color.b * 255.0F),
-                                         static_cast<uint32_t>(m_settings_->m_background_color.a * 255.0F)));
+        if (m_settings_->m_background_color.a() > 0.0F) {
+            bl_ctx.setFillStyle(BLRgba32(static_cast<uint32_t>(m_settings_->m_background_color.r()),
+                                         static_cast<uint32_t>(m_settings_->m_background_color.g()),
+                                         static_cast<uint32_t>(m_settings_->m_background_color.b()),
+                                         static_cast<uint32_t>(m_settings_->m_background_color.a())));
             bl_ctx.fillRect(BLRect(0, 0, viewport.GetWidth(), viewport.GetHeight()));
         }
 
@@ -646,7 +648,7 @@ void Grid::Render(BLContext& bl_ctx, const Camera& camera, const Viewport& viewp
             float const kMinorScreenPx = eff_minor_spacing_world * kCurrentZoom;
             // Check that minor spacing is meaningfully different from major,
             // and that minor spacing itself is positive.
-            if (kMinorScreenPx >= kMinPxStepSetting && std::abs(eff_major_spacing_world - eff_minor_spacing_world) > 1e-6f && eff_minor_spacing_world > 1e-6f) {
+            if (kMinorScreenPx >= kMinPxStepSetting && std::abs(eff_major_spacing_world - eff_minor_spacing_world) > 1e-6F && eff_minor_spacing_world > 1e-6F) {
                 actually_draw_minor_elements = true;
             }
         }
@@ -698,7 +700,7 @@ void Grid::Render(BLContext& bl_ctx, const Camera& camera, const Viewport& viewp
 }
 
 // InitializeFont method implementation
-void Grid::initializeFont() const
+void Grid::InitializeFont() const
 {
     if (m_font_initialized_) {
         return;

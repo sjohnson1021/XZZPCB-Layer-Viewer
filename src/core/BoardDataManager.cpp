@@ -16,19 +16,19 @@ BoardDataManager::~BoardDataManager()
     // For now, the default cleanup of member variables is sufficient
 }
 
-std::shared_ptr<const Board> BoardDataManager::getBoard() const
+std::shared_ptr<const Board> BoardDataManager::GetBoard() const
 {
     std::lock_guard<std::mutex> lock(board_mutex_);
     return current_board_;
 }
 
-void BoardDataManager::setBoard(std::shared_ptr<Board> board)
+void BoardDataManager::SetBoard(std::shared_ptr<Board> board)
 {
     std::lock_guard<std::mutex> lock(board_mutex_);
     current_board_ = board;
 }
 
-void BoardDataManager::clearBoard()
+void BoardDataManager::ClearBoard()
 {
     std::lock_guard<std::mutex> lock(board_mutex_);
     current_board_.reset();
@@ -53,8 +53,8 @@ float BoardDataManager::GetLayerHueStep() const
 
 BLRgba32 BoardDataManager::GetColorUnlocked(ColorType type) const
 {
-    auto it = color_map_.find(type);
-    if (it != color_map_.end()) {
+    auto it = color_map.find(type);
+    if (it != color_map.end()) {
         return it->second;
     }
     switch (type) {
@@ -90,9 +90,9 @@ void BoardDataManager::LoadColorsFromConfig(const Config& config)
         std::string key = "color." + std::string(::ColorTypeToString(type));
         if (config.HasKey(key)) {
             uint32_t rgba = static_cast<uint32_t>(config.GetInt(key, 0xFFFFFFFF));
-            color_map_[type] = BLRgba32(rgba);
+            color_map[type] = BLRgba32(rgba);
         } else {
-            color_map_[type] = GetColorUnlocked(type);  // fallback to default, no lock
+            color_map[type] = GetColorUnlocked(type);  // fallback to default, no lock
         }
     }
 }
@@ -103,8 +103,8 @@ void BoardDataManager::SaveColorsToConfig(Config& config) const
     std::lock_guard<std::mutex> lock(net_mutex_);
     for (ColorType type : all_types) {
         std::string key = "color." + std::string(::ColorTypeToString(type));
-        auto it = color_map_.find(type);
-        uint32_t rgba = (it != color_map_.end()) ? it->second.value : GetColorUnlocked(type).value;
+        auto it = color_map.find(type);
+        uint32_t rgba = (it != color_map.end()) ? it->second.value : GetColorUnlocked(type).value;
         config.SetInt(key, static_cast<int>(rgba));
     }
 }
@@ -118,7 +118,7 @@ void BoardDataManager::RegenerateLayerColors(const std::shared_ptr<Board>& board
     int layerCount = board->GetLayerCount();
     layer_colors_.resize(layerCount);
 
-    BLRgba32 baseColor = color_map_.count(ColorType::kBaseLayer) ? color_map_.at(ColorType::kBaseLayer) : GetColorUnlocked(ColorType::kBaseLayer);
+    BLRgba32 baseColor = color_map.count(ColorType::kBaseLayer) ? color_map.at(ColorType::kBaseLayer) : GetColorUnlocked(ColorType::kBaseLayer);
     float hueStep = layer_hue_step_;
 
     for (int i = 0; i < layerCount; ++i) {
@@ -207,7 +207,7 @@ void BoardDataManager::SetLayerVisible(int layerId, bool visible)
 void BoardDataManager::SetColor(ColorType type, BLRgba32 color)
 {
     std::lock_guard<std::mutex> lock(net_mutex_);
-    color_map_[type] = color;
+    color_map[type] = color;
     auto cb = settings_change_callback_;
     lock.~lock_guard();
     if (cb) {
@@ -219,23 +219,23 @@ BLRgba32 BoardDataManager::GetLayerColor(int layer_id) const
 {
     // 1-16: trace layers (apply hue rotation)
     if (layer_id >= 1 && layer_id <= 16) {
-        BLRgba32 base_color = color_map_.count(ColorType::kBaseLayer) ? color_map_.at(ColorType::kBaseLayer) : GetColorUnlocked(ColorType::kBaseLayer);
+        BLRgba32 base_color = color_map.count(ColorType::kBaseLayer) ? color_map.at(ColorType::kBaseLayer) : GetColorUnlocked(ColorType::kBaseLayer);
         float hue_step = layer_hue_step_;
         return color_utils::GenerateLayerColor(layer_id - 1, 16, base_color, hue_step);
     }
     // 17: silkscreen
     if (layer_id == 17) {
-        return color_map_.count(ColorType::kSilkscreen) ? color_map_.at(ColorType::kSilkscreen) : GetColorUnlocked(ColorType::kSilkscreen);
+        return color_map.count(ColorType::kSilkscreen) ? color_map.at(ColorType::kSilkscreen) : GetColorUnlocked(ColorType::kSilkscreen);
     }
     // 18-27: unused, but apply hue rotation
     if (layer_id >= 18 && layer_id <= 27) {
-        BLRgba32 base_color = color_map_.count(ColorType::kBaseLayer) ? color_map_.at(ColorType::kBaseLayer) : GetColorUnlocked(ColorType::kBaseLayer);
+        BLRgba32 base_color = color_map.count(ColorType::kBaseLayer) ? color_map.at(ColorType::kBaseLayer) : GetColorUnlocked(ColorType::kBaseLayer);
         float hue_step = layer_hue_step_;
         return color_utils::GenerateLayerColor(layer_id - 1, 16, base_color, hue_step);
     }
     // 28: board edges
     if (layer_id == 28) {
-        return color_map_.count(ColorType::kBoardEdges) ? color_map_.at(ColorType::kBoardEdges) : GetColorUnlocked(ColorType::kBoardEdges);
+        return color_map.count(ColorType::kBoardEdges) ? color_map.at(ColorType::kBoardEdges) : GetColorUnlocked(ColorType::kBoardEdges);
     }
     // fallback: default color
     return BLRgba32(0xFF888888);

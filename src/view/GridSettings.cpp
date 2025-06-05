@@ -2,14 +2,14 @@
 
 #include <string_view>
 
+#include <blend2d.h>
+
 GridSettings::GridSettings()
-    : m_major_line_color(0.588F, 0.588F, 0.588F, 0.392F),
-      m_minor_line_color(0.467F, 0.467F, 0.467F, 0.196F),
-
-      m_x_axis_color(0.702F, 0.2F, 0.2F, 0.902F),
-      m_y_axis_color(0.2F, 0.702F, 0.2F, 0.902F),
-      m_background_color(0.0F, 0.0F, 0.0F, 0.0F)
-
+    : m_major_line_color(BLRgba32(150, 150, 150, 100)),
+      m_minor_line_color(BLRgba32(119, 119, 119, 50)),
+      m_x_axis_color(BLRgba32(179, 51, 51, 230)),
+      m_y_axis_color(BLRgba32(51, 179, 51, 230)),
+      m_background_color(BLRgba32(0, 0, 0, 0))
 {
     // All members are initialized with defaults in the header.
     // Constructor can be used for more complex setup if needed in the future.

@@ -1,24 +1,19 @@
 #pragma once
 #include <string_view>
 
+#include <blend2d.h>
+
+#include "Grid.hpp"
+
 // #include "utils/Color.hpp" // If we have a dedicated Color struct/class
 // For now, let's assume simple color representation or define one.
-struct GridColor {
-    float r = 0.5F;
-    float g = 0.5F;
-    float b = 0.5F;
-    float a = 1.0F;
 
-    GridColor() = default;
-    GridColor(float r, float g, float b, float a = 1.0F) : r(r), g(g), b(b), a(a) {}
-};
-
-enum class GridStyle {
+enum class GridStyle : uint8_t {
     kLines,
     kDots
 };
 
-enum class GridUnitSystem {
+enum class GridUnitSystem : uint8_t {
     kMetric,   // e.g., mm, cm
     kImperial  // e.g., inches, mils
 };
@@ -48,18 +43,18 @@ public:
     // Number of subdivisions between major grid lines to draw minor lines
     int m_subdivisions = 10;
 
-    GridColor m_major_line_color = {0.588F, 0.588F, 0.588F, 0.392F};  // 150,150,150,100
-    GridColor m_minor_line_color = {0.467F, 0.467F, 0.467F, 0.196F};  // 119,119,119,50
+    BLRgba32 m_major_line_color = {BLRgba32(150, 150, 150, 100)};  // 150,150,150,100
+    BLRgba32 m_minor_line_color = {BLRgba32(119, 119, 119, 50)};   // 119,119,119,50
 
     bool m_is_dynamic = true;
     float m_min_pixel_step = 8.0F;
     float m_max_pixel_step = 1024.0F;
 
     bool m_show_axis_lines = true;
-    GridColor m_x_axis_color = {0.702F, 0.2F, 0.2F, 0.902F};  // 179,51,51,230
-    GridColor m_y_axis_color = {0.2F, 0.702F, 0.2F, 0.902F};  // 51,179,51,230
+    BLRgba32 m_x_axis_color = {BLRgba32(179, 51, 51, 230)};  // 179,51,51,230
+    BLRgba32 m_y_axis_color = {BLRgba32(51, 179, 51, 230)};  // 51,179,51,230
 
-    GridColor m_background_color = {0.0F, 0.0F, 0.0F, 0.0F};  // Grid's own background color
+    BLRgba32 m_background_color = {BLRgba32(0, 0, 0, 0)};  // Grid's own background color
 
     // Line/dot thickness/radius settings
     float m_line_thickness = 1.0F;

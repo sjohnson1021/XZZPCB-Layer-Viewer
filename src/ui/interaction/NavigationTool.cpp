@@ -1,8 +1,6 @@
 #include "ui/interaction/NavigationTool.hpp"
 
-#include <algorithm>  // for std::max if not already there
-#include <cmath>      // For M_PI if not already included by camera/viewport
-#include <iostream>   // for std::cout and std::endl
+#include <iostream>
 
 #include "imgui.h"  // For ImGui:: functions
 
@@ -24,33 +22,38 @@
 #    define M_PI 3.14159265358979323846
 #endif
 
-inline float DegToRad(float degrees)
+inline static float DegToRad(float degrees)
 {
-    return degrees * (static_cast<float>(M_PI) / 180.0f);
+    return degrees * (static_cast<float>(M_PI) / 180.0F);
 }
 
 // Helper function to check if a keybind is active
-bool IsKeybindActive(const KeyCombination& kb, ImGuiIO& io, bool useIsKeyPressed)
+static bool IsKeybindActive(const KeyCombination& kb, ImGuiIO& io, bool use_is_key_pressed)
 {
-    if (!kb.IsBound())
+    if (!kb.IsBound()) {
         return false;
-
-    bool keyStateCorrect;
-    if (useIsKeyPressed) {
-        keyStateCorrect = ImGui::IsKeyPressed(kb.key, false);
-    } else {
-        keyStateCorrect = ImGui::IsKeyDown(kb.key);
     }
-    if (!keyStateCorrect)
+
+    bool key_state_correct = false;
+    if (use_is_key_pressed) {
+        key_state_correct = ImGui::IsKeyPressed(kb.key, false);
+    } else {
+        key_state_correct = ImGui::IsKeyDown(kb.key);
+    }
+    if (!key_state_correct) {
         return false;
+    }
 
     // Check modifiers
-    if (kb.ctrl && !io.KeyCtrl)
+    if (kb.ctrl && !io.KeyCtrl) {
         return false;
-    if (kb.shift && !io.KeyShift)
+    }
+    if (kb.shift && !io.KeyShift) {
         return false;
-    if (kb.alt && !io.KeyAlt)
+    }
+    if (kb.alt && !io.KeyAlt) {
         return false;
+    }
 
     // If we require exact modifiers (e.g. Ctrl must be down, others must be up)
     // if (!kb.ctrl && io.KeyCtrl) return false; // etc.
@@ -59,79 +62,84 @@ bool IsKeybindActive(const KeyCombination& kb, ImGuiIO& io, bool useIsKeyPressed
     return true;
 }
 
-NavigationTool::NavigationTool(std::shared_ptr<Camera> camera, std::shared_ptr<Viewport> viewport, std::shared_ptr<ControlSettings> controlSettings, std::shared_ptr<BoardDataManager> boardDataManager)
+NavigationTool::NavigationTool(std::shared_ptr<Camera> camera,
+                               std::shared_ptr<Viewport> viewport,
+                               std::shared_ptr<ControlSettings> control_settings,
+                               std::shared_ptr<BoardDataManager> board_data_manager)
     : InteractionTool("Navigation", camera, viewport),
-      m_controlSettings(controlSettings),
-      m_boardDataManager(boardDataManager),
-      m_isHoveringElement(false),  // Initialize new members
-      m_selectedNetId(-1)
+      m_control_settings_(control_settings),
+      m_board_data_manager_(board_data_manager),
+      m_is_hovering_element_(false),  // Initialize new members
+      m_selected_net_id_(-1)
 {
 }
 
-void NavigationTool::ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isViewportHovered, ImVec2 viewportTopLeft, ImVec2 viewportSize)
+void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is_viewport_hovered, ImVec2 viewport_top_left, ImVec2 viewport_size)
 {
-    if (!m_camera || !m_viewport || !m_controlSettings || !m_boardDataManager)
+    const std::shared_ptr<Camera> camera = GetCamera();
+    const std::shared_ptr<Viewport> viewport = GetViewport();
+    if (!camera || !viewport || !m_control_settings_ || !m_board_data_manager_)
         return;
 
     // Update viewport with current dimensions from the window
-    m_viewport->SetDimensions(0, 0, static_cast<int>(std::round(viewportSize.x)), static_cast<int>(std::round(viewportSize.y)));
+    viewport->SetDimensions(0, 0, static_cast<int>(std::round(viewport_size.x)), static_cast<int>(std::round(viewport_size.y)));
 
     // --- Hover and Selection Logic ---
-    std::shared_ptr<const Board> currentBoard = m_boardDataManager->getBoard();
-    bool boardAvailable = currentBoard && currentBoard->IsLoaded();
+    std::shared_ptr<const Board> current_board = m_board_data_manager_->GetBoard();
+    bool board_available = current_board && current_board->IsLoaded();
     // Reset hover state for this frame - moved up so it's always reset
-    m_isHoveringElement = false;
-    m_hoveredElementInfo = "";
+    m_is_hovering_element_ = false;
+    m_hovered_element_info_ = "";
 
-    if (isViewportHovered && boardAvailable) {
+    if (is_viewport_hovered && board_available) {
         ImVec2 screenMousePos = io.MousePos;
-        ImVec2 viewportMousePos_Im = ImVec2(screenMousePos.x - viewportTopLeft.x, screenMousePos.y - viewportTopLeft.y);
+        ImVec2 viewportMousePos_Im = ImVec2(screenMousePos.x - viewport_top_left.x, screenMousePos.y - viewport_top_left.y);
 
-        if (viewportMousePos_Im.x >= 0 && viewportMousePos_Im.x <= viewportSize.x && viewportMousePos_Im.y >= 0 && viewportMousePos_Im.y <= viewportSize.y) {
+        if (viewportMousePos_Im.x >= 0 && viewportMousePos_Im.x <= viewport_size.x && viewportMousePos_Im.y >= 0 && viewportMousePos_Im.y <= viewport_size.y) {
             Vec2 viewportMousePos_Vec2 = {viewportMousePos_Im.x, viewportMousePos_Im.y};
-            Vec2 worldMousePos = m_viewport->ScreenToWorld(viewportMousePos_Vec2, *m_camera);
+            Vec2 worldMousePos = viewport->ScreenToWorld(viewportMousePos_Vec2, *camera);
 
-            float pickTolerance = 2.0f / m_camera->GetZoom();  // World units
-            pickTolerance = std::max(0.01f, pickTolerance);    // Ensure minimum pick tolerance
+            float pick_tolerance = 2.0f / camera->GetZoom();   // World units
+            pick_tolerance = std::max(0.01f, pick_tolerance);  // Ensure minimum pick tolerance
 
             // Get all potentially interactive elements
-            std::vector<ElementInteractionInfo> interactiveElements = currentBoard->GetAllVisibleElementsForInteraction();
+            std::vector<ElementInteractionInfo> interactive_elements = current_board->GetAllVisibleElementsForInteraction();
 
             // Check for hover
             // Iterate in reverse to prioritize elements rendered on top (assuming later elements in vector are "on top")
             // However, GetAllVisibleElementsForInteraction doesn't guarantee render order.
             // For now, simple iteration. If z-ordering becomes an issue, this needs refinement.
-            for (const auto& item : interactiveElements) {
+            for (const auto& item : interactive_elements) {
                 if (!item.element) {
                     continue;
                 }
-                if (item.element->IsHit(worldMousePos, pickTolerance, item.parent_component)) {
-                    m_isHoveringElement = true;
-                    m_hoveredElementInfo = item.element->GetInfo(item.parent_component);
+                if (item.element->IsHit(worldMousePos, pick_tolerance, item.parent_component)) {
+                    m_is_hovering_element_ = true;
+                    m_hovered_element_info_ = item.element->GetInfo(item.parent_component);
                     break;  // Found a hovered element
                 }
             }
 
             // Handle Mouse Click for Selection (Left Click)
-            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && isViewportFocused) {
-                int clickedNetId = -1;
-                for (const auto& item : interactiveElements) {
-                    if (item.element && item.element->IsHit(worldMousePos, pickTolerance, item.parent_component)) {
-                        clickedNetId = item.element->GetNetId();  // Assuming getNetId() is part of Element base or handled by derived.
-                                                                  // If element is not associated with a net, it should return -1 or similar.
-                        if (clickedNetId != -1)
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && is_viewport_focused) {
+                int clicked_net_id = -1;
+                for (const auto& item : interactive_elements) {
+                    if (item.element && item.element->IsHit(worldMousePos, pick_tolerance, item.parent_component)) {
+                        clicked_net_id = item.element->GetNetId();  // Assuming getNetId() is part of Element base or handled by derived.
+                                                                    // If element is not associated with a net, it should return -1 or similar.
+                        if (clicked_net_id != -1)
                             break;  // Found an element with a net
                     }
                 }
 
-                if (m_boardDataManager->GetSelectedNetId() == clickedNetId && clickedNetId != -1) {  // Clicking an already selected net deselects it
-                    m_boardDataManager->SetSelectedNetId(-1);
-                    std::cout << "NavigationTool: Deselected Net ID: " << clickedNetId << std::endl;
-                } else if (clickedNetId != -1) {
-                    m_boardDataManager->SetSelectedNetId(clickedNetId);
-                    std::cout << "NavigationTool: Selected Net ID: " << clickedNetId << std::endl;
+                if (m_board_data_manager_->GetSelectedNetId() == clicked_net_id && clicked_net_id != -1) {  // Clicking an already selected net deselects it
+                    m_board_data_manager_->SetSelectedNetId(-1);
+                    std::cout << "NavigationTool: Deselected Net ID: " << clicked_net_id << std::endl;
+                } else if (clicked_net_id != -1) {
+                    m_board_data_manager_->SetSelectedNetId(clicked_net_id);
+                    std::cout << "NavigationTool: Selected Net ID: " << clicked_net_id << std::endl;
                 } else {
-                    m_boardDataManager->SetSelectedNetId(-1);  // Clicked on empty space or non-net element
+                    m_board_data_manager_->SetSelectedNetId(-1);  // Clicked on empty space or non-net element
                     std::cout << "NavigationTool: Clicked empty or non-net element, selection cleared." << std::endl;
                 }
                 // mark the board as dirty pcbrenderer
@@ -145,13 +153,13 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isVi
 
     // Existing Navigation Logic (Zooming, Panning, Keyboard controls)
     // Only process navigation if viewport is hovered or the window has focus (for keyboard input)
-    if (!isViewportHovered && !isViewportFocused) {
+    if (!is_viewport_hovered && !is_viewport_focused) {
         // If only hover/selection logic was processed and no focus/hover for navigation, display tooltip and exit.
-        if (m_isHoveringElement && !m_hoveredElementInfo.empty() && boardAvailable) {
-            std::cout << "NavigationTool: Displaying tooltip for hovered element: " << m_hoveredElementInfo << std::endl;
+        if (m_is_hovering_element_ && !m_hovered_element_info_.empty() && board_available) {
+            std::cout << "NavigationTool: Displaying tooltip for hovered element: " << m_hovered_element_info_ << std::endl;
             ImGui::BeginTooltip();
             ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-            ImGui::TextUnformatted(m_hoveredElementInfo.c_str());
+            ImGui::TextUnformatted(m_hovered_element_info_.c_str());
             ImGui::PopTextWrapPos();
             ImGui::EndTooltip();
         }
@@ -159,129 +167,129 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isVi
     }
 
     // Zooming with mouse wheel (only if hovered over the content area)
-    if (io.MouseWheel != 0.0f && isViewportHovered) {
-        float zoomSensitivity = 1.1f;
-        float zoomFactor = (io.MouseWheel > 0.0f) ? zoomSensitivity : 1.0f / zoomSensitivity;
+    if (io.MouseWheel != 0.0f && is_viewport_hovered) {
+        float zoom_sensitivity = 1.1f;
+        float zoom_factor = (io.MouseWheel > 0.0f) ? zoom_sensitivity : 1.0f / zoom_sensitivity;
 
         ImVec2 mousePosAbsolute = ImGui::GetMousePos();
         // viewportTopLeft is the screen coordinate of the top-left of our render area (ImGui::Image)
-        Vec2 mousePosInViewport = {mousePosAbsolute.x - viewportTopLeft.x, mousePosAbsolute.y - viewportTopLeft.y};
+        Vec2 mouse_pos_in_viewport = {mousePosAbsolute.x - viewport_top_left.x, mousePosAbsolute.y - viewport_top_left.y};
 
-        Vec2 worldPosUnderMouse = m_viewport->ScreenToWorld(mousePosInViewport, *m_camera);
-        float oldZoom_val = m_camera->GetZoom();
-        m_camera->SetZoom(oldZoom_val * zoomFactor);
-        float newZoom_val = m_camera->GetZoom();
-        Vec2 camPos_val = m_camera->GetPosition();
-        if (newZoom_val != 0.0f && oldZoom_val != 0.0f) {
-            Vec2 newPos = camPos_val + (worldPosUnderMouse - camPos_val) * (1.0f - oldZoom_val / newZoom_val);
-            m_camera->SetPosition(newPos);
-            // debug print newpos
-            std::cout << "newPos: " << newPos.x_ax << ", " << newPos.y_ax << std::endl;
+        Vec2 world_pos_under_mouse = viewport->ScreenToWorld(mouse_pos_in_viewport, *camera);
+        float old_zoom_val = camera->GetZoom();
+        camera->SetZoom(old_zoom_val * zoom_factor);
+        float new_zoom_val = camera->GetZoom();
+        Vec2 cam_pos_val = camera->GetPosition();
+        if (new_zoom_val != 0.0f && old_zoom_val != 0.0f) {
+            Vec2 new_pos = cam_pos_val + (world_pos_under_mouse - cam_pos_val) * (1.0f - old_zoom_val / new_zoom_val);
+            camera->SetPosition(new_pos);
+            // debug print new_pos
+            std::cout << "newPos: " << new_pos.x_ax << ", " << new_pos.y_ax << std::endl;
         }
     }
 
     // Panning (Middle Mouse Button or Right Mouse Button + Drag, only if hovered)
-    if (isViewportHovered && (ImGui::IsMouseDragging(ImGuiMouseButton_Middle) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
+    if (is_viewport_hovered && (ImGui::IsMouseDragging(ImGuiMouseButton_Middle) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
         ImVec2 delta = io.MouseDelta;
         if (delta.x != 0.0f || delta.y != 0.0f) {
-            Vec2 worldDelta = m_viewport->ScreenDeltaToWorldDelta({delta.x, delta.y}, *m_camera);
-            m_camera->Pan(worldDelta);
+            Vec2 world_delta = viewport->ScreenDeltaToWorldDelta({delta.x, delta.y}, *camera);
+            camera->Pan(world_delta);
         }
     }
+    bool is_panning = false;
 
     // Keyboard controls (active if window is focused)
-    if (isViewportFocused) {
-        float panSpeed = 100.0f / m_camera->GetZoom();                    // World units per second
-        panSpeed = std::max(1.0f, panSpeed);                              // Ensure a minimum pan speed at high zoom
-        float freeRotationSpeedDegrees = 90.0f;                           // Degrees per second (for free rotation)
-        float snapAngleDegrees = m_controlSettings->m_snapRotationAngle;  // Degrees for snap rotation
+    if (is_viewport_focused) {
+        float pan_speed = 100.0f / camera->GetZoom();                           // World units per second
+        pan_speed = std::max(1.0f, pan_speed);                                  // Ensure a minimum pan speed at high zoom
+        float free_rotation_speed_degrees = 90.0f;                              // Degrees per second (for free rotation)
+        float snap_angle_degrees = m_control_settings_->m_snap_rotation_angle;  // Degrees for snap rotation
 
         // Pan controls (now relative to camera rotation)
-        Vec2 panInputAccumulator = {0.0f, 0.0f};
-        bool isPanning = false;
-        float effectivePanSpeed = panSpeed * io.DeltaTime;
+        Vec2 pan_input_accumulator = {0.0f, 0.0f};
+        float effective_pan_speed = pan_speed * io.DeltaTime;
 
-        if (IsKeybindActive(m_controlSettings->GetKeybind(InputAction::PanUp), io, false)) {
-            panInputAccumulator.y_ax += effectivePanSpeed;  // Positive Y for local "up"
-            isPanning = true;
+        if (IsKeybindActive(m_control_settings_->GetKeybind(InputAction::kPanUp), io, false)) {
+            pan_input_accumulator.y_ax += effective_pan_speed;  // Positive Y for local "up"
+            is_panning = true;
         }
-        if (IsKeybindActive(m_controlSettings->GetKeybind(InputAction::PanDown), io, false)) {
-            panInputAccumulator.y_ax -= effectivePanSpeed;  // Negative Y for local "down"
-            isPanning = true;
+        if (IsKeybindActive(m_control_settings_->GetKeybind(InputAction::kPanDown), io, false)) {
+            pan_input_accumulator.y_ax -= effective_pan_speed;  // Negative Y for local "down"
+            is_panning = true;
         }
-        if (IsKeybindActive(m_controlSettings->GetKeybind(InputAction::PanLeft), io, false)) {
-            panInputAccumulator.x_ax += effectivePanSpeed;  // Negative X for local "left"
-            isPanning = true;
+        if (IsKeybindActive(m_control_settings_->GetKeybind(InputAction::kPanLeft), io, false)) {
+            pan_input_accumulator.x_ax += effective_pan_speed;  // Negative X for local "left"
+            is_panning = true;
         }
-        if (IsKeybindActive(m_controlSettings->GetKeybind(InputAction::PanRight), io, false)) {
-            panInputAccumulator.x_ax -= effectivePanSpeed;  // Positive X for local "right"
-            isPanning = true;
-        }
+        if (IsKeybindActive(m_control_settings_->GetKeybind(InputAction::kPanRight), io, false))
+            pan_input_accumulator.x_ax -= effective_pan_speed;  // Positive X for local "right"
+        is_panning = true;
 
-        if (isPanning) {
-            float currentRotationDegrees = m_camera->GetRotation();
-            float currentRotationRadians = DegToRad(currentRotationDegrees);
-            float cosAngle = std::cos(currentRotationRadians);
-            float sinAngle = std::sin(currentRotationRadians);
+        if (is_panning) {
+            float current_rotation_degrees = camera->GetRotation();
+            float current_rotation_radians = DegToRad(current_rotation_degrees);
+            float cos_angle = std::cos(current_rotation_radians);
+            float sin_angle = std::sin(current_rotation_radians);
 
-            Vec2 rotatedPanDirection;
-            rotatedPanDirection.x_ax = panInputAccumulator.x_ax * cosAngle - panInputAccumulator.y_ax * sinAngle;
-            rotatedPanDirection.y_ax = panInputAccumulator.x_ax * sinAngle + panInputAccumulator.y_ax * cosAngle;
+            Vec2 rotated_pan_direction;
+            rotated_pan_direction.x_ax = pan_input_accumulator.x_ax * cos_angle - pan_input_accumulator.y_ax * sin_angle;
+            rotated_pan_direction.y_ax = pan_input_accumulator.x_ax * sin_angle + pan_input_accumulator.y_ax * cos_angle;
 
-            m_camera->Pan(rotatedPanDirection);
+            camera->Pan(rotated_pan_direction);
         }
 
         // Zoom In/Out with keys
-        float keyboardZoomFactor = 1.0f + (2.0f * io.DeltaTime);
-        if (IsKeybindActive(m_controlSettings->GetKeybind(InputAction::ZoomIn), io, false)) {
-            m_camera->AdjustZoom(keyboardZoomFactor);
+        float keyboard_zoom_factor = 1.0f + (2.0f * io.DeltaTime);
+        if (IsKeybindActive(m_control_settings_->GetKeybind(InputAction::kZoomIn), io, false)) {
+            camera->AdjustZoom(keyboard_zoom_factor);
         }
-        if (IsKeybindActive(m_controlSettings->GetKeybind(InputAction::ZoomOut), io, false)) {
-            m_camera->AdjustZoom(1.0f / keyboardZoomFactor);
+        if (IsKeybindActive(m_control_settings_->GetKeybind(InputAction::kZoomOut), io, false)) {
+            camera->AdjustZoom(1.0f / keyboard_zoom_factor);
         }
 
         // Rotation
-        float deltaAngleDegrees = 0.0f;
-        bool rotationKeyPressed = false;
-        bool continuousRotation = m_controlSettings->m_freeRotation;
+        float delta_angle_degrees = 0.0f;
+        bool rotation_key_pressed = false;
+        bool continuous_rotation = m_control_settings_->m_free_rotation;
 
-        KeyCombination rotateLeftKey = m_controlSettings->GetKeybind(InputAction::RotateLeft);
-        KeyCombination rotateRightKey = m_controlSettings->GetKeybind(InputAction::RotateRight);
+        KeyCombination rotate_left_key = m_control_settings_->GetKeybind(InputAction::kRotateLeft);
+        KeyCombination rotate_right_key = m_control_settings_->GetKeybind(InputAction::kRotateRight);
 
-        if (IsKeybindActive(rotateLeftKey, io, !continuousRotation)) {
-            deltaAngleDegrees = continuousRotation ? freeRotationSpeedDegrees * io.DeltaTime : snapAngleDegrees;
-            rotationKeyPressed = true;
+        if (IsKeybindActive(rotate_left_key, io, !continuous_rotation)) {
+            delta_angle_degrees = continuous_rotation ? free_rotation_speed_degrees * io.DeltaTime : snap_angle_degrees;
+            rotation_key_pressed = true;
         }
-        if (IsKeybindActive(rotateRightKey, io, !continuousRotation)) {
-            deltaAngleDegrees = continuousRotation ? -freeRotationSpeedDegrees * io.DeltaTime : -snapAngleDegrees;
-            rotationKeyPressed = true;
+        if (IsKeybindActive(rotate_right_key, io, !continuous_rotation)) {
+            delta_angle_degrees = continuous_rotation ? -free_rotation_speed_degrees * io.DeltaTime : -snap_angle_degrees;
+            rotation_key_pressed = true;
         }
 
         // This logic for combining inputs might need refinement if both keys are pressed for rotation.
         // Current assumes only one rotation key active at a time for deltaAngle assignment.
 
-        if (rotationKeyPressed && deltaAngleDegrees != 0.0f) {
-            float currentRotationDegrees = m_camera->GetRotation();
-            float newRotationDegrees;
+        if (rotation_key_pressed && delta_angle_degrees != 0.0f) {
+            float current_rotation_degrees = camera->GetRotation();
+            float new_rotation_degrees;
 
-            if (continuousRotation) {
-                newRotationDegrees = currentRotationDegrees + deltaAngleDegrees;
+            if (continuous_rotation) {
+                new_rotation_degrees = current_rotation_degrees + delta_angle_degrees;
             } else {
-                float intendedRotation = currentRotationDegrees + deltaAngleDegrees;
-                newRotationDegrees = std::round(intendedRotation / snapAngleDegrees) * snapAngleDegrees;
-                deltaAngleDegrees = newRotationDegrees - currentRotationDegrees;
+                float intended_rotation = current_rotation_degrees + delta_angle_degrees;
+                new_rotation_degrees = std::round(intended_rotation / snap_angle_degrees) * snap_angle_degrees;
+                delta_angle_degrees = new_rotation_degrees - current_rotation_degrees;
             }
 
             // Pivot calculation always happens now
-            Vec2 pivotWorld;
-            bool canUseMousePivot = m_controlSettings->m_rotateAroundCursor && isViewportHovered;
+            Vec2 pivot_world;
+            bool canUseMousePivot = m_control_settings_->m_rotate_around_cursor && is_viewport_hovered;
 
             if (canUseMousePivot) {
                 ImVec2 mousePosAbsolute = ImGui::GetMousePos();
-                Vec2 mousePosInViewport = {mousePosAbsolute.x - viewportTopLeft.x, mousePosAbsolute.y - viewportTopLeft.y};
+                Vec2 mouse_pos_in_viewport = {mousePosAbsolute.x - viewport_top_left.x, mousePosAbsolute.y - viewport_top_left.y};
                 // Check if mouse is within viewport bounds before using its position
-                if (mousePosInViewport.x_ax >= 0 && mousePosInViewport.x_ax <= std::round(viewportSize.x) && mousePosInViewport.y_ax >= 0 && mousePosInViewport.y_ax <= std::round(viewportSize.y)) {
-                    pivotWorld = m_viewport->ScreenToWorld(mousePosInViewport, *m_camera);
+                if (mouse_pos_in_viewport.x_ax >= 0 && mouse_pos_in_viewport.x_ax <= std::round(viewport_size.x) && mouse_pos_in_viewport.y_ax >= 0 &&
+                    mouse_pos_in_viewport.y_ax <= std::round(viewport_size.y)) {
+                    pivot_world = viewport->ScreenToWorld(mouse_pos_in_viewport, *camera);
                 } else {
                     // Mouse outside viewport, fallback to viewport center for this rotation event
                     canUseMousePivot = false;  // Force fallback to viewport center
@@ -290,57 +298,57 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool isViewportFocused, bool isVi
 
             // If not using mouse pivot (either by setting or fallback), use viewport center
             if (!canUseMousePivot) {
-                Vec2 viewportCenterScreen = {std::round(viewportSize.x) / 2.0f, std::round(viewportSize.y) / 2.0f};
-                pivotWorld = m_viewport->ScreenToWorld(viewportCenterScreen, *m_camera);
+                Vec2 viewport_center_screen = {std::round(viewport_size.x) / 2.0f, std::round(viewport_size.y) / 2.0f};
+                pivot_world = viewport->ScreenToWorld(viewport_center_screen, *camera);
             }
 
-            Vec2 camPosWorld = m_camera->GetPosition();
-            float actualDeltaAngleRadians = DegToRad(deltaAngleDegrees);  // Use the potentially adjusted delta for snap
-            float cosAngle = std::cos(actualDeltaAngleRadians);
-            float sinAngle = std::sin(actualDeltaAngleRadians);
+            Vec2 cam_pos_world = camera->GetPosition();
+            float actual_delta_angle_radians = DegToRad(delta_angle_degrees);  // Use the potentially adjusted delta for snap
+            float cos_angle = std::cos(actual_delta_angle_radians);
+            float sin_angle = std::sin(actual_delta_angle_radians);
 
-            Vec2 camRelativeToPivot = {camPosWorld.x_ax - pivotWorld.x_ax, camPosWorld.y_ax - pivotWorld.y_ax};
-            Vec2 newCamRelativeToPivot;
-            newCamRelativeToPivot.x_ax = camRelativeToPivot.x_ax * cosAngle - camRelativeToPivot.y_ax * sinAngle;
-            newCamRelativeToPivot.y_ax = camRelativeToPivot.x_ax * sinAngle + camRelativeToPivot.y_ax * cosAngle;
-            Vec2 newCamPosWorld = {newCamRelativeToPivot.x_ax + pivotWorld.x_ax, newCamRelativeToPivot.y_ax + pivotWorld.y_ax};
+            Vec2 cam_relative_to_pivot = {cam_pos_world.x_ax - pivot_world.x_ax, cam_pos_world.y_ax - pivot_world.y_ax};
+            Vec2 new_cam_relative_to_pivot;
+            new_cam_relative_to_pivot.x_ax = cam_relative_to_pivot.x_ax * cos_angle - cam_relative_to_pivot.y_ax * sin_angle;
+            new_cam_relative_to_pivot.y_ax = cam_relative_to_pivot.x_ax * sin_angle + cam_relative_to_pivot.y_ax * cos_angle;
+            Vec2 new_cam_pos_world = {new_cam_relative_to_pivot.x_ax + pivot_world.x_ax, new_cam_relative_to_pivot.y_ax + pivot_world.y_ax};
 
-            m_camera->SetPosition(newCamPosWorld);
-            m_camera->SetRotation(newRotationDegrees);
+            camera->SetPosition(new_cam_pos_world);
+            camera->SetRotation(new_rotation_degrees);
         }
 
         // Reset View (R key)
-        if (IsKeybindActive(m_controlSettings->GetKeybind(InputAction::ResetView), io, true)) {
-            if (m_boardDataManager) {
-                std::shared_ptr<const Board> currentBoard = m_boardDataManager->getBoard();
-                if (currentBoard && currentBoard->IsLoaded()) {
-                    BLRect boardBounds = currentBoard->GetBoundingBox(false);   // Get bounds of visible layers
-                    if (boardBounds.w > 0 || boardBounds.h > 0) {               // Check for valid bounds (width or height must be positive)
-                        m_camera->FocusOnRect(boardBounds, *m_viewport, 0.1f);  // 10% padding
+        if (IsKeybindActive(m_control_settings_->GetKeybind(InputAction::kResetView), io, true)) {
+            if (m_board_data_manager_) {
+                std::shared_ptr<const Board> current_board = m_board_data_manager_->GetBoard();
+                if (current_board && current_board->IsLoaded()) {
+                    BLRect board_bounds = current_board->GetBoundingBox(false);  // Get bounds of visible layers
+                    if (board_bounds.w > 0 || board_bounds.h > 0) {              // Check for valid bounds (width or height must be positive)
+                        camera->FocusOnRect(board_bounds, *viewport, 0.1f);      // 10% padding
                         // Optionally, reset rotation as well if desired for "Reset View"
                         // m_camera->SetRotation(0.0f);
                     } else {
                         // Board is loaded but has no visible extents (e.g., all layers off, or empty board)
-                        m_camera->Reset();  // Fallback to default reset
+                        camera->Reset();  // Fallback to default reset
                     }
                 } else {
                     // No board loaded or board not marked as loaded
-                    m_camera->Reset();  // Fallback to default reset
+                    camera->Reset();  // Fallback to default reset
                 }
             } else {
                 // BoardDataManager not available
-                m_camera->Reset();  // Fallback to default reset
+                camera->Reset();  // Fallback to default reset
             }
         }
     }
 
     // Display Tooltip (should be after all input processing for the frame for this tool)
-    if (m_isHoveringElement && !m_hoveredElementInfo.empty() && boardAvailable && isViewportHovered)  // Check isViewportHovered again for safety
+    if (m_is_hovering_element_ && !m_hovered_element_info_.empty() && board_available && is_viewport_hovered)  // Check isViewportHovered again for safety
     {
         ImGui::SetNextWindowSize(ImVec2(300, 0));  // Example: Set a max width for the tooltip, height automatic
         ImGui::BeginTooltip();
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-        ImGui::TextUnformatted(m_hoveredElementInfo.c_str());
+        ImGui::TextUnformatted(m_hovered_element_info_.c_str());
         ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
@@ -350,28 +358,28 @@ void NavigationTool::OnActivated()
 {
     std::cout << GetName() << " activated." << std::endl;
     // Reset selection or hover state if desired when tool becomes active
-    m_boardDataManager->SetSelectedNetId(-1);
-    m_isHoveringElement = false;
-    m_hoveredElementInfo = "";
+    m_board_data_manager_->SetSelectedNetId(-1);
+    m_is_hovering_element_ = false;
+    m_hovered_element_info_ = "";
 }
 
 void NavigationTool::OnDeactivated()
 {
     std::cout << GetName() << " deactivated." << std::endl;
     // Clear hover state when tool is deactivated
-    m_isHoveringElement = false;
-    m_hoveredElementInfo = "";
+    m_is_hovering_element_ = false;
+    m_hovered_element_info_ = "";
     // Optionally keep m_selectedNetId or clear it based on desired behavior
 }
 
 int NavigationTool::GetSelectedNetId() const
 {
-    return m_boardDataManager->GetSelectedNetId();
+    return m_board_data_manager_->GetSelectedNetId();
 }
 
 void NavigationTool::ClearSelection()
 {
-    m_boardDataManager->SetSelectedNetId(-1);
+    m_board_data_manager_->SetSelectedNetId(-1);
     std::cout << "NavigationTool: Selection cleared." << std::endl;
     // Potentially trigger a highlight update to clear previous highlighting if PcbRenderer is accessible
 }
