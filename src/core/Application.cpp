@@ -126,6 +126,22 @@ bool Application::InitializeUISubsystems()
     m_grid = std::make_shared<Grid>(m_gridSettings);
     m_boardDataManager = std::make_shared<BoardDataManager>();
 
+    // Load BoardDataManager settings from config
+    if (m_config) {
+        m_boardDataManager->LoadSettingsFromConfig(*m_config);
+    }
+
+    // Register for settings change callbacks to handle board folding changes
+    if (m_boardDataManager) {
+        m_boardDataManager->RegisterSettingsChangeCallback([this]() {
+            std::cout << "Application: BoardDataManager settings changed, updating current board..." << std::endl;
+            if (m_currentBoard && m_currentBoard->IsLoaded()) {
+                std::cout << "Application: Applying folding state to current board" << std::endl;
+                m_currentBoard->UpdateFoldingState();
+            }
+        });
+    }
+
     // Initialize PCB Loader Factory
     m_boardLoaderFactory = std::make_unique<BoardLoaderFactory>();
     if (!m_boardLoaderFactory) {
@@ -213,6 +229,10 @@ void Application::Shutdown()
 
     if (m_controlSettings && m_config) {
         m_controlSettings->SaveKeybindsToConfig(*m_config);
+    }
+
+    if (m_boardDataManager && m_config) {
+        m_boardDataManager->SaveSettingsToConfig(*m_config);
     }
 
     if (m_config) {
@@ -480,9 +500,19 @@ void Application::OpenPcbFile(const std::string& filePath)
     auto newBoard = m_boardLoaderFactory->LoadBoard(filePath);
     if (newBoard) {
         m_currentBoard = std::move(newBoard);
+
+        // Set up the BoardDataManager reference in the board
         if (m_boardDataManager) {
+            m_currentBoard->SetBoardDataManager(m_boardDataManager);
             m_boardDataManager->SetBoard(m_currentBoard);
             m_boardDataManager->RegenerateLayerColors(m_currentBoard);
+
+            // Apply folding if enabled
+            std::cout << "Application: Checking if board folding should be applied..." << std::endl;
+            if (m_boardDataManager->IsBoardFoldingEnabled()) {
+                std::cout << "Application: Board folding is enabled, applying to new board" << std::endl;
+                m_currentBoard->UpdateFoldingState();
+            }
         }
 
         // Corrected window updates:

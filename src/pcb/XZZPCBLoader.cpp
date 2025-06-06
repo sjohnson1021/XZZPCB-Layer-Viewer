@@ -40,8 +40,10 @@ void PcbLoader::DefineStandardLayers(Board& board)
     board.layers.clear();
 
     // Define layer for pins
-    board.AddLayer(Board::LayerInfo(Board::kCompLayer, "Components", Board::LayerInfo::LayerType::kSignal));
-    board.AddLayer(Board::LayerInfo(Board::kPinsLayer, "Pins", Board::LayerInfo::LayerType::kSignal));
+	board.AddLayer(Board::LayerInfo(Board::kBottomCompLayer, "Components", Board::LayerInfo::LayerType::kSignal));
+    board.AddLayer(Board::LayerInfo(Board::kBottomPinsLayer, "Pins", Board::LayerInfo::LayerType::kSignal));
+    board.AddLayer(Board::LayerInfo(Board::kTopCompLayer, "Components", Board::LayerInfo::LayerType::kSignal));
+    board.AddLayer(Board::LayerInfo(Board::kTopPinsLayer, "Pins", Board::LayerInfo::LayerType::kSignal));
     board.AddLayer(Board::LayerInfo(Board::kViasLayer, "Vias", Board::LayerInfo::LayerType::kSignal));
     // Define Trace Layers (1-16)
     for (int i = 1; i <= 16; ++i) {
@@ -138,11 +140,21 @@ std::unique_ptr<Board> PcbLoader::LoadFromFile(const std::string& filePath)
     // By reaching this point in the loader, we assume the loading process itself was successful
     // in terms of reading and parsing data into the board structure.
 
+    // Apply global coordinate mirroring to correct coordinate system mismatch
+    // This is a static transformation applied at load time, separate from interactive transformations
+    ApplyGlobalCoordinateMirroring(*board);
+
     // Process pin orientations
     // PCBProcessing::OrientationProcessor::processBoard(*board);
-    for (auto& component : board->m_elements_by_layer[Board::kCompLayer]) {
-        if (auto* comp = dynamic_cast<Component*>(component.get())) {
-            PinResolver::ResolveComponentPinOrientations(comp);
+    std::vector<int> comp_layers = {Board::kBottomCompLayer, Board::kTopCompLayer};
+    for (int layer_id : comp_layers) {
+        auto layer_it = board->m_elements_by_layer.find(layer_id);
+        if (layer_it != board->m_elements_by_layer.end()) {
+            for (auto& component : layer_it->second) {
+                if (auto* comp = dynamic_cast<Component*>(component.get())) {
+                    PinResolver::ResolveComponentPinOrientations(comp);
+                }
+            }
         }
     }
     return board;
@@ -954,7 +966,7 @@ void PcbLoader::ParseComponent(const char* rawComponentData, uint32_t componentB
                 CirclePad default_circle_pad_shape_obj;     // x_offset and y_offset default to 0.0
                 default_circle_pad_shape_obj.radius = 0.1;  // Set the radius
                 PadShape default_pad_shape = default_circle_pad_shape_obj;
-                auto current_pin_object_ptr = std::make_unique<Pin>(Vec2(pin_x, pin_y), pin_name_str, default_pad_shape, Board::kPinsLayer);  // Renamed pin_ptr to current_pin_object_ptr
+                auto current_pin_object_ptr = std::make_unique<Pin>(Vec2(pin_x, pin_y), pin_name_str, default_pad_shape, Board::kTopPinsLayer);  // Renamed pin_ptr to current_pin_object_ptr
 
 #ifdef ENABLE_PCB_LOADER_LOGGING
                 std::cout << "[PcbLoader LOG]         Starting Pin Outline parsing. pin_offset_iterator=" << pin_offset_iterator << std::endl;
@@ -1169,7 +1181,7 @@ void PcbLoader::ParseComponent(const char* rawComponentData, uint32_t componentB
     }
     // If graphical_elements is empty, comp.width and comp.height retain any values they had from earlier parsing stages.
     // ARBITRARY: Set all layers to one layer for now.
-    comp.layer = Board::kCompLayer;  // TODO: Will need to handle top and bottom sides once we have the board 'folded'.
+    comp.layer = Board::kBottomCompLayer;  // TODO: Will need to handle top and bottom sides once we have the board 'folded'.
     board.AddComponent(comp);
 }
 
@@ -1348,6 +1360,68 @@ bool PcbLoader::ParseNetBlock(const std::vector<char>& fileData, Board& board, u
         // Log_Exception(e, "Exception during net block parsing.");
         return false;
     }
+}
+
+void PcbLoader::ApplyGlobalCoordinateMirroring(Board& board)
+{
+    // Apply a static global X-coordinate mirror to correct coordinate system mismatch
+    // between board files and physical layout. This is separate from interactive transformations.
+
+    // Get board bounds to determine the center axis for mirroring
+    BLRect board_bounds = board.GetBoundingBox(false);
+    if (board_bounds.w <= 0 && board_bounds.h <= 0) {
+        // No valid bounds, skip mirroring
+        return;
+    }
+
+    double center_x = board_bounds.x + board_bounds.w / 2.0;
+
+    // Mirror all elements across the center axis
+    for (auto& layer_pair : board.m_elements_by_layer) {
+        for (auto& element_ptr : layer_pair.second) {
+            if (!element_ptr) continue;
+
+            // Apply element-specific mirroring
+            if (auto trace = dynamic_cast<Trace*>(element_ptr.get())) {
+                // Mirror trace endpoints
+                trace->x1 = 2 * center_x - trace->x1;
+                trace->x2 = 2 * center_x - trace->x2;
+            }
+            else if (auto arc = dynamic_cast<Arc*>(element_ptr.get())) {
+                // Mirror arc center and adjust angles
+                arc->center.x_ax = 2 * center_x - arc->center.x_ax;
+
+                // For horizontal mirroring, transform angles and swap start/end
+                // Original arc from start_angle to end_angle becomes
+                // arc from (180° - end_angle) to (180° - start_angle)
+                double original_start = arc->start_angle;
+                double original_end = arc->end_angle;
+
+                arc->start_angle = 180.0 - original_end;
+                arc->end_angle = 180.0 - original_start;
+
+                // Normalize angles to [0, 360)
+                while (arc->start_angle < 0) arc->start_angle += 360.0;
+                while (arc->end_angle < 0) arc->end_angle += 360.0;
+                while (arc->start_angle >= 360.0) arc->start_angle -= 360.0;
+                while (arc->end_angle >= 360.0) arc->end_angle -= 360.0;
+            }
+            else if (auto via = dynamic_cast<Via*>(element_ptr.get())) {
+                // Mirror via position
+                via->x = 2 * center_x - via->x;
+            }
+            else if (auto text = dynamic_cast<TextLabel*>(element_ptr.get())) {
+                // Mirror text position
+                text->coords.x_ax = 2 * center_x - text->coords.x_ax;
+            }
+            else if (auto comp = dynamic_cast<Component*>(element_ptr.get())) {
+                // Mirror component using its Mirror method
+                comp->Mirror(center_x);
+            }
+        }
+    }
+
+    std::cout << "Applied global coordinate mirroring around center axis X=" << center_x << std::endl;
 }
 
 // Implementations for parsePostV6Block, and element-specific parsers (parseArc, parseVia, etc.) will follow.

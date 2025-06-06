@@ -99,6 +99,10 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
             Vec2 viewportMousePos_Vec2 = {viewportMousePos_Im.x, viewportMousePos_Im.y};
             Vec2 worldMousePos = viewport->ScreenToWorld(viewportMousePos_Vec2, *camera);
 
+            // No coordinate transformation needed since actual element coordinates are now updated
+            // when board flip state changes, ensuring hitbox detection is always synchronized
+            Vec2 transformedWorldMousePos = worldMousePos;
+
             float pick_tolerance = 2.0f / camera->GetZoom();   // World units
             pick_tolerance = std::max(0.01f, pick_tolerance);  // Ensure minimum pick tolerance
 
@@ -113,7 +117,7 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
                 if (!item.element) {
                     continue;
                 }
-                if (item.element->IsHit(worldMousePos, pick_tolerance, item.parent_component)) {
+                if (item.element->IsHit(transformedWorldMousePos, pick_tolerance, item.parent_component)) {
                     m_is_hovering_element_ = true;
                     m_hovered_element_info_ = item.element->GetInfo(item.parent_component);
                     break;  // Found a hovered element
@@ -124,7 +128,7 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && is_viewport_focused) {
                 int clicked_net_id = -1;
                 for (const auto& item : interactive_elements) {
-                    if (item.element && item.element->IsHit(worldMousePos, pick_tolerance, item.parent_component)) {
+                    if (item.element && item.element->IsHit(transformedWorldMousePos, pick_tolerance, item.parent_component)) {
                         clicked_net_id = item.element->GetNetId();  // Assuming getNetId() is part of Element base or handled by derived.
                                                                     // If element is not associated with a net, it should return -1 or similar.
                         if (clicked_net_id != -1)
@@ -143,6 +147,12 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
                     std::cout << "NavigationTool: Clicked empty or non-net element, selection cleared." << std::endl;
                 }
                 // mark the board as dirty pcbrenderer
+            }
+
+            // Handle Middle Mouse Click for Board Side Toggle
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle) && is_viewport_focused) {
+                m_board_data_manager_->ToggleViewSide();
+                std::cout << "NavigationTool: Board view toggled to " << BoardSideToString(m_board_data_manager_->GetCurrentViewSide()) << std::endl;
             }
         }
         // If mouse is outside viewport content area, m_isHoveringElement remains false (or was set false at the start)
@@ -188,8 +198,8 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
         }
     }
 
-    // Panning (Middle Mouse Button or Right Mouse Button + Drag, only if hovered)
-    if (is_viewport_hovered && (ImGui::IsMouseDragging(ImGuiMouseButton_Middle) || ImGui::IsMouseDragging(ImGuiMouseButton_Right))) {
+    // Panning (Right Mouse Button + Drag only, middle mouse is now used for board side toggle)
+    if (is_viewport_hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
         ImVec2 delta = io.MouseDelta;
         if (delta.x != 0.0f || delta.y != 0.0f) {
             Vec2 world_delta = viewport->ScreenDeltaToWorldDelta({delta.x, delta.y}, *camera);
@@ -340,6 +350,15 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
                 camera->Reset();  // Fallback to default reset
             }
         }
+
+        // Flip Board (F key) - unified board flip behavior
+        if (IsKeybindActive(m_control_settings_->GetKeybind(InputAction::kFlipBoard), io, true)) {
+            if (m_board_data_manager_) {
+                // Use ToggleViewSide which now handles both side switching and mirroring
+                m_board_data_manager_->ToggleViewSide();
+                std::cout << "NavigationTool: Board flipped to " << BoardSideToString(m_board_data_manager_->GetCurrentViewSide()) << std::endl;
+            }
+        }
     }
 
     // Display Tooltip (should be after all input processing for the frame for this tool)
@@ -384,6 +403,9 @@ void NavigationTool::ClearSelection()
     // Potentially trigger a highlight update to clear previous highlighting if PcbRenderer is accessible
 }
 
+// TransformMousePositionForBoardFlip method removed - no longer needed since
+// actual element coordinates are updated when board flip state changes
+
 // The old helper methods (CheckElementHover, GetNetIdAtPosition, IsMouseOverTrace, etc.)
 // are now removed as their logic is handled by Element::isHit and Element::getInfo/getNetId
-// and the loop over GetAllVisibleElementsForInteraction.}
+// and the loop over GetAllVisibleElementsForInteraction.

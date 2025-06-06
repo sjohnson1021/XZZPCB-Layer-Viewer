@@ -162,3 +162,50 @@
 
 // Implement other Component methods here if any
 // e.g., addPin, addTextLabel, addGraphicalElement, recalculateBoundingBox, etc.
+
+void Component::Mirror(double center_axis)
+{
+    // Mirror the component's center position across the vertical axis
+    center_x = 2 * center_axis - center_x;
+
+    // For pins: their coordinates are relative to the component center,
+    // so we need to mirror them in the component's local coordinate system
+    for (auto& pin : pins) {
+        if (!pin) continue;
+
+        // Mirror the pin's local X coordinate relative to component center
+        // Pin coordinates are stored relative to component center, so we just flip the X
+        pin->coords.x_ax = -pin->coords.x_ax;
+
+        // Note: We don't call pin->Translate() here because that would be incorrect.
+        // The pin coordinates are local to the component, and we're mirroring the
+        // component's local coordinate system, not translating in world space.
+    }
+
+    // Mirror text labels in the component's local coordinate system
+    for (auto& label : text_labels) {
+        if (!label) continue;
+
+        // Mirror the text label's local X coordinate
+        label->coords.x_ax = -label->coords.x_ax;
+
+        // Optionally, we could also flip text alignment or rotation here
+        // depending on the requirements for text rendering after mirroring
+    }
+
+    // Mirror graphical elements (silkscreen, courtyard, etc.)
+    for (auto& segment : graphical_elements) {
+        // Mirror both start and end points in the component's local coordinate system
+        segment.start.x_ax = -segment.start.x_ax;
+        segment.end.x_ax = -segment.end.x_ax;
+        // Y coordinates remain unchanged for horizontal mirroring
+    }
+
+    // Update component rotation if needed
+    // For horizontal mirroring, we might need to adjust rotation
+    // This depends on the specific requirements and how rotation is interpreted
+    // For now, we'll leave rotation unchanged, but this could be adjusted if needed
+
+    // Note: We don't need to update pin bounding box coordinates here
+    // because they will be recalculated when needed based on the new pin positions
+}

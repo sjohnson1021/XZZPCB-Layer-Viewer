@@ -19,9 +19,14 @@ public:
     BoardDataManager();
     ~BoardDataManager();
 
-    // Retrieves the currently loaded board
+    // Retrieves the currently loaded board (const version for read-only access)
     // Returns a shared_ptr to the board, which might be nullptr if no board is loaded
     std::shared_ptr<const Board> GetBoard() const;
+
+    // Retrieves the currently loaded board (non-const version for modifications)
+    // Returns a shared_ptr to the board, which might be nullptr if no board is loaded
+    // Use this for operations that need to modify the board (e.g., folding, element updates)
+    std::shared_ptr<Board> GetMutableBoard();
 
     // Sets the currently loaded board
     void SetBoard(std::shared_ptr<Board> board);
@@ -44,6 +49,25 @@ public:
     // --- Net Highlighting ---
     void SetSelectedNetId(int net_id);
     int GetSelectedNetId() const;
+
+    // --- Board Folding ---
+    void SetBoardFoldingEnabled(bool enabled);
+    bool IsBoardFoldingEnabled() const;
+
+    // --- Board Side View ---
+    enum class BoardSide {
+        kTop,     // Show only top side components
+        kBottom,  // Show only bottom side components
+        kBoth     // Show both sides (default)
+    };
+
+    void SetCurrentViewSide(BoardSide side);
+    BoardSide GetCurrentViewSide() const;
+    void ToggleViewSide();  // Toggles between Top <-> Bottom and flips the board
+
+    // --- Board Coordinate System ---
+    // Global horizontal mirror methods removed - coordinate transformations now
+    // applied directly to element coordinates when board flip state changes
 
     // Callback system for NetID changes
     using NetIdChangeCallback = std::function<void(int)>;
@@ -77,6 +101,10 @@ public:
     void LoadColorsFromConfig(const class Config &config);
     void SaveColorsToConfig(class Config &config) const;
 
+    // Configuration persistence for all settings
+    void LoadSettingsFromConfig(const class Config &config);
+    void SaveSettingsToConfig(class Config &config) const;
+
 private:
     std::shared_ptr<Board> current_board_; // Renamed from m_currentBoard
     PcbLoader pcb_loader_;                 // Renamed from m_pcbLoader
@@ -86,6 +114,10 @@ private:
 
     int selected_net_id_ = -1;     // Renamed from m_selectedNetId
     mutable std::mutex net_mutex_; // Renamed from m_netMutex
+
+    bool board_folding_enabled_ = false; // Board folding setting
+    BoardSide current_view_side_ = BoardSide::kBoth; // Current board side being viewed
+    // global_horizontal_mirror_ removed - coordinate transformations now applied directly to elements
 
     std::vector<BLRgba32> layer_colors_;                             // Renamed from m_layerColors
     std::vector<bool> layer_visibility_;                             // Renamed from m_layerVisibility
@@ -113,6 +145,21 @@ static inline const char *ColorTypeToString(BoardDataManager::ColorType type)
         return "Base Layer";
     case BoardDataManager::ColorType::kBoardEdges:
         return "Board Edges";
+    default:
+        return "Unknown";
+    }
+}
+
+static inline const char *BoardSideToString(BoardDataManager::BoardSide side)
+{
+    switch (side)
+    {
+    case BoardDataManager::BoardSide::kTop:
+        return "Top Side";
+    case BoardDataManager::BoardSide::kBottom:
+        return "Bottom Side";
+    case BoardDataManager::BoardSide::kBoth:
+        return "Both Sides";
     default:
         return "Unknown";
     }

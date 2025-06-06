@@ -88,6 +88,8 @@ public:
         // Removed GetColor()
     };
     // Layer ID constants for PCB board structure
+	static constexpr int kTopPinsLayer = -1;
+	static constexpr int kTopCompLayer = 0;
     static constexpr int kTraceLayersStart = 1;
     static constexpr int kTraceLayersEnd = 16;
     static constexpr int kSilkscreenLayer = 17;
@@ -95,8 +97,8 @@ public:
     static constexpr int kUnknownLayersEnd = 27;
     static constexpr int kBoardEdgesLayer = 28;
     static constexpr int kViasLayer = 29;
-    static constexpr int kCompLayer = 30;
-    static constexpr int kPinsLayer = 31;
+    static constexpr int kBottomCompLayer = 30;
+    static constexpr int kBottomPinsLayer = 31;
     std::vector<LayerInfo> layers;
 
     // --- NEW PCB Element Storage ---
@@ -111,7 +113,7 @@ public:
     void AddVia(const Via& via);
     void AddTrace(const Trace& trace);
     void AddStandaloneTextLabel(const TextLabel& label);  // For text not part of a component
-    void AddComponent(const Component& component);        // Will store in m_components
+    void AddComponent(Component& component);        // Will store in m_components
     void AddNet(const Net& net);                          // Will store in m_nets
     void AddLayer(const LayerInfo& layer);                // Will store in layers
 
@@ -143,6 +145,32 @@ public:
     // Returns the offset that was applied (original center).
     BoardPoint2D NormalizeCoordinatesAndGetCenterOffset(const BLRect& original_bounds);
 
+    // --- Board Folding Methods ---
+    // Detects the central axis where the board should be folded (for butterfly layouts)
+    double DetectBoardCenterAxis() const;
+
+    // Applies board folding transformation to convert butterfly layout to stacked layout
+    void ApplyBoardFolding();
+
+    // Reverts board folding transformation to restore butterfly layout
+    void RevertBoardFolding();
+
+    // Checks if a board outline segment belongs to the top side (left of center axis)
+    bool SegmentBelongsToTopSide(const BoardPoint2D& p1, const BoardPoint2D& p2, double center_x) const;
+
+    // Removes duplicate board outline segments (keeps only top side segments)
+    void CleanDuplicateOutlineSegments();
+
+    // Determines component side and applies folding transformation
+    void AssignComponentSidesAndFold(double center_x);
+
+    // Updates folding state based on BoardDataManager setting
+    void UpdateFoldingState();
+
+    // --- Global Transformation Methods ---
+    // Applies global coordinate transformation (mirroring) to all board elements
+    void ApplyGlobalTransformation(bool mirror_horizontally);
+
     // Methods for board-level operations (e.g., calculate extents)
     // void calculateBoardDimensions();
 
@@ -152,4 +180,8 @@ private:
     // If PcbLoader is to be used internally:
     // void ParseBoardFile(const std::string& filePath);
     std::shared_ptr<BoardDataManager> m_board_data_manager_;
+
+    // Board folding state
+    bool m_is_folded_ = false;
+    double m_board_center_x_ = 0.0;  // Cached center axis for folding
 };

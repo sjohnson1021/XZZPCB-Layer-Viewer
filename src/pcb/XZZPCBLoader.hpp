@@ -53,6 +53,9 @@ private:
     // --- Layer Definition Helper ---
     static void DefineStandardLayers(Board& board);
 
+    // --- Global Coordinate System Correction ---
+    static void ApplyGlobalCoordinateMirroring(Board& board);
+
     // --- Decryption Helpers (specific to component data in this format) ---
     void DecryptComponentBlock(std::vector<char>& component_data);  // Uses the DES function
 

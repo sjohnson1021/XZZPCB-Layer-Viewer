@@ -56,3 +56,10 @@ void Via::Translate(double dx, double dy)
     y += dy;
     // Other properties (diameters, layers) are not affected by translation.
 }
+
+void Via::Mirror(double center_axis)
+{
+    // Mirror the via position around the vertical axis
+    x = 2 * center_axis - x;
+    // Y coordinate and other properties remain unchanged
+}

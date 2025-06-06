@@ -51,3 +51,11 @@ void Trace::Translate(double dx, double dy)
     y2 += dy;
     // Width is not affected by translation
 }
+
+void Trace::Mirror(double center_axis)
+{
+    // Mirror both endpoints around the vertical axis
+    x1 = 2 * center_axis - x1;
+    x2 = 2 * center_axis - x2;
+    // Y coordinates and width remain unchanged
+}

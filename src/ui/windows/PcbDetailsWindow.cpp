@@ -141,14 +141,16 @@ void PcbDetailsWindow::DisplayGraphicalElements(const std::vector<LineSegment>& 
 void PcbDetailsWindow::DisplayComponents(const Board* board_data)
 {
     if (ImGui::TreeNodeEx("Components", ImGuiTreeNodeFlags_DefaultOpen)) {
-        auto comp_layer_it = board_data->m_elements_by_layer.find(Board::kCompLayer);
-        if (comp_layer_it != board_data->m_elements_by_layer.end()) {
-            for (const auto& element_ptr : comp_layer_it->second) {
-                if (!element_ptr)
-                    continue;
-                const Component* comp = dynamic_cast<const Component*>(element_ptr.get());
-                if (!comp)
-                    continue;
+        std::vector<int> comp_layers = {Board::kTopCompLayer, Board::kBottomCompLayer};
+        for (int layer_id : comp_layers) {
+            auto comp_layer_it = board_data->m_elements_by_layer.find(layer_id);
+            if (comp_layer_it != board_data->m_elements_by_layer.end()) {
+                for (const auto& element_ptr : comp_layer_it->second) {
+                    if (!element_ptr)
+                        continue;
+                    const Component* comp = dynamic_cast<const Component*>(element_ptr.get());
+                    if (!comp)
+                        continue;
 
                 std::string compNodeName = comp->reference_designator + " (" + comp->value + ") - " + comp->footprint_name;
                 if (ImGui::TreeNode(compNodeName.c_str())) {
@@ -173,6 +175,7 @@ void PcbDetailsWindow::DisplayComponents(const Board* board_data)
                         ImGui::TreePop();
                     }
                     ImGui::TreePop();
+                }
                 }
             }
         }

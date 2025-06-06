@@ -279,4 +279,13 @@ public:
             segment.end.y_ax += dy;
         }
     }
+
+    // Method to mirror the component across a vertical axis
+    void Mirror(double center_axis) override;
+
+    // Helper method to check if this is a single-pin component (like test pads)
+    bool IsSinglePinComponent() const
+    {
+        return pins.size() == 1 || is_single_pin;
+    }
 };

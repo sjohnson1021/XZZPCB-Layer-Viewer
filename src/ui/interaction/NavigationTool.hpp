@@ -41,6 +41,8 @@ private:
     // Potentially store more info about the selected element if needed
     // --- End new members ---
 
+    // TransformMousePositionForBoardFlip method removed - no longer needed
+
     // Input state specific to navigation, if needed outside of ProcessInput scope
     // e.g., bool m_isPanning;
 

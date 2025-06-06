@@ -180,6 +180,16 @@ void Pin::Translate(double dist_x, double dist_y)
     // translated in the Board's m_elementsByLayer (which is not its typical use case,
     // as pins are owned by components), then this translate method would apply.
     // In that scenario, x_coord and y_coord would be considered world coordinates.
+}
+
+void Pin::Mirror(double center_axis)
+{
+    // Mirror the pin's local X coordinate relative to component center
+    // Pin coordinates are stored relative to component center, so we just flip the X
+    coords.x_ax = -coords.x_ax;
+    // Y coordinate remains unchanged for horizontal mirroring
+    // Note: This method is typically called from Component::Mirror() which handles
+    // the component's own position mirroring separately
 
     // Given that Pin::translate is called by Component::translate, and pins are part of components,
     // their x_coord and y_coord (which are component-local offsets) should *not* change here.
@@ -197,8 +207,8 @@ void Pin::Translate(double dist_x, double dist_y)
     // If a pin *could* be standalone, this is where its primary point would be moved.
     // Let's assume for normalization purposes that if called directly on a pin (e.g. if it was
     // a standalone element outside a component context, which is unusual), its x_coord/y_coord are world.
-    coords.x_ax += dist_x;
-    coords.y_ax += dist_y;
+    // coords.x_ax += dist_x;
+    // coords.y_ax += dist_y;
 
     // The PadShape offsets (CirclePad::x_offset, etc.) are relative to the Pin's (x_coord, y_coord).
     // These should NOT be translated here, as they define the shape relative to the pin's anchor.

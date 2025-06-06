@@ -38,11 +38,15 @@ public:
     // Method to translate the element's coordinates
     virtual void Translate(double dx, double dy) = 0;
 
+    // Method to mirror the element's coordinates around a vertical axis
+    virtual void Mirror(double center_axis) = 0;
+
     // Concrete methods
     [[nodiscard]] ElementType GetElementType() const { return m_type_; }
     [[nodiscard]] int GetLayerId() const { return m_layer_id_; }
     [[nodiscard]] int GetNetId() const { return m_net_id_; }
     void SetNetId(int net_id) { m_net_id_ = net_id; }
+	void SetLayerId(int layer_id) { m_layer_id_ = layer_id; }
 
     [[nodiscard]] bool IsVisible() const { return m_is_globally_visible_; }
     void SetVisible(bool visible) { m_is_globally_visible_ = visible; }

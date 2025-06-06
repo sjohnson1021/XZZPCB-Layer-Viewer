@@ -163,3 +163,12 @@ void TextLabel::Translate(double dist_x, double dist_y)
     coords.y_ax += dist_y;
     // Font size, scale, rotation, content are not affected by translation.
 }
+
+void TextLabel::Mirror(double center_axis)
+{
+    // Mirror the text label's X coordinate around the vertical axis
+    coords.x_ax = 2 * center_axis - coords.x_ax;
+    // Y coordinate, font properties, and content remain unchanged
+    // Note: For more sophisticated text handling, you might want to adjust
+    // text alignment or rotation here depending on requirements
+}

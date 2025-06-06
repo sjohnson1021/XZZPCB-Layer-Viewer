@@ -206,11 +206,13 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
     std::unordered_map<BoardDataManager::ColorType, BLRgba32> theme_color_cache;
     std::unordered_map<int, BLRgba32> layer_id_color_cache;
     int selected_net_id = -1;
+    BoardDataManager::BoardSide current_view_side = BoardDataManager::BoardSide::kBoth;
 
-    // Populate color caches and selected_net_id
+    // Populate color caches, selected_net_id, and current view side
     if (m_render_context_ && m_render_context_->GetBoardDataManager()) {
         auto bdm = m_render_context_->GetBoardDataManager();
         selected_net_id = bdm->GetSelectedNetId();
+        current_view_side = bdm->GetCurrentViewSide();
         theme_color_cache[BoardDataManager::ColorType::kNetHighlight] = bdm->GetColor(BoardDataManager::ColorType::kNetHighlight);
         theme_color_cache[BoardDataManager::ColorType::kComponent] = bdm->GetColor(BoardDataManager::ColorType::kComponent);
         theme_color_cache[BoardDataManager::ColorType::kPin] = bdm->GetColor(BoardDataManager::ColorType::kPin);
@@ -223,6 +225,10 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
             layer_id_color_cache[layer_info_entry.GetId()] = bdm->GetLayerColor(layer_info_entry.GetId());
         }
     }
+
+    // Visual mirror transformation removed - actual element coordinates are now updated
+    // when board flip state changes, so no runtime visual transformation is needed
+    BLRect adjusted_world_view_rect = world_view_rect;
     // Fallback colors (ensure all keys used below are present in theme_color_cache or have fallbacks)
     BLRgba32 fallback_color(0xFF808080);  // Grey
     BLRgba32 highlight_color =
@@ -321,13 +327,13 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                                     end_cap = BL_STROKE_CAP_ROUND_REV;
                                 }
                             }
-                            RenderTrace(bl_ctx, *trace, world_view_rect, start_cap, end_cap);
+                            RenderTrace(bl_ctx, *trace, adjusted_world_view_rect, start_cap, end_cap);
                             trace_cap_manager[net_id] = {current_start_point, current_end_point};
                         }
                         break;
                     case ElementType::kArc:
                         if (auto arc = dynamic_cast<const Arc*>(element_ptr.get())) {
-                            RenderArc(bl_ctx, *arc, world_view_rect);
+                            RenderArc(bl_ctx, *arc, adjusted_world_view_rect);
                         }
                         break;
                     case ElementType::kVia:
@@ -341,7 +347,7 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                                 via_color_from = layer_id_color_cache.count(via->GetLayerFrom()) ? layer_id_color_cache.at(via->GetLayerFrom()) : base_layer_theme_color;
                                 via_color_to = layer_id_color_cache.count(via->GetLayerTo()) ? layer_id_color_cache.at(via->GetLayerTo()) : base_layer_theme_color;
                             }
-                            RenderVia(bl_ctx, *via, board, world_view_rect, via_color_from, via_color_to);
+                            RenderVia(bl_ctx, *via, board, adjusted_world_view_rect, via_color_from, via_color_to);
                         }
                         break;
                     case ElementType::kComponent:
@@ -369,9 +375,19 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
     };
 
     // --- Rendering Passes ---
+	// -- Bottom Side Pins and Components
+	
+    // Conditional layer rendering order based on board viewing side for realistic depth perception
     std::vector<int> copper_layer_ids;
-    for (int i = 1; i <= 16; ++i)
-        copper_layer_ids.push_back(i);
+    if (current_view_side == BoardDataManager::BoardSide::kBottom) {
+        // Bottom side view: Render layers 16→1 (bottom-up order) for proper depth perception
+        for (int i = 16; i >= 1; --i)
+            copper_layer_ids.push_back(i);
+    } else {
+        // Top side view (default): Render layers 1→16 (top-down order)
+        for (int i = 1; i <= 16; ++i)
+            copper_layer_ids.push_back(i);
+    }
     std::map<int, std::pair<BLPoint, BLPoint>> trace_cap_manager_copper;
     executeRenderPass(copper_layer_ids, {ElementType::kTrace, ElementType::kArc, ElementType::kVia}, trace_cap_manager_copper);
 
@@ -388,15 +404,35 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
     executeRenderPass({kBoardOutlineLayerId}, {} /* all types */, trace_cap_manager_board_outline, false, true /*is_board_outline_pass*/);
 
     // Pass for Components (which includes their pins)
-    // Components are on Board::kCompLayer
-    auto comp_layer_elements_it = board.m_elements_by_layer.find(Board::kCompLayer);
-    if (comp_layer_elements_it != board.m_elements_by_layer.end()) {
+    // Handle both top and bottom component layers separately for proper rendering order
+    std::vector<int> component_layer_ids = {Board::kTopCompLayer, Board::kBottomCompLayer};
+
+    for (int comp_layer_id : component_layer_ids) {
+        auto comp_layer_elements_it = board.m_elements_by_layer.find(comp_layer_id);
+        if (comp_layer_elements_it == board.m_elements_by_layer.end()) {
+            continue;  // This layer doesn't exist or has no elements
+        }
+
         const auto& elements_on_comp_layer = comp_layer_elements_it->second;
         for (const auto& element_ptr : elements_on_comp_layer) {
             if (element_ptr && element_ptr->GetElementType() == ElementType::kComponent && element_ptr->IsVisible()) {
                 Component* component_to_render = dynamic_cast<Component*>(element_ptr.get());
                 if (!component_to_render) {
                     continue;
+                }
+
+                // Filter components based on current view side
+                bool should_render_component = true;
+                if (current_view_side != BoardDataManager::BoardSide::kBoth) {
+                    if (current_view_side == BoardDataManager::BoardSide::kTop && component_to_render->side != MountingSide::kTop) {
+                        should_render_component = false;
+                    } else if (current_view_side == BoardDataManager::BoardSide::kBottom && component_to_render->side != MountingSide::kBottom) {
+                        should_render_component = false;
+                    }
+                }
+
+                if (!should_render_component) {
+                    continue;  // Skip this component based on view side filter
                 }
 
                 bool current_component_is_selected = false;  // Initialize for this specific component
@@ -410,7 +446,7 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                 }
 
                 BLRgba32 comp_base_color = current_component_is_selected ? highlight_color : component_theme_color;
-                RenderComponent(bl_ctx, *component_to_render, board, world_view_rect, comp_base_color, theme_color_cache, selected_net_id);
+                RenderComponent(bl_ctx, *component_to_render, board, adjusted_world_view_rect, comp_base_color, theme_color_cache, selected_net_id);
             }
         }
     }

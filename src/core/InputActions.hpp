@@ -17,6 +17,7 @@ enum class InputAction : uint8_t {
     kZoomIn,
     kZoomOut,
     kResetView,
+    kFlipBoard,
     // Add more actions as needed in the future
 
     kCount  // Special value to get the number of actions, keep it last

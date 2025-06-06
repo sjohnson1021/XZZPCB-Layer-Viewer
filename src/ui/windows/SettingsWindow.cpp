@@ -379,11 +379,29 @@ void SettingsWindow::ShowLayerControls(const std::shared_ptr<Board>& currentBoar
     // void SetLayerVisible(int layerIndex, bool visible);
     // And that modifying visibility through SetLayerVisible might trigger a redraw elsewhere.
 
+    bool folding_enabled = m_board_data_manager_->IsBoardFoldingEnabled();
+
     for (int i = 0; i < currentBoard->GetLayerCount(); ++i) {
         std::string layerName = currentBoard->GetLayerName(i);
         if (layerName.empty()) {
             layerName = "Unnamed Layer " + std::to_string(i);
         }
+
+        // Skip duplicate component/pin layer controls when board folding is enabled
+        if (folding_enabled) {
+            // Get the layer info to check the layer ID
+            const auto& layers = currentBoard->GetLayers();
+            if (i < layers.size()) {
+                int layer_id = layers[i].GetId();
+                // Skip individual top/bottom component and pin layers when folding is enabled
+                // These are controlled by the board side view setting instead
+                if (layer_id == Board::kTopCompLayer || layer_id == Board::kBottomCompLayer ||
+                    layer_id == Board::kTopPinsLayer || layer_id == Board::kBottomPinsLayer) {
+                    continue;
+                }
+            }
+        }
+
         bool layerVisible = currentBoard->IsLayerVisible(i);
 
         if (ImGui::Checkbox(layerName.c_str(), &layerVisible)) {
@@ -401,6 +419,49 @@ void SettingsWindow::ShowAppearanceSettings(const std::shared_ptr<Board>& curren
         ImGui::SeparatorText("Application Appearance");
         ImGui::ColorEdit3("Background Color", m_app_clear_color_, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_DisplayRGB);
         ImGui::Spacing();
+    }
+
+    // Board View Settings
+    ImGui::SeparatorText("Board View");
+
+    // Board Folding Toggle
+    bool folding_enabled = m_board_data_manager_->IsBoardFoldingEnabled();
+    if (ImGui::Checkbox("Enable Board Folding", &folding_enabled)) {
+        m_board_data_manager_->SetBoardFoldingEnabled(folding_enabled);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Fold the board to stack components from both sides for easier inspection.\nComponents will be mirrored and assigned to top/bottom mounting sides.");
+    }
+
+    // Board Side View Selection (only show if folding is enabled)
+    if (folding_enabled) {
+        ImGui::Indent();
+
+        BoardDataManager::BoardSide current_side = m_board_data_manager_->GetCurrentViewSide();
+        const char* side_options[] = {"Top Side", "Bottom Side"};  // Removed "Both Sides"
+        int current_side_index = static_cast<int>(current_side);
+
+        // Ensure current_side_index is valid (0 or 1) since we removed "Both Sides"
+        if (current_side_index >= 2) {
+            current_side_index = 0;  // Default to Top Side if it was "Both Sides"
+            m_board_data_manager_->SetCurrentViewSide(BoardDataManager::BoardSide::kTop);
+        }
+
+        if (ImGui::Combo("Board Side", &current_side_index, side_options, IM_ARRAYSIZE(side_options))) {
+            m_board_data_manager_->SetCurrentViewSide(static_cast<BoardDataManager::BoardSide>(current_side_index));
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Select which side of the board to view.\nUse middle mouse click or F key to quickly flip the board.");
+        }
+
+        // Show current view side status with flip indicator
+        // bool is_flipped = m_board_data_manager_->IsGlobalHorizontalMirrorEnabled();
+        // const char* flip_status = is_flipped ? " (Flipped)" : "";
+        ImGui::TextColored(ImVec4(0.7f, 0.9f, 0.7f, 1.0f), "Currently viewing: %s%s",
+                          current_side == BoardDataManager::BoardSide::kTop ? "Top Side" : "Bottom Side",
+                          "");
+
+        ImGui::Unindent();
     }
 
     // TODO: Move these to their own sections

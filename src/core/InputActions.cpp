@@ -25,6 +25,8 @@ const char* InputActionToString(InputAction action)
             return "Zoom Out";
         case InputAction::kResetView:
             return "Reset View";
+        case InputAction::kFlipBoard:
+            return "Flip Board";
         default:
             return "Unknown Action";
     }

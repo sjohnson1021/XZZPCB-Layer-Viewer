@@ -32,6 +32,8 @@ void ControlSettings::InitializeDefaultKeybinds()
     ControlSettings::m_keybinds[InputAction::kRotateRight] = KeyCombination(ImGuiKey_E);
     // R: reset view
     ControlSettings::m_keybinds[InputAction::kResetView] = KeyCombination(ImGuiKey_R);
+    // F: flip board
+    ControlSettings::m_keybinds[InputAction::kFlipBoard] = KeyCombination(ImGuiKey_F);
     // +: zoom in
     ControlSettings::m_keybinds[InputAction::kZoomIn] = KeyCombination(ImGuiKey_Equal);  // Equal sign is often plus without shift
     // -: zoom out

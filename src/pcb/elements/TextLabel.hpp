@@ -52,6 +52,7 @@ public:
     bool IsHit(const Vec2& world_mouse_pos, float tolerance, const Component* parent_component = nullptr) const override;
     std::string GetInfo(const Component* parent_component = nullptr) const override;
     void Translate(double dist_x, double dist_y) override;
+    void Mirror(double center_axis) override;
 
     // --- TextLabel-specific Member Data ---
     std::string text_content;

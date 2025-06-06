@@ -67,3 +67,28 @@ void Arc::Translate(double dist_x, double dist_y)
     center.y_ax += dist_y;
     // Radius, angles, thickness are not affected by translation
 }
+
+void Arc::Mirror(double center_axis)
+{
+    // Mirror the arc center around the vertical axis
+    center.x_ax = 2 * center_axis - center.x_ax;
+
+    // For horizontal mirroring, we need to transform the angles
+    // When mirroring horizontally, an arc that goes from start_angle to end_angle
+    // becomes an arc that goes from (180° - end_angle) to (180° - start_angle)
+    // This preserves the arc's shape and direction relative to the mirrored coordinate system
+
+    double original_start = start_angle;
+    double original_end = end_angle;
+
+    start_angle = 180.0 - original_end;
+    end_angle = 180.0 - original_start;
+
+    // Normalize angles to [0, 360) range
+    while (start_angle < 0) start_angle += 360.0;
+    while (end_angle < 0) end_angle += 360.0;
+    while (start_angle >= 360.0) start_angle -= 360.0;
+    while (end_angle >= 360.0) end_angle -= 360.0;
+
+    // Y coordinate, radius, and thickness remain unchanged for horizontal mirroring
+}

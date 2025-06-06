@@ -47,6 +47,12 @@ bool Board::Initialize(const std::string& filePath)
         std::cerr << "Warning: Could not determine valid bounding box for normalization for file: " << filePath << std::endl;
     }
 
+    // Apply board folding if enabled in BoardDataManager
+    if (m_board_data_manager_ && m_board_data_manager_->IsBoardFoldingEnabled()) {
+		std::cout << "Board folding enabled. Applying folding..." << std::endl;
+        ApplyBoardFolding();
+    }
+
     m_is_loaded_ = true;
     m_error_message_.clear();
     return true;
@@ -71,9 +77,9 @@ void Board::AddStandaloneTextLabel(const TextLabel& label)
 {
     m_elements_by_layer[label.GetLayerId()].emplace_back(std::make_unique<TextLabel>(label));
 }
-void Board::AddComponent(const Component& component)
+void Board::AddComponent(Component& component)
 {
-    m_elements_by_layer[Board::kCompLayer].emplace_back(std::make_unique<Component>(component));
+    m_elements_by_layer[Board::kBottomCompLayer].emplace_back(std::make_unique<Component>(component));
 }
 void Board::AddNet(const Net& net)
 {
@@ -117,10 +123,9 @@ void Board::SetLayerVisible(int layerIndex, bool visible)
 {
     if (layerIndex >= 0 && layerIndex < layers.size()) {
         layers[layerIndex].is_visible = visible;
-        // Use BoardDataManager if available
-        if (m_board_data_manager_) {
-            m_board_data_manager_->SetLayerVisible(layerIndex, visible);
-        }
+        // Note: We don't call BoardDataManager::SetLayerVisible here to avoid recursion
+        // The BoardDataManager should be the primary source of truth for layer visibility
+        // and will update the board's layer visibility directly when needed
     }
     // Else: handle error or do nothing for invalid index
 }
@@ -293,7 +298,7 @@ std::vector<ElementInteractionInfo> Board::GetAllVisibleElementsForInteraction()
     }
 
     // 2. Iterate through components and their elements (Pins, component-specific TextLabels)
-    auto comp_layer_it = m_elements_by_layer.find(Board::kCompLayer);
+    auto comp_layer_it = m_elements_by_layer.find(Board::kBottomCompLayer);
     if (comp_layer_it != m_elements_by_layer.end()) {
         for (const auto& element_ptr : comp_layer_it->second) {
             if (!element_ptr)
@@ -346,4 +351,303 @@ const Net* Board::GetNetById(int net_id) const
 void Board::SetBoardDataManager(std::shared_ptr<BoardDataManager> manager)
 {
     m_board_data_manager_ = manager;
+}
+
+// --- Board Folding Implementation ---
+
+double Board::DetectBoardCenterAxis() const
+{
+    // Find the center line where the board "folds" by analyzing board outline elements
+    double min_x = std::numeric_limits<double>::max();
+    double max_x = std::numeric_limits<double>::lowest();
+
+    const int board_outline_layer_id = 28;  // XZZ specific board outline layer
+
+    auto it = m_elements_by_layer.find(board_outline_layer_id);
+    if (it != m_elements_by_layer.end()) {
+        for (const auto& element_ptr : it->second) {
+            if (!element_ptr) continue;
+
+            BLRect bounds = element_ptr->GetBoundingBox(nullptr);
+            if (bounds.w > 0 && bounds.h > 0) {
+                min_x = std::min(min_x, bounds.x);
+                max_x = std::max(max_x, bounds.x + bounds.w);
+            }
+        }
+    }
+
+    if (min_x != std::numeric_limits<double>::max() && max_x != std::numeric_limits<double>::lowest()) {
+        return (min_x + max_x) / 2.0;
+    }
+
+    // Fallback: use board width center
+    return width / 2.0;
+}
+
+bool Board::SegmentBelongsToTopSide(const BoardPoint2D& p1, const BoardPoint2D& p2, double center_x) const
+{
+    // A segment belongs to the top side if its midpoint is left of the center axis
+    double midpoint_x = (p1.x + p2.x) / 2.0;
+    return midpoint_x < center_x;
+}
+
+void Board::CleanDuplicateOutlineSegments()
+{
+    const int board_outline_layer_id = 28;
+    double center_x = m_board_center_x_;
+
+    auto it = m_elements_by_layer.find(board_outline_layer_id);
+    if (it == m_elements_by_layer.end()) return;
+
+    std::vector<std::unique_ptr<Element>> top_side_elements;
+
+    for (auto& element_ptr : it->second) {
+        if (!element_ptr) continue;
+
+        // For now, we'll keep all elements and let the rendering handle the folding
+        // In a more sophisticated implementation, we would analyze line segments
+        // and remove duplicates based on their position relative to center_x
+        BLRect bounds = element_ptr->GetBoundingBox(nullptr);
+        double element_center_x = bounds.x + bounds.w / 2.0;
+
+        if (element_center_x < center_x) {
+            top_side_elements.push_back(std::move(element_ptr));
+        }
+    }
+
+    // Replace the outline elements with only the top side ones
+    it->second = std::move(top_side_elements);
+}
+
+void Board::AssignComponentSidesAndFold(double center_x)
+{
+    // Process components and determine their mounting side
+    auto comp_layer_it = m_elements_by_layer.find(Board::kBottomCompLayer);
+    if (comp_layer_it == m_elements_by_layer.end()) return;
+
+    for (auto& element_ptr : comp_layer_it->second) {
+        if (!element_ptr) continue;
+
+        Component* comp = dynamic_cast<Component*>(element_ptr.get());
+        if (!comp) continue;
+
+        // Determine if component is on left (top) or right (bottom) side
+        bool is_on_top_side = comp->center_x < center_x;
+
+        if (!is_on_top_side) {
+            // Use the new Mirror method to properly mirror the component
+            // This handles the component center, pins, text labels, and graphical elements
+            comp->Mirror(center_x);
+
+            // Update component mounting side
+            comp->side = MountingSide::kBottom;
+			comp->layer = Board::kBottomCompLayer;
+			//iterate through pins, and assign them to the top pins layer
+			for (auto& pin_ptr : comp->pins) {
+				if (!pin_ptr) continue;
+				pin_ptr->SetLayerId(Board::kBottomPinsLayer);
+				
+			}
+            // Log information about the component being mirrored
+            std::cout << "Mirrored component " << comp->reference_designator
+                      << " (pins: " << comp->pins.size() << ")" << std::endl;
+        } else {
+            comp->side = MountingSide::kTop;
+			comp->layer = Board::kTopCompLayer;
+			for (auto& pin_ptr : comp->pins) {
+				if (!pin_ptr) continue;
+				pin_ptr->SetLayerId(Board::kTopPinsLayer);
+				
+			}
+        }
+    }
+}
+
+void Board::ApplyBoardFolding()
+{
+    std::cout << "Board::ApplyBoardFolding() called" << std::endl;
+
+    if (m_is_folded_) {
+        std::cout << "Board::ApplyBoardFolding() - Already folded, skipping" << std::endl;
+        return;  // Already folded
+    }
+
+    // Detect the center axis
+    m_board_center_x_ = DetectBoardCenterAxis();
+    std::cout << "Board::ApplyBoardFolding() - Detected center axis at X=" << m_board_center_x_ << std::endl;
+
+    // Mirror traces and other elements from right side to left side
+    for (auto& layer_pair : m_elements_by_layer) {
+        int layer_id = layer_pair.first;
+
+        // Skip component layer (handled separately) and board outline layer
+        if (layer_id == Board::kBottomCompLayer || layer_id == Board::kTopCompLayer || layer_id == 28) continue;
+
+        for (auto& element_ptr : layer_pair.second) {
+            if (!element_ptr) continue;
+
+            // Check if element is on the right side (bottom layer)
+            BLRect bounds = element_ptr->GetBoundingBox(nullptr);
+            double element_center_x = bounds.x + bounds.w / 2.0;
+            
+            if (element_center_x > m_board_center_x_) {
+                // Perform element-specific geometric mirroring
+                if (auto trace = dynamic_cast<Trace*>(element_ptr.get())) {
+                    // For traces: Mirror both endpoints across the center axis
+                    trace->x1 = 2 * m_board_center_x_ - trace->x1;
+                    trace->x2 = 2 * m_board_center_x_ - trace->x2;
+                    // Y coordinates remain unchanged in horizontal mirroring
+                } 
+                else if (auto arc = dynamic_cast<Arc*>(element_ptr.get())) {
+                    // For arcs: Mirror center point and adjust angles
+                    arc->center.x_ax = 2 * m_board_center_x_ - arc->center.x_ax;
+
+                    // For horizontal mirroring, transform angles and swap start/end
+                    // Original arc from start_angle to end_angle becomes
+                    // arc from (180° - end_angle) to (180° - start_angle)
+                    double original_start = arc->start_angle;
+                    double original_end = arc->end_angle;
+
+                    arc->start_angle = 180.0 - original_end;
+                    arc->end_angle = 180.0 - original_start;
+
+                    // Normalize angles to [0, 360) range
+                    while (arc->start_angle < 0) arc->start_angle += 360.0;
+                    while (arc->end_angle < 0) arc->end_angle += 360.0;
+                    while (arc->start_angle >= 360.0) arc->start_angle -= 360.0;
+                    while (arc->end_angle >= 360.0) arc->end_angle -= 360.0;
+                }
+                else if (auto via = dynamic_cast<Via*>(element_ptr.get())) {
+                    // For vias: Simply mirror the center point
+                    via->x = 2 * m_board_center_x_ - via->x;
+                    // Y coordinate remains unchanged
+                }
+                else if (auto text = dynamic_cast<TextLabel*>(element_ptr.get())) {
+                    // For text labels: Mirror position and flip horizontal alignment
+                    text->coords.x_ax = 2 * m_board_center_x_ - text->coords.x_ax;
+                    // Optionally flip text direction/alignment if needed
+                    // text->horizontal_alignment = FlipAlignment(text->horizontal_alignment);
+                }
+                else {
+                    // For any other element types: Use the generic Translate method
+                    // This is a fallback for element types we haven't specifically handled
+                    double mirrored_x = 2 * m_board_center_x_ - element_center_x;
+                    double offset_x = mirrored_x - element_center_x;
+                    element_ptr->Translate(offset_x, 0.0);
+                }
+            }
+        }
+    }
+
+    // Handle components separately
+    AssignComponentSidesAndFold(m_board_center_x_);
+
+    // Clean up duplicate board outline segments
+    CleanDuplicateOutlineSegments();
+
+    m_is_folded_ = true;
+    std::cout << "Board::ApplyBoardFolding() - Board folding completed successfully" << std::endl;
+}
+
+void Board::RevertBoardFolding()
+{
+    if (!m_is_folded_) return;  // Not folded
+
+    // This is a simplified revert - in a full implementation, you'd need to
+    // store the original positions and restore them
+    // For now, we'll just mark as unfolded and let the board be reloaded
+    m_is_folded_ = false;
+
+    std::cout << "Board folding reverted. Consider reloading the board for full restoration." << std::endl;
+}
+
+void Board::UpdateFoldingState()
+{
+    std::cout << "Board::UpdateFoldingState() called" << std::endl;
+
+    if (!m_board_data_manager_) {
+        std::cout << "Board::UpdateFoldingState() - No BoardDataManager, skipping" << std::endl;
+        return;
+    }
+
+    bool should_be_folded = m_board_data_manager_->IsBoardFoldingEnabled();
+    std::cout << "Board::UpdateFoldingState() - Should be folded: " << (should_be_folded ? "true" : "false") << std::endl;
+    std::cout << "Board::UpdateFoldingState() - Currently folded: " << (m_is_folded_ ? "true" : "false") << std::endl;
+
+    if (should_be_folded && !m_is_folded_) {
+        std::cout << "Board folding enabled. Applying folding..." << std::endl;
+        ApplyBoardFolding();
+    } else if (!should_be_folded && m_is_folded_) {
+        std::cout << "Board folding disabled. Reverting folding..." << std::endl;
+        RevertBoardFolding();
+    } else {
+        std::cout << "Board::UpdateFoldingState() - No folding state change needed" << std::endl;
+    }
+}
+
+void Board::ApplyGlobalTransformation(bool mirror_horizontally)
+{
+    std::cout << "Board::ApplyGlobalTransformation() called with mirror_horizontally="
+              << (mirror_horizontally ? "true" : "false") << std::endl;
+
+    if (!mirror_horizontally) {
+        std::cout << "Board::ApplyGlobalTransformation() - No mirroring requested, skipping" << std::endl;
+        return;
+    }
+
+    // Get board bounds to determine the center axis for mirroring
+    BLRect board_bounds = GetBoundingBox(false);
+    if (board_bounds.w <= 0 && board_bounds.h <= 0) {
+        std::cout << "Board::ApplyGlobalTransformation() - No valid board bounds, skipping" << std::endl;
+        return;
+    }
+
+    double center_x = board_bounds.x + board_bounds.w / 2.0;
+    std::cout << "Board::ApplyGlobalTransformation() - Using center axis at X=" << center_x << std::endl;
+
+    // Mirror non-component elements in all layers
+    for (auto& layer_pair : m_elements_by_layer) {
+        int layer_id = layer_pair.first;
+
+        // Skip component layers and pin layers - they're handled separately
+        if (layer_id == Board::kTopCompLayer || layer_id == Board::kBottomCompLayer ||
+            layer_id == Board::kTopPinsLayer || layer_id == Board::kBottomPinsLayer) {
+            continue;
+        }
+
+        std::cout << "Board::ApplyGlobalTransformation() - Processing layer " << layer_id
+                  << " with " << layer_pair.second.size() << " elements" << std::endl;
+
+        for (auto& element_ptr : layer_pair.second) {
+            if (!element_ptr) continue;
+
+            // Apply mirror transformation to non-component elements (traces, arcs, vias, etc.)
+            element_ptr->Mirror(center_x);
+        }
+    }
+
+    // Components are stored in m_elements_by_layer at component layers
+    // Mirror components in both top and bottom component layers
+    std::vector<int> component_layers = {Board::kTopCompLayer, Board::kBottomCompLayer};
+
+    for (int comp_layer : component_layers) {
+        auto comp_layer_it = m_elements_by_layer.find(comp_layer);
+        if (comp_layer_it == m_elements_by_layer.end()) continue;
+
+        std::cout << "Board::ApplyGlobalTransformation() - Processing component layer " << comp_layer
+                  << " with " << comp_layer_it->second.size() << " components" << std::endl;
+
+        for (auto& element_ptr : comp_layer_it->second) {
+            if (!element_ptr) continue;
+
+            // Check if this element is a Component
+            if (auto comp_ptr = dynamic_cast<Component*>(element_ptr.get())) {
+                std::cout << "Board::ApplyGlobalTransformation() - Mirroring component "
+                          << comp_ptr->reference_designator << std::endl;
+                comp_ptr->Mirror(center_x);
+            }
+        }
+    }
+
+    std::cout << "Board::ApplyGlobalTransformation() - Global transformation completed" << std::endl;
 }
