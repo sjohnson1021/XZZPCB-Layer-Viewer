@@ -379,7 +379,7 @@ void SettingsWindow::ShowLayerControls(const std::shared_ptr<Board>& currentBoar
     // void SetLayerVisible(int layerIndex, bool visible);
     // And that modifying visibility through SetLayerVisible might trigger a redraw elsewhere.
 
-    bool folding_enabled = m_board_data_manager_->IsBoardFoldingEnabled();
+    bool folding_enabled = m_board_data_manager_->IsBoardFoldingEnabled(); // Use current state, not pending
 
     for (int i = 0; i < currentBoard->GetLayerCount(); ++i) {
         std::string layerName = currentBoard->GetLayerName(i);
@@ -424,17 +424,36 @@ void SettingsWindow::ShowAppearanceSettings(const std::shared_ptr<Board>& curren
     // Board View Settings
     ImGui::SeparatorText("Board View");
 
-    // Board Folding Toggle
-    bool folding_enabled = m_board_data_manager_->IsBoardFoldingEnabled();
-    if (ImGui::Checkbox("Enable Board Folding", &folding_enabled)) {
-        m_board_data_manager_->SetBoardFoldingEnabled(folding_enabled);
+    // Board Folding Toggle with pending state display
+    bool current_folding_enabled = m_board_data_manager_->IsBoardFoldingEnabled();
+    bool pending_folding_enabled = m_board_data_manager_->GetPendingBoardFoldingEnabled();
+    bool has_pending_change = m_board_data_manager_->HasPendingFoldingChange();
+
+    // Use the pending setting for the checkbox display
+    bool checkbox_value = pending_folding_enabled;
+    if (ImGui::Checkbox("Enable Board Folding", &checkbox_value)) {
+        m_board_data_manager_->SetBoardFoldingEnabled(checkbox_value);
     }
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Fold the board to stack components from both sides for easier inspection.\nComponents will be mirrored and assigned to top/bottom mounting sides.");
     }
 
-    // Board Side View Selection (only show if folding is enabled)
-    if (folding_enabled) {
+    // Show pending state information
+    if (has_pending_change) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1.0f), "(pending)");
+        ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.4f, 1.0f),
+                          "Board folding: %s → %s (will apply on next board load)",
+                          current_folding_enabled ? "enabled" : "disabled",
+                          pending_folding_enabled ? "enabled" : "disabled");
+    } else {
+        ImGui::TextColored(ImVec4(0.7f, 0.9f, 0.7f, 1.0f),
+                          "Board folding: %s",
+                          current_folding_enabled ? "enabled" : "disabled");
+    }
+
+    // Board Side View Selection (only show if current folding is enabled, not pending)
+    if (current_folding_enabled) {
         ImGui::Indent();
 
         BoardDataManager::BoardSide current_side = m_board_data_manager_->GetCurrentViewSide();
@@ -447,9 +466,9 @@ void SettingsWindow::ShowAppearanceSettings(const std::shared_ptr<Board>& curren
             m_board_data_manager_->SetCurrentViewSide(BoardDataManager::BoardSide::kTop);
         }
 
-        if (ImGui::Combo("Board Side", &current_side_index, side_options, IM_ARRAYSIZE(side_options))) {
-            m_board_data_manager_->SetCurrentViewSide(static_cast<BoardDataManager::BoardSide>(current_side_index));
-        }
+        // if (ImGui::Combo("Board Side", &current_side_index, side_options, IM_ARRAYSIZE(side_options))) {
+        //     m_board_data_manager_->SetCurrentViewSide(static_cast<BoardDataManager::BoardSide>(current_side_index));
+        // }
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Select which side of the board to view.\nUse middle mouse click or F key to quickly flip the board.");
         }
@@ -461,6 +480,16 @@ void SettingsWindow::ShowAppearanceSettings(const std::shared_ptr<Board>& curren
                           current_side == BoardDataManager::BoardSide::kTop ? "Top Side" : "Bottom Side",
                           "");
 
+        // Show board flipping status
+        ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "Board flipping: %s",
+                          m_board_data_manager_->CanFlipBoard() ? "Enabled" : "Disabled");
+
+        ImGui::Unindent();
+    } else {
+        // When folding is disabled, show information about board flipping
+        ImGui::Indent();
+        ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.7f, 1.0f), "Board flipping disabled");
+        ImGui::TextWrapped("Board flipping (F key / middle mouse) is only available when board folding is enabled and viewing Top or Bottom side.");
         ImGui::Unindent();
     }
 
@@ -498,35 +527,60 @@ void SettingsWindow::ShowAppearanceSettings(const std::shared_ptr<Board>& curren
     ImGui::Spacing();
 
     // Component Colors
-    BLRgba32 componentColor = m_board_data_manager_->GetColor(BoardDataManager::ColorType::kComponent);
-    float colorArr_ComponentColor[4] = {componentColor.r() / 255.0f, componentColor.g() / 255.0f, componentColor.b() / 255.0f, componentColor.a() / 255.0f};
-    if (ImGui::ColorEdit4("Component Color", colorArr_ComponentColor, ImGuiColorEditFlags_Float)) {
-        m_board_data_manager_->SetColor(BoardDataManager::ColorType::kComponent,
-                                        BLRgba32(static_cast<uint32_t>(colorArr_ComponentColor[0] * 255),
-                                                 static_cast<uint32_t>(colorArr_ComponentColor[1] * 255),
-                                                 static_cast<uint32_t>(colorArr_ComponentColor[2] * 255),
-                                                 static_cast<uint32_t>(colorArr_ComponentColor[3] * 255)));
+    BLRgba32 componentFillColor = m_board_data_manager_->GetColor(BoardDataManager::ColorType::kComponentFill);
+    float colorArr_ComponentFillColor[4] = {componentFillColor.r() / 255.0f, componentFillColor.g() / 255.0f, componentFillColor.b() / 255.0f, componentFillColor.a() / 255.0f};
+    if (ImGui::ColorEdit4("Component Fill Color", colorArr_ComponentFillColor, ImGuiColorEditFlags_Float)) {
+        m_board_data_manager_->SetColor(BoardDataManager::ColorType::kComponentFill,
+                                        BLRgba32(static_cast<uint32_t>(colorArr_ComponentFillColor[0] * 255),
+                                                 static_cast<uint32_t>(colorArr_ComponentFillColor[1] * 255),
+                                                 static_cast<uint32_t>(colorArr_ComponentFillColor[2] * 255),
+                                                 static_cast<uint32_t>(colorArr_ComponentFillColor[3] * 255)));
     }
     if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Color used to render components.");
+        ImGui::SetTooltip("Color used to render the background/fill of components.");
+    }
+
+    BLRgba32 componentStrokeColor = m_board_data_manager_->GetColor(BoardDataManager::ColorType::kComponentStroke);
+    float colorArr_ComponentStrokeColor[4] = {componentStrokeColor.r() / 255.0f, componentFillColor.g() / 255.0f, componentFillColor.b() / 255.0f, componentFillColor.a() / 255.0f};
+    if (ImGui::ColorEdit4("Component Stroke Color", colorArr_ComponentStrokeColor, ImGuiColorEditFlags_Float)) {
+        m_board_data_manager_->SetColor(BoardDataManager::ColorType::kComponentStroke,
+                                        BLRgba32(static_cast<uint32_t>(colorArr_ComponentStrokeColor[0] * 255),
+                                                 static_cast<uint32_t>(colorArr_ComponentStrokeColor[1] * 255),
+                                                 static_cast<uint32_t>(colorArr_ComponentStrokeColor[2] * 255),
+                                                 static_cast<uint32_t>(colorArr_ComponentStrokeColor[3] * 255)));
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Color used to render the outline/stroke of components.");
     }
 
     ImGui::Spacing();
 
     // Pin Colors
-    BLRgba32 pinColor = m_board_data_manager_->GetColor(BoardDataManager::ColorType::kPin);
-    float colorArr_PinColor[4] = {pinColor.r() / 255.0f, pinColor.g() / 255.0f, pinColor.b() / 255.0f, pinColor.a() / 255.0f};
-    if (ImGui::ColorEdit4("Pin Color", colorArr_PinColor, ImGuiColorEditFlags_Float)) {
-        m_board_data_manager_->SetColor(BoardDataManager::ColorType::kPin,
-                                        BLRgba32(static_cast<uint32_t>(colorArr_PinColor[0] * 255),
-                                                 static_cast<uint32_t>(colorArr_PinColor[1] * 255),
-                                                 static_cast<uint32_t>(colorArr_PinColor[2] * 255),
-                                                 static_cast<uint32_t>(colorArr_PinColor[3] * 255)));
+    BLRgba32 pinFillColor = m_board_data_manager_->GetColor(BoardDataManager::ColorType::kPinFill);
+    float colorArr_PinFillColor[4] = {pinFillColor.r() / 255.0f, pinFillColor.g() / 255.0f, pinFillColor.b() / 255.0f, pinFillColor.a() / 255.0f};
+    if (ImGui::ColorEdit4("Pin Fill Color", colorArr_PinFillColor, ImGuiColorEditFlags_Float)) {
+        m_board_data_manager_->SetColor(BoardDataManager::ColorType::kPinFill,
+                                        BLRgba32(static_cast<uint32_t>(colorArr_PinFillColor[0] * 255),
+                                                 static_cast<uint32_t>(colorArr_PinFillColor[1] * 255),
+                                                 static_cast<uint32_t>(colorArr_PinFillColor[2] * 255),
+                                                 static_cast<uint32_t>(colorArr_PinFillColor[3] * 255)));
     }
     if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Color used to render pins.");
+        ImGui::SetTooltip("Color used to render the background/fill of pins.");
     }
 
+    BLRgba32 pinStrokeColor = m_board_data_manager_->GetColor(BoardDataManager::ColorType::kPinStroke);
+    float colorArr_PinStrokeColor[4] = {pinStrokeColor.r() / 255.0f, pinStrokeColor.g() / 255.0f, pinStrokeColor.b() / 255.0f, pinStrokeColor.a() / 255.0f};
+    if (ImGui::ColorEdit4("Pin Stroke Color", colorArr_PinStrokeColor, ImGuiColorEditFlags_Float)) {
+		m_board_data_manager_->SetColor(BoardDataManager::ColorType::kPinStroke,
+                                        BLRgba32(static_cast<uint32_t>(colorArr_PinStrokeColor[0] * 255),
+                                                 static_cast<uint32_t>(colorArr_PinStrokeColor[1] * 255),
+                                                 static_cast<uint32_t>(colorArr_PinStrokeColor[2] * 255),
+												 static_cast<uint32_t>(colorArr_PinStrokeColor[3] * 255)));
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Color used to render the outline/stroke of pins.");
+    }
     ImGui::Spacing();
 
     // Board Edges Colors

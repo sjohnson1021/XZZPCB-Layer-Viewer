@@ -151,8 +151,13 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
 
             // Handle Middle Mouse Click for Board Side Toggle
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle) && is_viewport_focused) {
-                m_board_data_manager_->ToggleViewSide();
-                std::cout << "NavigationTool: Board view toggled to " << BoardSideToString(m_board_data_manager_->GetCurrentViewSide()) << std::endl;
+                // CRITICAL FIX: Check if board flipping is allowed before attempting to flip
+                if (m_board_data_manager_->CanFlipBoard()) {
+                    m_board_data_manager_->ToggleViewSide();
+                    std::cout << "NavigationTool: Board view toggled to " << BoardSideToString(m_board_data_manager_->GetCurrentViewSide()) << std::endl;
+                } else {
+                    std::cout << "NavigationTool: Board flipping disabled - folding must be enabled and viewing Top/Bottom side" << std::endl;
+                }
             }
         }
         // If mouse is outside viewport content area, m_isHoveringElement remains false (or was set false at the start)
@@ -354,9 +359,14 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
         // Flip Board (F key) - unified board flip behavior
         if (IsKeybindActive(m_control_settings_->GetKeybind(InputAction::kFlipBoard), io, true)) {
             if (m_board_data_manager_) {
-                // Use ToggleViewSide which now handles both side switching and mirroring
-                m_board_data_manager_->ToggleViewSide();
-                std::cout << "NavigationTool: Board flipped to " << BoardSideToString(m_board_data_manager_->GetCurrentViewSide()) << std::endl;
+                // CRITICAL FIX: Check if board flipping is allowed before attempting to flip
+                if (m_board_data_manager_->CanFlipBoard()) {
+                    // Use ToggleViewSide which now handles both side switching and mirroring
+                    m_board_data_manager_->ToggleViewSide();
+                    std::cout << "NavigationTool: Board flipped to " << BoardSideToString(m_board_data_manager_->GetCurrentViewSide()) << std::endl;
+                } else {
+                    std::cout << "NavigationTool: Board flipping disabled - folding must be enabled and viewing Top/Bottom side" << std::endl;
+                }
             }
         }
     }

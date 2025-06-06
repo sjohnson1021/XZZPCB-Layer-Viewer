@@ -33,7 +33,7 @@ static constexpr int kSilkscreenLayerId = 17;
 static constexpr int kBoardOutlineLayerId = 28;  // Example, adjust as needed
 
 // Forward declaration for use in RenderPin's lambda
-static void RenderCapsule(BLContext& ctx, double width, double height, double x_coord, double y_coord);
+static void RenderCapsule(BLContext& ctx, double width, double height, double x_coord, double y_coord, const BLRgba32& fill_color, const BLRgba32& stroke_color);
 
 RenderPipeline::RenderPipeline() : m_render_context_(nullptr), m_initialized_(false)
 {
@@ -214,8 +214,10 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
         selected_net_id = bdm->GetSelectedNetId();
         current_view_side = bdm->GetCurrentViewSide();
         theme_color_cache[BoardDataManager::ColorType::kNetHighlight] = bdm->GetColor(BoardDataManager::ColorType::kNetHighlight);
-        theme_color_cache[BoardDataManager::ColorType::kComponent] = bdm->GetColor(BoardDataManager::ColorType::kComponent);
-        theme_color_cache[BoardDataManager::ColorType::kPin] = bdm->GetColor(BoardDataManager::ColorType::kPin);
+        theme_color_cache[BoardDataManager::ColorType::kComponentFill] = bdm->GetColor(BoardDataManager::ColorType::kComponentFill);
+        theme_color_cache[BoardDataManager::ColorType::kComponentStroke] = bdm->GetColor(BoardDataManager::ColorType::kComponentStroke);
+        theme_color_cache[BoardDataManager::ColorType::kPinFill] = bdm->GetColor(BoardDataManager::ColorType::kPinFill);
+        theme_color_cache[BoardDataManager::ColorType::kPinStroke] = bdm->GetColor(BoardDataManager::ColorType::kPinStroke);
         theme_color_cache[BoardDataManager::ColorType::kBaseLayer] = bdm->GetColor(BoardDataManager::ColorType::kBaseLayer);
         theme_color_cache[BoardDataManager::ColorType::kSilkscreen] = bdm->GetColor(BoardDataManager::ColorType::kSilkscreen);
         theme_color_cache[BoardDataManager::ColorType::kBoardEdges] = bdm->GetColor(BoardDataManager::ColorType::kBoardEdges);
@@ -230,13 +232,19 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
     // when board flip state changes, so no runtime visual transformation is needed
     BLRect adjusted_world_view_rect = world_view_rect;
     // Fallback colors (ensure all keys used below are present in theme_color_cache or have fallbacks)
-    BLRgba32 fallback_color(0xFF808080);  // Grey
+    BLRgba32 fallback_color(0xFFFF0000);  // Red
     BLRgba32 highlight_color =
         theme_color_cache.count(BoardDataManager::ColorType::kNetHighlight) ? theme_color_cache.at(BoardDataManager::ColorType::kNetHighlight) : BLRgba32(0xFFFFFF00);  // Yellow fallback for highlight
-    BLRgba32 component_theme_color =
-        theme_color_cache.count(BoardDataManager::ColorType::kComponent) ? theme_color_cache.at(BoardDataManager::ColorType::kComponent) : BLRgba32(0xFF0000FF);  // Blue fallback for component
-    BLRgba32 pin_theme_color = theme_color_cache.count(BoardDataManager::ColorType::kPin) ? theme_color_cache.at(BoardDataManager::ColorType::kPin) : BLRgba32(0xFFAAAAAA);
-    BLRgba32 base_layer_theme_color = theme_color_cache.count(BoardDataManager::ColorType::kBaseLayer) ? theme_color_cache.at(BoardDataManager::ColorType::kBaseLayer) : fallback_color;
+    BLRgba32 component_fill_color =
+        theme_color_cache.count(BoardDataManager::ColorType::kComponentFill) ? theme_color_cache.at(BoardDataManager::ColorType::kComponentFill) : BLRgba32(0xFF007BFF);  // Blue fallback for component
+    BLRgba32 component_stroke_color = 
+		theme_color_cache.count(BoardDataManager::ColorType::kComponentStroke) ? theme_color_cache.at(BoardDataManager::ColorType::kComponentStroke) : BLRgba32(0xFF000000);  // Black fallback for component
+    
+	BLRgba32 pin_fill_color =
+        theme_color_cache.count(BoardDataManager::ColorType::kPinFill) ? theme_color_cache.at(BoardDataManager::ColorType::kPinFill) : BLRgba32(0xC0999999);  // Grey fallback for pin fill
+    BLRgba32 pin_stroke_color =
+        theme_color_cache.count(BoardDataManager::ColorType::kPinStroke) ? theme_color_cache.at(BoardDataManager::ColorType::kPinStroke) : BLRgba32(0xC0000000);  // Black fallback for pin stroke
+	BLRgba32 base_layer_theme_color = theme_color_cache.count(BoardDataManager::ColorType::kBaseLayer) ? theme_color_cache.at(BoardDataManager::ColorType::kBaseLayer) : fallback_color;
     BLRgba32 silkscreen_theme_color =
         theme_color_cache.count(BoardDataManager::ColorType::kSilkscreen) ? theme_color_cache.at(BoardDataManager::ColorType::kSilkscreen) : BLRgba32(0xFFFFFFFF);  // White fallback for silkscreen
     BLRgba32 board_edges_theme_color =
@@ -293,9 +301,9 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                 if (is_selected_net) {
                     current_element_color = highlight_color;
                 } else if (current_type == ElementType::kComponent) {  // Components handled separately unless forced here
-                    current_element_color = component_theme_color;
+                    current_element_color = component_fill_color;
                 } else if (current_type == ElementType::kPin) {  // Standalone pins
-                    current_element_color = pin_theme_color;
+                    current_element_color = pin_fill_color;
                 } else if (is_silkscreen_pass &&
                            (current_type == ElementType::kTextLabel || current_type == ElementType::kArc || current_type == ElementType::kTrace)) {  // Example: Text, Arcs, Traces on silkscreen
                     current_element_color = silkscreen_theme_color;
@@ -445,8 +453,9 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                     }
                 }
 
-                BLRgba32 comp_base_color = current_component_is_selected ? highlight_color : component_theme_color;
-                RenderComponent(bl_ctx, *component_to_render, board, adjusted_world_view_rect, comp_base_color, theme_color_cache, selected_net_id);
+                BLRgba32 comp_fill_color = current_component_is_selected ? highlight_color : component_fill_color;
+				BLRgba32 comp_stroke_color = current_component_is_selected ? highlight_color : component_stroke_color;
+                RenderComponent(bl_ctx, *component_to_render, board, adjusted_world_view_rect, comp_fill_color, comp_stroke_color, theme_color_cache, selected_net_id);
             }
         }
     }
@@ -578,7 +587,8 @@ void RenderPipeline::RenderComponent(BLContext& bl_ctx,
                                      const Component& component,
                                      const Board& board,
                                      const BLRect& world_view_rect,
-                                     const BLRgba32& component_base_color,
+                                     const BLRgba32& component_fill_color,
+									 const BLRgba32& component_stroke_color,
                                      const std::unordered_map<BoardDataManager::ColorType, BLRgba32>& theme_color_cache,
                                      int selected_net_id)
 {
@@ -637,31 +647,34 @@ void RenderPipeline::RenderComponent(BLContext& bl_ctx,
                                                                                                           : BLRgba32(0xFFFFFF00);  // Fallback must be consistent with RenderBoard
 
     BLRgba32 fill_color;
-    if (component_base_color.value == actual_highlight_color.value) {  // Exact match for highlight color
+    if (component_fill_color.value == actual_highlight_color.value) {  // Exact match for highlight color
         // Component is selected/highlighted: use translucent highlight color for fill
-        fill_color = BLRgba32(component_base_color.r(), component_base_color.g(), component_base_color.b(), 128);  // 50% alpha
+        fill_color = BLRgba32(component_fill_color.r(), component_fill_color.g(), component_fill_color.b(), 3*(component_fill_color.a()/4));  // 50% alpha
     } else {
         // Component is not selected: use theme color with a standard low alpha for fill
-        fill_color = BLRgba32(component_base_color.r(), component_base_color.g(), component_base_color.b(), 64);  // ~12.5% alpha, consistent with old examples
+        fill_color = BLRgba32(component_fill_color.r(), component_fill_color.g(), component_fill_color.b(), component_fill_color.a());  // ~12.5% alpha, consistent with old examples
     }
 
     bl_ctx.setFillStyle(fill_color);
     bl_ctx.fillPath(outline);
 
-    // Stroke is always the component_base_color (which is already correctly highlight or theme)
-    bl_ctx.setStrokeStyle(component_base_color);
+    // Stroke is always the component_stroke_color (which is already correctly highlight or theme)
+    bl_ctx.setStrokeStyle(component_stroke_color);
     bl_ctx.setStrokeWidth(0.1);  // Thin outline
     bl_ctx.strokePath(outline);
 
     // Render Component Pins
     BLRgba32 pin_highlight_for_pins =
-        theme_color_cache.count(BoardDataManager::ColorType::kNetHighlight) ? theme_color_cache.at(BoardDataManager::ColorType::kNetHighlight) : BLRgba32(0xFFFFFF00);  // Consistent highlight fallback
-    BLRgba32 pin_standard_theme_color = theme_color_cache.count(BoardDataManager::ColorType::kPin) ? theme_color_cache.at(BoardDataManager::ColorType::kPin)
-                                                                                                   : BLRgba32(0xFFAAAAAA);  // Consistent pin theme fallback (from RenderBoard)
+        theme_color_cache.count(BoardDataManager::ColorType::kNetHighlight) ? theme_color_cache.at(BoardDataManager::ColorType::kNetHighlight) : BLRgba32(0xFFFFFFFF);  // Consistent highlight fallback
+    BLRgba32 pin_fill_color = theme_color_cache.count(BoardDataManager::ColorType::kPinFill) ? theme_color_cache.at(BoardDataManager::ColorType::kPinFill): BLRgba32(0xC0999999);  // Consistent pin theme fallback (from RenderBoard)
+    BLRgba32 pin_stroke_color = theme_color_cache.count(BoardDataManager::ColorType::kPinStroke) ? theme_color_cache.at(BoardDataManager::ColorType::kPinStroke) : BLRgba32(0xC0000000);  // Consistent pin stroke fallback (from RenderBoard)
+	
     for (const auto& pin_ptr : component.pins) {
         if (pin_ptr && pin_ptr->IsVisible()) {
             bool is_pin_selected_net = (selected_net_id != -1 && pin_ptr->GetNetId() == selected_net_id);
-            RenderPin(bl_ctx, *pin_ptr, &component, is_pin_selected_net ? pin_highlight_for_pins : pin_standard_theme_color);
+            BLRgba32 final_pin_color = is_pin_selected_net ? pin_highlight_for_pins : pin_fill_color;
+			BLRgba32 final_pin_stroke_color = is_pin_selected_net ? pin_highlight_for_pins : pin_stroke_color;
+            RenderPin(bl_ctx, *pin_ptr, &component, final_pin_color, final_pin_stroke_color);
         }
     }
 
@@ -886,7 +899,7 @@ void RenderPipeline::RenderTextLabel(BLContext& bl_ctx, const TextLabel& text_la
 //         } }, pin.pad_shape);
 // }
 // Render a pin using Blend2D, automatically handling all shape types
-void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* parent_component, const BLRgba32& highlight_color)
+void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* parent_component, const BLRgba32& fill_color, const BLRgba32& stroke_color)
 {
     // Get pin dimensions (these are in the pin's local coordinate system)
     auto [local_width, local_height] = pin.GetDimensions();  // Should return dimensions pre-rotation
@@ -896,13 +909,12 @@ void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* 
     double short_side = std::min(local_width, local_height);
     PinOrientation orientation = pin.orientation;
     // ctx.save() // DO NOT SAVE HERE. THIS BREAKS THE RENDERING OF PINS. LEAVE IT COMMENTED, SO WE KNOW NOT TO SAVE HERE.
-    ctx.setFillStyle(highlight_color);
-
+    ctx.setFillStyle(fill_color);
+	ctx.setStrokeStyle(stroke_color);
     // Move to pin center and apply rotation if needed
-    ctx.setFillStyle(highlight_color);
     // Render based on shape type
     std::visit(
-        [&ctx, local_width, local_height, x_coord, y_coord, orientation, long_side, short_side](const auto& shape) {
+        [&ctx, local_width, local_height, x_coord, y_coord, orientation, long_side, short_side, fill_color, stroke_color](const auto& shape) {
             using T = std::decay_t<decltype(shape)>;
 
             if constexpr (std::is_same_v<T, CirclePad>) {
@@ -910,41 +922,51 @@ void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* 
                 // Assuming shape.radius is the correct local radius.
                 BLCircle circle(x_coord, y_coord, shape.radius);
                 ctx.fillCircle(circle);
+				ctx.strokeCircle(circle);
             } else if (orientation == PinOrientation::kVertical) {
                 if constexpr (std::is_same_v<T, RectanglePad>) {
                     BLRect rect(x_coord - long_side / 2.0, y_coord - short_side / 2.0, long_side, short_side);
+
                     ctx.fillRect(rect);
+					ctx.strokeRect(rect);
                 } else if constexpr (std::is_same_v<T, CapsulePad>) {
                     // Call renderCapsule, which expects to draw centered at (0,0)
                     // with the pin's local width and height.
-                    RenderCapsule(ctx, local_width, local_height, x_coord, y_coord);
+                    RenderCapsule(ctx, local_width, local_height, x_coord, y_coord, fill_color, stroke_color);
+					
                 }
             } else if (orientation == PinOrientation::kHorizontal) {
                 if constexpr (std::is_same_v<T, RectanglePad>) {
                     BLRect rect(x_coord - local_height / 2.0, y_coord - local_width / 2.0, local_height, local_width);
                     ctx.fillRect(rect);
+					ctx.strokeRect(rect);
                 } else if constexpr (std::is_same_v<T, CapsulePad>) {
                     // Call renderCapsule, which expects to draw centered at (0,0)
                     // with the pin's local width and height.
-                    RenderCapsule(ctx, local_width, local_height, x_coord, y_coord);
+                    RenderCapsule(ctx, local_width, local_height, x_coord, y_coord, fill_color, stroke_color);
                 }
             } else if (orientation == PinOrientation::kNatural) {
                 if constexpr (std::is_same_v<T, RectanglePad>) {
                     BLRect rect(x_coord - local_width / 2.0, y_coord - local_height / 2.0, local_width, local_height);
                     ctx.fillRect(rect);
+					ctx.strokeRect(rect);
                 }
             }
         },
         pin.pad_shape);
 }
 
+
 // ctx.restore(); // DO NOT RESTORE HERE. THIS BREAKS THE RENDERING OF PINS. LEAVE IT COMMENTED, SO WE KNOW NOT TO RESTORE HERE.
 
-static void RenderCapsule(BLContext& ctx, double width, double height, double x_coord, double y_coord)
+static void RenderCapsule(BLContext& ctx, double width, double height, double x_coord, double y_coord, const BLRgba32& fill_color, const BLRgba32& stroke_color)
 {
     double radius = std::min(width, height) / 2.0;  // Radius is half the smaller dimension
 
     // Create a rounded rectangle centered at x_coord, y_coord
     BLRoundRect capsule(x_coord - (width / 2.0), y_coord - (height / 2.0), width, height, radius);
+	ctx.setFillStyle(fill_color);
+	ctx.setStrokeStyle(stroke_color);
     ctx.fillRoundRect(capsule);
+	ctx.strokeRoundRect(capsule);
 }

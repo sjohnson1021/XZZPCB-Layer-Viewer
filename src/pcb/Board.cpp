@@ -442,11 +442,11 @@ void Board::AssignComponentSidesAndFold(double center_x)
             // Update component mounting side
             comp->side = MountingSide::kBottom;
 			comp->layer = Board::kBottomCompLayer;
-			//iterate through pins, and assign them to the top pins layer
+			// Assign pins to the bottom pins layer (components that were mirrored are now on bottom)
 			for (auto& pin_ptr : comp->pins) {
 				if (!pin_ptr) continue;
 				pin_ptr->SetLayerId(Board::kBottomPinsLayer);
-				
+
 			}
             // Log information about the component being mirrored
             std::cout << "Mirrored component " << comp->reference_designator
@@ -454,10 +454,11 @@ void Board::AssignComponentSidesAndFold(double center_x)
         } else {
             comp->side = MountingSide::kTop;
 			comp->layer = Board::kTopCompLayer;
+			// Assign pins to the top pins layer (components that stayed on the left/top side)
 			for (auto& pin_ptr : comp->pins) {
 				if (!pin_ptr) continue;
 				pin_ptr->SetLayerId(Board::kTopPinsLayer);
-				
+
 			}
         }
     }
@@ -528,7 +529,14 @@ void Board::ApplyBoardFolding()
                     // Optionally flip text direction/alignment if needed
                     // text->horizontal_alignment = FlipAlignment(text->horizontal_alignment);
                 }
-                else {
+                else if (auto comp = dynamic_cast<Component*>(element_ptr.get())) {
+                    // For components: Use the component's Mirror method
+                    comp->Mirror(m_board_center_x_);
+                }
+                else if (auto pin = dynamic_cast<Pin*>(element_ptr.get())) {
+					pin->Mirror(m_board_center_x_);
+				}
+				else{
                     // For any other element types: Use the generic Translate method
                     // This is a fallback for element types we haven't specifically handled
                     double mirrored_x = 2 * m_board_center_x_ - element_center_x;

@@ -23,7 +23,7 @@ std::pair<Vec2, double> Pin::GetPinWorldTransform(const Pin& pin, const Componen
     double cos_comp = std::cos(comp_rot_rad);
     double sin_comp = std::sin(comp_rot_rad);
 
-    // Pin's own coordinates (x_coord, y_coord) are relative to component center
+    // Pin's own coordinates (x_coord, y_coord) are global
     double world_x = parentComponent->center_x + (pin.coords.x_ax * cos_comp - pin.coords.y_ax * sin_comp);
     double world_y = parentComponent->center_y + (pin.coords.x_ax * sin_comp + pin.coords.y_ax * cos_comp);
 
@@ -85,7 +85,7 @@ BLRect Pin::GetBoundingBox(const Component* parentComponent) const
 
 bool Pin::IsHit(const Vec2& world_mouse, float tolerance, const Component* parentComponent) const
 {
-    // Pin coordinates are now global, no need for component transformation
+    // Pin coordinates ARE GLOBAL - they are absolute positions on the board
     Vec2 pin_center(coords);
 
     // Transform mouse position relative to pin center
@@ -171,45 +171,16 @@ std::string Pin::GetInfo(const Component* parentComponent) const
 
 void Pin::Translate(double dist_x, double dist_y)
 {
-    // Pin coordinates (x_coord, y_coord) are relative to the component's center.
-    // So, when the *component* is translated by (dx, dy) in world space,
-    // its center_x and center_y are updated.
-    // The pin's local x_coord, y_coord *relative to the component center* do not change.
-
-    // However, if a Pin element is ever treated as a standalone element being directly
-    // translated in the Board's m_elementsByLayer (which is not its typical use case,
-    // as pins are owned by components), then this translate method would apply.
-    // In that scenario, x_coord and y_coord would be considered world coordinates.
+    // Pin coordinates are GLOBAL coordinates, so translate them directly
+    coords.x_ax += dist_x;
+    coords.y_ax += dist_y;
 }
 
 void Pin::Mirror(double center_axis)
 {
-    // Mirror the pin's local X coordinate relative to component center
-    // Pin coordinates are stored relative to component center, so we just flip the X
-    coords.x_ax = -coords.x_ax;
+    // Pin coordinates are GLOBAL, so mirror them directly across the center axis
+	printf("Pin::Mirror() called with center_axis=%f, pin_x=%f, pin_y=%f\n", center_axis, coords.x_ax, coords.y_ax);
+    coords.x_ax = 2 * center_axis - coords.x_ax;
+	printf("Pin::Mirror() Result: pin_x=%f, pin_y=%f\n", coords.x_ax, coords.y_ax);
     // Y coordinate remains unchanged for horizontal mirroring
-    // Note: This method is typically called from Component::Mirror() which handles
-    // the component's own position mirroring separately
-
-    // Given that Pin::translate is called by Component::translate, and pins are part of components,
-    // their x_coord and y_coord (which are component-local offsets) should *not* change here.
-    // The component's center_x, center_y are translated, and the pin's world position is derived from that.
-
-    // If a pin were to be a standalone element *not* part of a component, and its
-    // x_coord, y_coord were to be interpreted as world coordinates, then this would be:
-    // x_coord += dx;
-    // y_coord += dy;
-
-    // For the current design where Pins are part of Components and their x_coord, y_coord
-    // are local offsets, this method should arguably do nothing, as the parent Component's
-    // translation handles the change in world position.
-    // However, for consistency with the Element interface, we provide an implementation.
-    // If a pin *could* be standalone, this is where its primary point would be moved.
-    // Let's assume for normalization purposes that if called directly on a pin (e.g. if it was
-    // a standalone element outside a component context, which is unusual), its x_coord/y_coord are world.
-    // coords.x_ax += dist_x;
-    // coords.y_ax += dist_y;
-
-    // The PadShape offsets (CirclePad::x_offset, etc.) are relative to the Pin's (x_coord, y_coord).
-    // These should NOT be translated here, as they define the shape relative to the pin's anchor.
 }

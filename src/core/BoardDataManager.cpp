@@ -42,6 +42,12 @@ void BoardDataManager::SetBoard(std::shared_ptr<Board> board)
         for (int i = 0; i < layer_count; ++i) {
             layer_visibility_[i] = board->IsLayerVisible(i);
         }
+
+        // CRITICAL: Apply pending folding settings when a new board is loaded
+        // This ensures the board geometry matches the user's intended setting
+        lock.~lock_guard(); // Temporarily release lock to call ApplyPendingFoldingSettings
+        ApplyPendingFoldingSettings();
+        std::cout << "BoardDataManager::SetBoard() - Applied pending folding settings to new board" << std::endl;
     } else {
         layer_visibility_.clear();
     }
@@ -82,9 +88,13 @@ BLRgba32 BoardDataManager::GetColorUnlocked(ColorType type) const
             return BLRgba32(0xFFFFFFFF);  // Default to white
         case ColorType::kSilkscreen:
             return BLRgba32(0xC0DDDDDD);  // Default to translucent light gray
-        case ColorType::kComponent:
+        case ColorType::kComponentFill:
             return BLRgba32(0xAA0000FF);  // Default to translucent blue
-        case ColorType::kPin:
+        case ColorType::kComponentStroke:
+            return BLRgba32(0xFF000000);  // Default to black
+        case ColorType::kPinStroke:
+            return BLRgba32(0xC0000000);  // Default to translucent black
+        case ColorType::kPinFill:
             return BLRgba32(0xC0999999);  // Default to medium grey
         case ColorType::kBaseLayer:
             return BLRgba32(0xC0007BFF);  // Default to translucent blue
@@ -103,7 +113,7 @@ BLRgba32 BoardDataManager::GetColor(ColorType type) const
 
 void BoardDataManager::LoadColorsFromConfig(const Config& config)
 {
-    static const ColorType all_types[] = {ColorType::kNetHighlight, ColorType::kSilkscreen, ColorType::kComponent, ColorType::kPin, ColorType::kBaseLayer, ColorType::kBoardEdges};
+    static const ColorType all_types[] = {ColorType::kNetHighlight, ColorType::kSilkscreen, ColorType::kComponentFill, ColorType::kComponentStroke, ColorType::kPinFill, ColorType::kPinStroke, ColorType::kBaseLayer, ColorType::kBoardEdges};
     std::lock_guard<std::mutex> lock(net_mutex_);
     for (ColorType type : all_types) {
         std::string key = "color." + std::string(::ColorTypeToString(type));
@@ -118,7 +128,7 @@ void BoardDataManager::LoadColorsFromConfig(const Config& config)
 
 void BoardDataManager::SaveColorsToConfig(Config& config) const
 {
-    static const ColorType all_types[] = {ColorType::kNetHighlight, ColorType::kSilkscreen, ColorType::kComponent, ColorType::kPin, ColorType::kBaseLayer, ColorType::kBoardEdges};
+    static const ColorType all_types[] = {ColorType::kNetHighlight, ColorType::kSilkscreen, ColorType::kComponentFill, ColorType::kComponentStroke, ColorType::kPinFill, ColorType::kPinStroke, ColorType::kBaseLayer, ColorType::kBoardEdges};
     std::lock_guard<std::mutex> lock(net_mutex_);
     for (ColorType type : all_types) {
         std::string key = "color." + std::string(::ColorTypeToString(type));
@@ -136,14 +146,21 @@ void BoardDataManager::LoadSettingsFromConfig(const Config& config)
     // Load board folding setting
     std::lock_guard<std::mutex> lock(net_mutex_);
     board_folding_enabled_ = config.GetBool("board.folding_enabled", false);
+    pending_board_folding_enabled_ = board_folding_enabled_; // Initialize pending to match current
+    has_pending_folding_change_ = false; // No pending changes on load
 
     // Load board view side setting
     int view_side_int = config.GetInt("board.view_side", static_cast<int>(BoardSide::kTop));
-    if (view_side_int >= 0 && view_side_int <= 1) {
+    if (view_side_int >= 0 && view_side_int <= 2) {
         current_view_side_ = static_cast<BoardSide>(view_side_int);
     } else {
-        // If the saved value was "Both" (2) or invalid, default to Top
+        // If invalid, default to Top
         current_view_side_ = BoardSide::kTop;
+    }
+
+    // CRITICAL FIX: If folding is disabled, automatically set view side to 'Both'
+    if (!board_folding_enabled_ && current_view_side_ != BoardSide::kBoth) {
+        current_view_side_ = BoardSide::kBoth;
     }
 
     // Load global horizontal mirror setting
@@ -158,9 +175,9 @@ void BoardDataManager::SaveSettingsToConfig(Config& config) const
     // Save colors
     SaveColorsToConfig(config);
 
-    // Save board folding setting
+    // Save board folding setting (save the pending setting so it persists across sessions)
     std::lock_guard<std::mutex> lock(net_mutex_);
-    config.SetBool("board.folding_enabled", board_folding_enabled_);
+    config.SetBool("board.folding_enabled", has_pending_folding_change_ ? pending_board_folding_enabled_ : board_folding_enabled_);
 
     // Save board view side setting
     config.SetInt("board.view_side", static_cast<int>(current_view_side_));
@@ -220,19 +237,28 @@ void BoardDataManager::SetBoardFoldingEnabled(bool enabled)
     std::cout << "BoardDataManager::SetBoardFoldingEnabled(" << (enabled ? "true" : "false") << ") called" << std::endl;
 
     std::lock_guard<std::mutex> lock(net_mutex_);
-    if (board_folding_enabled_ != enabled) {
-        std::cout << "BoardDataManager: Board folding setting changed from " << (board_folding_enabled_ ? "true" : "false") << " to " << (enabled ? "true" : "false") << std::endl;
-        board_folding_enabled_ = enabled;
+
+    // Store as pending setting instead of applying immediately
+    if (pending_board_folding_enabled_ != enabled) {
+        std::cout << "BoardDataManager: Board folding setting will change from "
+                  << (board_folding_enabled_ ? "true" : "false") << " to " << (enabled ? "true" : "false")
+                  << " on next board load" << std::endl;
+
+        pending_board_folding_enabled_ = enabled;
+        has_pending_folding_change_ = (pending_board_folding_enabled_ != board_folding_enabled_);
+
+        // Only trigger UI update callback to refresh the settings display
+        // Do NOT change current board state or view side here
         auto cb = settings_change_callback_;
         lock.~lock_guard();
         if (cb) {
-            std::cout << "BoardDataManager: Calling settings change callback" << std::endl;
+            std::cout << "BoardDataManager: Calling settings change callback for UI update" << std::endl;
             cb();
         } else {
             std::cout << "BoardDataManager: No settings change callback registered" << std::endl;
         }
     } else {
-        std::cout << "BoardDataManager: Board folding setting unchanged (" << (enabled ? "true" : "false") << ")" << std::endl;
+        std::cout << "BoardDataManager: Board folding pending setting unchanged (" << (enabled ? "true" : "false") << ")" << std::endl;
     }
 }
 
@@ -240,6 +266,42 @@ bool BoardDataManager::IsBoardFoldingEnabled() const
 {
     std::lock_guard<std::mutex> lock(net_mutex_);
     return board_folding_enabled_;
+}
+
+bool BoardDataManager::GetPendingBoardFoldingEnabled() const
+{
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    return pending_board_folding_enabled_;
+}
+
+bool BoardDataManager::HasPendingFoldingChange() const
+{
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    return has_pending_folding_change_;
+}
+
+void BoardDataManager::ApplyPendingFoldingSettings()
+{
+    std::lock_guard<std::mutex> lock(net_mutex_);
+
+    if (!has_pending_folding_change_) {
+        std::cout << "BoardDataManager::ApplyPendingFoldingSettings() - No pending changes" << std::endl;
+        return;
+    }
+
+    std::cout << "BoardDataManager::ApplyPendingFoldingSettings() - Applying pending folding setting: "
+              << (pending_board_folding_enabled_ ? "enabled" : "disabled") << std::endl;
+
+    board_folding_enabled_ = pending_board_folding_enabled_;
+    has_pending_folding_change_ = false;
+
+    // NOW apply the view side logic when the setting is actually applied
+    if (!board_folding_enabled_ && current_view_side_ != BoardSide::kBoth) {
+        std::cout << "BoardDataManager: Board folding disabled, automatically setting view side to 'Both'" << std::endl;
+        current_view_side_ = BoardSide::kBoth;
+    }
+
+    std::cout << "BoardDataManager::ApplyPendingFoldingSettings() - Settings applied successfully" << std::endl;
 }
 
 void BoardDataManager::SetCurrentViewSide(BoardSide side)
@@ -266,6 +328,19 @@ BoardDataManager::BoardSide BoardDataManager::GetCurrentViewSide() const
 void BoardDataManager::ToggleViewSide()
 {
     std::lock_guard<std::mutex> lock(net_mutex_);
+
+    // CRITICAL FIX: Board flipping should only work when folding is enabled
+    if (!board_folding_enabled_) {
+        std::cout << "BoardDataManager: Board flipping disabled - folding is not enabled" << std::endl;
+        return;
+    }
+
+    // CRITICAL FIX: Board flipping should only work when viewing Top or Bottom, not Both
+    if (current_view_side_ == BoardSide::kBoth) {
+        std::cout << "BoardDataManager: Board flipping disabled - currently viewing 'Both' sides" << std::endl;
+        return;
+    }
+
     BoardSide next_side;
     switch (current_view_side_) {
         case BoardSide::kTop:
@@ -276,7 +351,8 @@ void BoardDataManager::ToggleViewSide()
             break;
         case BoardSide::kBoth:
         default:
-            // If somehow we're in "Both" mode, default to Top
+            // This case should not be reached due to the check above
+            std::cout << "BoardDataManager: Unexpected 'Both' side in ToggleViewSide, defaulting to Top" << std::endl;
             next_side = BoardSide::kTop;
             break;
     }
@@ -299,6 +375,17 @@ void BoardDataManager::ToggleViewSide()
     if (cb) {
         cb();
     }
+}
+
+bool BoardDataManager::CanFlipBoard() const
+{
+    std::lock_guard<std::mutex> lock(net_mutex_);
+
+    // Board flipping is only allowed when:
+    // 1. Board folding is enabled
+    // 2. Currently viewing Top or Bottom side (not Both)
+    return board_folding_enabled_ &&
+           (current_view_side_ == BoardSide::kTop || current_view_side_ == BoardSide::kBottom);
 }
 
 // SetGlobalHorizontalMirror and IsGlobalHorizontalMirrorEnabled methods removed

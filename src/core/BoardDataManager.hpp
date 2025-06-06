@@ -53,6 +53,9 @@ public:
     // --- Board Folding ---
     void SetBoardFoldingEnabled(bool enabled);
     bool IsBoardFoldingEnabled() const;
+    bool GetPendingBoardFoldingEnabled() const;
+    bool HasPendingFoldingChange() const;
+    void ApplyPendingFoldingSettings(); // Apply pending settings to current board
 
     // --- Board Side View ---
     enum class BoardSide {
@@ -64,6 +67,7 @@ public:
     void SetCurrentViewSide(BoardSide side);
     BoardSide GetCurrentViewSide() const;
     void ToggleViewSide();  // Toggles between Top <-> Bottom and flips the board
+    bool CanFlipBoard() const;  // Checks if board flipping is currently allowed
 
     // --- Board Coordinate System ---
     // Global horizontal mirror methods removed - coordinate transformations now
@@ -88,8 +92,10 @@ public:
     {
         kNetHighlight,
         kSilkscreen,
-        kComponent,
-        kPin,
+        kComponentFill,
+        kComponentStroke,
+        kPinFill,
+        kPinStroke,
         kBaseLayer,
         kBoardEdges,
     };
@@ -115,7 +121,9 @@ private:
     int selected_net_id_ = -1;     // Renamed from m_selectedNetId
     mutable std::mutex net_mutex_; // Renamed from m_netMutex
 
-    bool board_folding_enabled_ = false; // Board folding setting
+    bool board_folding_enabled_ = false; // Current board folding state (applied to loaded board)
+    bool pending_board_folding_enabled_ = false; // Pending board folding setting (will apply on next load)
+    bool has_pending_folding_change_ = false; // Whether there's a pending folding setting change
     BoardSide current_view_side_ = BoardSide::kBoth; // Current board side being viewed
     // global_horizontal_mirror_ removed - coordinate transformations now applied directly to elements
 
@@ -137,10 +145,14 @@ static inline const char *ColorTypeToString(BoardDataManager::ColorType type)
         return "Net Highlight";
     case BoardDataManager::ColorType::kSilkscreen:
         return "Silkscreen";
-    case BoardDataManager::ColorType::kComponent:
-        return "Component";
-    case BoardDataManager::ColorType::kPin:
-        return "Pin";
+    case BoardDataManager::ColorType::kComponentFill:
+        return "Component Fill";
+    case BoardDataManager::ColorType::kComponentStroke:
+        return "Component Stroke";
+    case BoardDataManager::ColorType::kPinFill:
+        return "Pin Fill";
+    case BoardDataManager::ColorType::kPinStroke:
+        return "Pin Stroke";
     case BoardDataManager::ColorType::kBaseLayer:
         return "Base Layer";
     case BoardDataManager::ColorType::kBoardEdges:

@@ -259,21 +259,25 @@ public:
         center_x += dx;
         center_y += dy;
 
-        // Translate all owned elements
+        // DO translate pins and text labels - they are global
+
+		//Pins: coordinates are global, so translation is needed
         for (auto& pin : pins) {
             if (pin) {
-                pin->Translate(dx, dy);
+                pin->Translate(dx, dy); //RIGHT - pins coordinates are global
             }
         }
 
+        //Text labels: coordinates are global, so translation is needed
         for (auto& label : text_labels) {
             if (label) {
-                label->Translate(dx, dy);
+                label->Translate(dx, dy); //RIGHT - label coordinates are global
             }
         }
 
+        //Graphical elements: these are global, so translation is needed
         for (auto& segment : graphical_elements) {
-            segment.start.x_ax += dx;
+            segment.start.x_ax += dx;  //RIGHT - segments coordinates are global
             segment.start.y_ax += dy;
             segment.end.x_ax += dx;
             segment.end.y_ax += dy;

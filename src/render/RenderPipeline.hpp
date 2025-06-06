@@ -76,13 +76,14 @@ public:
                          const Component& component,
                          const Board& board,
                          const BLRect& world_view_rect,
-                         const BLRgba32& component_base_color,
+                         const BLRgba32& component_fill_color,
+						 const BLRgba32& component_stroke_color,
                          const std::unordered_map<BoardDataManager::ColorType, BLRgba32>& theme_color_cache,
                          int selected_net_id);
     void RenderTextLabel(BLContext& bl_ctx, const TextLabel& text_label, const BLRgba32& color);
     // TODO: Consider passing layer_properties_map to RenderTextLabel if it needs more than just color
     // void RenderPin(BLContext &bl_ctx, const Pin &pin, const Component &component, const Board &board, const BLRgba32 &highlightColor);
-    void RenderPin(BLContext& ctx, const Pin& pin, const Component* parent_component, const BLRgba32& highlight_color);
+    void RenderPin(BLContext& ctx, const Pin& pin, const Component* parent_component, const BLRgba32& fill_color, const BLRgba32& stroke_color);
 
 private:
     // Helper to get a cached font face or load it if not found
