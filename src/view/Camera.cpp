@@ -9,12 +9,12 @@
 // #include <glm/gtc/matrix_transform.hpp>
 
 // A common default zoom value
-const float kDefaultZoom = 3.0f;
+const float kDefaultZoom = 2.5f;
 const Vec2 kDefaultPosition = {0.0f, 0.0f};
 const float kDefaultRotation = 0.0f;
 
 // Define zoom limits
-const float kMinZoomLevel = 0.25f;
+const float kMinZoomLevel = 0.01f;
 const float kMaxZoomLevel = 100.0f;
 
 // Define PI if not available from cmath or a math library
@@ -197,7 +197,7 @@ void Camera::FocusOnRect(const BLRect& world_rect, const Viewport& viewport, flo
     float zoom_y = static_cast<float>(viewport.GetHeight()) / padded_rect_height;
 
     // Use the smaller of the two zoom factors to ensure the entire rect fits.
-    SetZoom(std::max(.001f, std::min(zoom_x, zoom_y)));
+    SetZoom(std::max(.1f, std::min(zoom_x, zoom_y)));
 
     SetRotation(kDefaultRotation);
     // Ensure flag is set if either position or zoom might have changed, even if SetPosition/SetZoom didn't detect a change

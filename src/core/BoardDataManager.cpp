@@ -43,6 +43,13 @@ void BoardDataManager::SetBoard(std::shared_ptr<Board> board)
             layer_visibility_[i] = board->IsLayerVisible(i);
         }
 
+        // CRITICAL FIX: Reset viewing side to Top when board folding is enabled
+        // This prevents persisted viewing side settings from interfering with board loading
+        if (pending_board_folding_enabled_) {
+            std::cout << "BoardDataManager::SetBoard() - Resetting view side to Top for board folding" << std::endl;
+            current_view_side_ = BoardSide::kTop;
+        }
+
         // CRITICAL: Apply pending folding settings when a new board is loaded
         // This ensures the board geometry matches the user's intended setting
         lock.~lock_guard(); // Temporarily release lock to call ApplyPendingFoldingSettings
@@ -151,16 +158,26 @@ void BoardDataManager::LoadSettingsFromConfig(const Config& config)
 
     // Load board view side setting
     int view_side_int = config.GetInt("board.view_side", static_cast<int>(BoardSide::kTop));
-    if (view_side_int >= 0 && view_side_int <= 2) {
-        current_view_side_ = static_cast<BoardSide>(view_side_int);
-    } else {
-        // If invalid, default to Top
-        current_view_side_ = BoardSide::kTop;
-    }
 
-    // CRITICAL FIX: If folding is disabled, automatically set view side to 'Both'
-    if (!board_folding_enabled_ && current_view_side_ != BoardSide::kBoth) {
-        current_view_side_ = BoardSide::kBoth;
+    // CRITICAL FIX: When board folding is enabled, always start with Top view
+    // The persisted viewing side will be ignored to prevent interference with board loading
+    if (board_folding_enabled_) {
+        current_view_side_ = BoardSide::kTop;
+        std::cout << "BoardDataManager: Board folding enabled - ignoring persisted view side, starting with Top" << std::endl;
+    } else {
+        // When folding is disabled, use persisted setting but ensure it's 'Both'
+        if (view_side_int >= 0 && view_side_int <= 2) {
+            current_view_side_ = static_cast<BoardSide>(view_side_int);
+        } else {
+            // If invalid, default to Top
+            current_view_side_ = BoardSide::kTop;
+        }
+
+        // If folding is disabled, automatically set view side to 'Both'
+        if (current_view_side_ != BoardSide::kBoth) {
+            current_view_side_ = BoardSide::kBoth;
+            std::cout << "BoardDataManager: Board folding disabled - automatically setting view side to 'Both'" << std::endl;
+        }
     }
 
     // Load global horizontal mirror setting
@@ -180,7 +197,13 @@ void BoardDataManager::SaveSettingsToConfig(Config& config) const
     config.SetBool("board.folding_enabled", has_pending_folding_change_ ? pending_board_folding_enabled_ : board_folding_enabled_);
 
     // Save board view side setting
-    config.SetInt("board.view_side", static_cast<int>(current_view_side_));
+    // When board folding is enabled, we save the current viewing side for user convenience
+    // When folding is disabled, we always save 'Both' since that's the only valid state
+    BoardSide side_to_save = current_view_side_;
+    if (!board_folding_enabled_ && side_to_save != BoardSide::kBoth) {
+        side_to_save = BoardSide::kBoth;  // Ensure consistency
+    }
+    config.SetInt("board.view_side", static_cast<int>(side_to_save));
 
     // Save global horizontal mirror setting
     // config.SetBool("board.global_horizontal_mirror", global_horizontal_mirror_);
