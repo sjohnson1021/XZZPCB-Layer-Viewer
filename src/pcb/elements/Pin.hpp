@@ -34,7 +34,8 @@ struct CapsulePad {  // A rectangle with semicircular ends
 // The PadGeometry variant can hold any of the defined shapes
 using PadShape = std::variant<CirclePad, RectanglePad, CapsulePad>;
 
-// Enum for pin orientation if needed, similar to old XZZPCBLoader.h
+// DEPRECATED: Pin orientation enum - now using actual rotation data from file
+// Kept for backward compatibility but should not be used for new code
 enum class PinOrientation : std::uint8_t {
     kNatural,     // Default
     kHorizontal,  // Long axis horizontal
@@ -106,13 +107,13 @@ public:
 
     int side = 0;  // e.g., 0 for top, 1 for bottom
     std::string diode_reading;
-    PinOrientation orientation = PinOrientation::kNatural;
-    double rotation = 0.0;  // Degrees, if individual pins can rotate relative to component (unlikely for most uses)
+    PinOrientation orientation = PinOrientation::kNatural;  // DEPRECATED: Use rotation instead
+    double rotation = 0.0;  // Degrees - actual rotation data from PCB file
 
     double width = 0.0;
     double height = 0.0;
-    double long_side = 0.0;
-    double short_side = 0.0;
+    double long_side = 0.0;   // DEPRECATED: Used for old orientation logic
+    double short_side = 0.0;  // DEPRECATED: Used for old orientation logic
     // layer and net_id are in Element
 
     // --- Pin-specific Getters & Helpers ---
@@ -217,6 +218,9 @@ public:
 
     BLRgba32 debug_color = BLRgba32(0, 0, 0, 0);
 
+    // DEPRECATED: This method was used for old orientation logic
+    // Now that we have actual rotation data from the file, this is no longer needed
+    [[deprecated("Use rotation field instead of orientation-based dimension swapping")]]
     void SetDimensionsForOrientation()
     {
         // Ensure long_side is width, short_side is height

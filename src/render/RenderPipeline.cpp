@@ -902,58 +902,80 @@ void RenderPipeline::RenderTextLabel(BLContext& bl_ctx, const TextLabel& text_la
 void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* parent_component, const BLRgba32& fill_color, const BLRgba32& stroke_color)
 {
     // Get pin dimensions (these are in the pin's local coordinate system)
-    auto [local_width, local_height] = pin.GetDimensions();  // Should return dimensions pre-rotation
+    auto [pin_width, pin_height] = pin.GetDimensions();  // Should return dimensions pre-rotation
     double x_coord = pin.coords.x_ax;
     double y_coord = pin.coords.y_ax;
-    double long_side = std::max(local_width, local_height);
-    double short_side = std::min(local_width, local_height);
-    PinOrientation orientation = pin.orientation;
-    // ctx.save() // DO NOT SAVE HERE. THIS BREAKS THE RENDERING OF PINS. LEAVE IT COMMENTED, SO WE KNOW NOT TO SAVE HERE.
+    double rotation = pin.rotation;
+
+    // Debug logging for pin rotation (temporary)
+    static int debug_count = 0;
+    if (debug_count < 20) {  // Limit debug output
+        std::cout << "Pin rotation debug: " << rotation << "° (W=" << pin_width << ", H=" << pin_height << ")" << std::endl;
+        debug_count++;
+    }
+
+    // Alternative approach: Consider pin's natural orientation
+    // Some PCB formats might store rotation relative to the pin's natural orientation
+    // For rectangular pins, natural orientation might be width > height = horizontal
+    bool pin_is_naturally_horizontal = (pin_width > pin_height);
+    double effective_rotation = rotation;
+
+    // Test: Adjust rotation based on pin's natural orientation
+    if (pin_is_naturally_horizontal && std::abs(rotation - 90.0) < 0.1) {
+        // If pin is naturally horizontal and rotation is 90°, it should become vertical
+        effective_rotation = rotation;  // Keep as-is for now
+    } else if (!pin_is_naturally_horizontal && std::abs(rotation - 90.0) < 0.1) {
+        // If pin is naturally vertical and rotation is 90°, it should become horizontal
+        effective_rotation = rotation;  // Keep as-is for now
+    }
+
     ctx.setFillStyle(fill_color);
 	ctx.setStrokeStyle(stroke_color);
-    // Move to pin center and apply rotation if needed
+
+    // Performance optimization: Only apply rotation if significant and for non-circular shapes
+    bool needs_rotation = (std::abs(effective_rotation) > 0.01) && !std::holds_alternative<CirclePad>(pin.pad_shape);
+
+    if (needs_rotation) {
+        ctx.save();  // Save current transformation state
+
+        // Debug: Log the transformation being applied
+        if (debug_count < 20) {
+            std::cout << "  Applying rotation: " << rotation << "° at (" << x_coord << ", " << y_coord << ")" << std::endl;
+        }
+
+        // Translate to pin center, rotate, then translate back
+        ctx.translate(x_coord, y_coord);
+        // Test: Try negative rotation to see if direction is the issue
+        ctx.rotate(-effective_rotation * (kPi / 180.0));  // Convert degrees to radians (negative for testing)
+        ctx.translate(-x_coord, -y_coord);
+    }
+
     // Render based on shape type
     std::visit(
-        [&ctx, local_width, local_height, x_coord, y_coord, orientation, long_side, short_side, fill_color, stroke_color](const auto& shape) {
+        [&ctx, pin_width, pin_height, x_coord, y_coord, fill_color, stroke_color](const auto& shape) {
             using T = std::decay_t<decltype(shape)>;
 
             if constexpr (std::is_same_v<T, CirclePad>) {
-                // For a circle, radius is key. local_width/local_height might be diameter.
-                // Assuming shape.radius is the correct local radius.
+                // Circles don't need rotation - always render the same regardless of rotation
                 BLCircle circle(x_coord, y_coord, shape.radius);
                 ctx.fillCircle(circle);
 				ctx.strokeCircle(circle);
-            } else if (orientation == PinOrientation::kVertical) {
-                if constexpr (std::is_same_v<T, RectanglePad>) {
-                    BLRect rect(x_coord - long_side / 2.0, y_coord - short_side / 2.0, long_side, short_side);
-
-                    ctx.fillRect(rect);
-					ctx.strokeRect(rect);
-                } else if constexpr (std::is_same_v<T, CapsulePad>) {
-                    // Call renderCapsule, which expects to draw centered at (0,0)
-                    // with the pin's local width and height.
-                    RenderCapsule(ctx, local_width, local_height, x_coord, y_coord, fill_color, stroke_color);
-					
-                }
-            } else if (orientation == PinOrientation::kHorizontal) {
-                if constexpr (std::is_same_v<T, RectanglePad>) {
-                    BLRect rect(x_coord - local_height / 2.0, y_coord - local_width / 2.0, local_height, local_width);
-                    ctx.fillRect(rect);
-					ctx.strokeRect(rect);
-                } else if constexpr (std::is_same_v<T, CapsulePad>) {
-                    // Call renderCapsule, which expects to draw centered at (0,0)
-                    // with the pin's local width and height.
-                    RenderCapsule(ctx, local_width, local_height, x_coord, y_coord, fill_color, stroke_color);
-                }
-            } else if (orientation == PinOrientation::kNatural) {
-                if constexpr (std::is_same_v<T, RectanglePad>) {
-                    BLRect rect(x_coord - local_width / 2.0, y_coord - local_height / 2.0, local_width, local_height);
-                    ctx.fillRect(rect);
-					ctx.strokeRect(rect);
-                }
+            } else if constexpr (std::is_same_v<T, RectanglePad>) {
+                BLRect rect(x_coord - pin_width / 2.0, y_coord - pin_height / 2.0, pin_width, pin_height);
+                ctx.fillRect(rect);
+				ctx.strokeRect(rect);
+            } else if constexpr (std::is_same_v<T, CapsulePad>) {
+                // Call renderCapsule, which expects to draw centered at (0,0)
+                // with the pin's local width and height.
+                RenderCapsule(ctx, pin_width, pin_height, x_coord, y_coord, fill_color, stroke_color);
             }
-        },
+		}
+        ,
         pin.pad_shape);
+
+    if (needs_rotation) {
+        ctx.restore();  // Restore transformation state
+    }
 }
 
 

@@ -8,6 +8,9 @@
 #include "../elements/Component.hpp"
 #include "../elements/Pin.hpp"
 
+// DEPRECATED: This class was used for heuristic pin orientation resolution
+// Now that we have actual rotation data from PCB files, this is no longer needed
+// Kept for backward compatibility but should not be used for new code
 class PinResolver
 {
 public:
@@ -43,9 +46,15 @@ public:
         }
     };
 
-    // Main entry point - resolves all pin orientations for a component
+    // DEPRECATED: Main entry point - resolves all pin orientations for a component
+    // Now that we have actual rotation data from files, this heuristic approach is obsolete
+    [[deprecated("Pin orientations are now read directly from PCB files")]]
     static bool PinResolver::ResolveComponentPinOrientations(Component* component)
     {
+        // Disabled - return true to indicate "no problems" since we now use file rotation data
+        return true;
+
+        /* OBSOLETE CODE - kept for reference
         if ((component == nullptr) || component->pins.empty()) {
             return false;
         }
@@ -87,6 +96,7 @@ public:
         }
 
         return resolved;
+        */
     }
 
 private:

@@ -19,7 +19,7 @@
 #include "../utils/des.h"
 #include "processing/PinResolver.hpp"
 
-// Define this to enable verbose logging for PcbLoader
+// Define this to enable verbose logging for PcbLoader (disabled for performance)
 // #define ENABLE_PCB_LOADER_LOGGING
 
 // Static data for DES key generation, similar to old XZZXZZPCBLoader.cpp
@@ -32,7 +32,7 @@ static const unsigned char hexconv[256] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  
 static const std::vector<uint16_t> des_key_byte_list = {0xE0, 0xCF, 0x2E, 0x9F, 0x3C, 0x33, 0x3C, 0x33};
 
 // This is the scale factor for the XZZ files.
-static const int xyscale = 100000;
+static const int xyscale = 10000;
 // Implementation of DefineStandardLayers
 void PcbLoader::DefineStandardLayers(Board& board)
 {
@@ -144,19 +144,8 @@ std::unique_ptr<Board> PcbLoader::LoadFromFile(const std::string& filePath)
     // This is a static transformation applied at load time, separate from interactive transformations
     ApplyGlobalCoordinateMirroring(*board);
 
-    // Process pin orientations
-    // PCBProcessing::OrientationProcessor::processBoard(*board);
-    std::vector<int> comp_layers = {Board::kBottomCompLayer, Board::kTopCompLayer};
-    for (int layer_id : comp_layers) {
-        auto layer_it = board->m_elements_by_layer.find(layer_id);
-        if (layer_it != board->m_elements_by_layer.end()) {
-            for (auto& component : layer_it->second) {
-                if (auto* comp = dynamic_cast<Component*>(component.get())) {
-                    PinResolver::ResolveComponentPinOrientations(comp);
-                }
-            }
-        }
-    }
+    // Pin orientations are now read directly from PCB files as rotation data
+    // No need for heuristic orientation processing
     return board;
 }
 
@@ -683,7 +672,8 @@ void PcbLoader::ParseComponent(const char* rawComponentData, uint32_t componentB
 #endif
         return;
     }
-    localOffset += 4;                             // Skip scale/padding (4 bytes)
+	double part_rotation = static_cast<double>(ReadLE<uint32_t>(&componentData[localOffset])/xyscale);
+    localOffset += 4;                             // rotation
     if (componentData.size() < localOffset + 2) { /*flags*/
 #ifdef ENABLE_PCB_LOADER_LOGGING
         std::cerr << "[PcbLoader LOG] Error: Not enough for flags" << std::endl;
@@ -732,6 +722,7 @@ void PcbLoader::ParseComponent(const char* rawComponentData, uint32_t componentB
 
     Component comp(comp_footprint_name_str, "", part_x, part_y);
     comp.footprint_name = comp_footprint_name_str;
+	comp.rotation = part_rotation;
 
 #ifdef ENABLE_PCB_LOADER_LOGGING
     std::cout << "[PcbLoader LOG] Starting sub-block parsing loop. Initial localOffset=" << localOffset << ", part_overall_size=" << part_overall_size << std::endl;
@@ -914,16 +905,24 @@ void PcbLoader::ParseComponent(const char* rawComponentData, uint32_t componentB
                 pin_offset_iterator += 4;
                 // std::cout << "[PcbLoader LOG]         pin_y: " << pin_y << ", pin_offset_iterator: " << pin_offset_iterator << std::endl;
 
-                // Two 4-byte padding fields
-                if (pin_offset_iterator + 8 > subBlockSize) {
+                // One 4-byte padding fields
+                if (pin_offset_iterator + 4 > subBlockSize) {
 #ifdef ENABLE_PCB_LOADER_LOGGING
-                    std::cerr << "[PcbLoader LOG] Pin too short for 8b padding " << std::endl;
+                    std::cerr << "[PcbLoader LOG] Pin too short for 4b padding " << std::endl;
 #endif
                     break;
                 }
-                pin_offset_iterator += 8;
-                // std::cout << "[PcbLoader LOG]         pin_offset_iterator after 8b padding: " << pin_offset_iterator << std::endl;
-
+                pin_offset_iterator += 4;
+                // std::cout << "[PcbLoader LOG]         pin_offset_iterator after 4b padding: " << pin_offset_iterator << std::endl;
+// Pin Rotation
+                if (pin_offset_iterator + 4 > subBlockSize) {
+#ifdef ENABLE_PCB_LOADER_LOGGING
+                    std::cerr << "[PcbLoader LOG] Pin too short for rotation " << std::endl;
+#endif
+                    break;
+                }
+                double pin_rotation = static_cast<double>(ReadLE<uint32_t>(subBlockDataStart + pin_offset_iterator)) / xyscale;
+                pin_offset_iterator += 4;
                 // Pin name size
                 if (pin_offset_iterator + 4 > subBlockSize) {
 #ifdef ENABLE_PCB_LOADER_LOGGING
@@ -966,7 +965,7 @@ void PcbLoader::ParseComponent(const char* rawComponentData, uint32_t componentB
                 CirclePad default_circle_pad_shape_obj;     // x_offset and y_offset default to 0.0
                 default_circle_pad_shape_obj.radius = 0.1;  // Set the radius
                 PadShape default_pad_shape = default_circle_pad_shape_obj;
-                auto current_pin_object_ptr = std::make_unique<Pin>(Vec2(pin_x, pin_y), pin_name_str, default_pad_shape, Board::kTopPinsLayer);  // Renamed pin_ptr to current_pin_object_ptr
+                auto current_pin_object_ptr = std::make_unique<Pin>(Vec2(pin_x, pin_y), pin_name_str, default_pad_shape, Board::kBottomPinsLayer);  // Renamed pin_ptr to current_pin_object_ptr
 
 #ifdef ENABLE_PCB_LOADER_LOGGING
                 std::cout << "[PcbLoader LOG]         Starting Pin Outline parsing. pin_offset_iterator=" << pin_offset_iterator << std::endl;
@@ -1096,6 +1095,7 @@ void PcbLoader::ParseComponent(const char* rawComponentData, uint32_t componentB
                 current_pin_object_ptr->short_side = std::min(current_pin_object_ptr->width, current_pin_object_ptr->height);
                 current_pin_object_ptr->coords.x_ax = pin_x;
                 current_pin_object_ptr->coords.y_ax = pin_y;
+                current_pin_object_ptr->rotation = pin_rotation;  // Assign the rotation data from file
                 comp.pins.push_back(std::move(current_pin_object_ptr));  // Changed pin_ptr to current_pin_object_ptr
 #ifdef ENABLE_PCB_LOADER_LOGGING
                 std::cout << "[PcbLoader LOG]         Added pin. Total pins for \"" << comp.reference_designator << "\": " << comp.pins.size() << std::endl;
@@ -1181,7 +1181,7 @@ void PcbLoader::ParseComponent(const char* rawComponentData, uint32_t componentB
     }
     // If graphical_elements is empty, comp.width and comp.height retain any values they had from earlier parsing stages.
     // ARBITRARY: Set all layers to one layer for now.
-    comp.layer = Board::kBottomCompLayer;  // TODO: Will need to handle top and bottom sides once we have the board 'folded'.
+    comp.layer = Board::kTopCompLayer;  // TODO: Will need to handle top and bottom sides once we have the board 'folded'.
     board.AddComponent(comp);
 }
 

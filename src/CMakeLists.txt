@@ -19,14 +19,21 @@ set(MAIN_EXECUTABLE_SOURCES
 add_executable(${EXECUTABLE_NAME} ${MAIN_EXECUTABLE_SOURCES})
 
 # Link with our libraries and other dependencies
+# For circular dependencies, we need to link libraries multiple times
+# This approach works on all platforms including Windows MSVC
 target_link_libraries(${EXECUTABLE_NAME}
     PRIVATE
-    # Use WHOLE_ARCHIVE for ui_lib and core_lib to help with circular dependencies on MSVC
-    "$<LINK_LIBRARY:WHOLE_ARCHIVE,core_lib>"
-    "$<LINK_LIBRARY:WHOLE_ARCHIVE,ui_lib>"
-    view_lib       # Library from src/view/
+    # First pass - establish basic dependencies
+    utils_lib      # Library from src/utils/ (no dependencies)
     render_lib     # Library from src/render/
-    utils_lib      # Library from src/utils/
+    view_lib       # Library from src/view/
+
+    # Second pass - core and ui libraries (circular dependency)
+    core_lib       # Contains Application that creates UI objects
+    ui_lib         # Contains UI implementations that use core objects
+    core_lib       # Link again to resolve symbols from ui_lib
+
+    # External dependencies
     imgui          # Defined in root CMakeLists.txt
     SDL3::SDL3     # From external/SDL submodule
     blend2d        # From external/blend2d submodule

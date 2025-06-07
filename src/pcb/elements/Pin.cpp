@@ -162,7 +162,7 @@ std::string Pin::GetInfo(const Component* parentComponent) const
                 oss << "Capsule (W=" << s.width << ", H=" << s.height << ")";
         },
         pad_shape);
-    oss << "\nOrientation: " << GetOrientationName();
+    oss << "\nRotation: " << rotation << " deg";
     if (!diode_reading.empty()) {
         oss << "\nDiode: " << diode_reading;
     }
