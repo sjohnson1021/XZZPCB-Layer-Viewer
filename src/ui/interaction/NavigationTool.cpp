@@ -183,7 +183,7 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
 
     // Zooming with mouse wheel (only if hovered over the content area)
     if (io.MouseWheel != 0.0f && is_viewport_hovered) {
-        float zoom_sensitivity = 1.1f;
+        float zoom_sensitivity = m_control_settings_->m_zoom_sensitivity;
         float zoom_factor = (io.MouseWheel > 0.0f) ? zoom_sensitivity : 1.0f / zoom_sensitivity;
 
         ImVec2 mousePosAbsolute = ImGui::GetMousePos();
@@ -215,8 +215,9 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
 
     // Keyboard controls (active if window is focused)
     if (is_viewport_focused) {
-        float pan_speed = 100.0f / camera->GetZoom();                           // World units per second
-        pan_speed = std::max(1.0f, pan_speed);                                  // Ensure a minimum pan speed at high zoom
+        float base_pan_speed = 100.0f / camera->GetZoom();                      // World units per second
+        base_pan_speed = std::max(1.0f, base_pan_speed);                        // Ensure a minimum pan speed at high zoom
+        float pan_speed = base_pan_speed * m_control_settings_->m_pan_speed_multiplier;  // Apply user multiplier
         float free_rotation_speed_degrees = 90.0f;                              // Degrees per second (for free rotation)
         float snap_angle_degrees = m_control_settings_->m_snap_rotation_angle;  // Degrees for snap rotation
 
@@ -254,7 +255,8 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
         }
 
         // Zoom In/Out with keys
-        float keyboard_zoom_factor = 1.0f + (2.0f * io.DeltaTime);
+        float keyboard_zoom_base = 1.0f + (2.0f * io.DeltaTime);
+        float keyboard_zoom_factor = 1.0f + ((keyboard_zoom_base - 1.0f) * m_control_settings_->m_zoom_sensitivity / 1.1f);
         if (IsKeybindActive(m_control_settings_->GetKeybind(InputAction::kZoomIn), io, false)) {
             camera->AdjustZoom(keyboard_zoom_factor);
         }

@@ -84,7 +84,7 @@ void Application::LoadConfig()
     m_windowHeight = m_config->GetInt("window.height", m_windowHeight);
 
     m_controlSettings = std::make_shared<ControlSettings>();
-    m_controlSettings->LoadKeybindsFromConfig(*m_config);
+    m_controlSettings->LoadSettingsFromConfig(*m_config);
 }
 
 bool Application::InitializeCoreSubsystems()
@@ -229,7 +229,7 @@ void Application::Shutdown()
     }
 
     if (m_controlSettings && m_config) {
-        m_controlSettings->SaveKeybindsToConfig(*m_config);
+        m_controlSettings->SaveSettingsToConfig(*m_config);
     }
 
     if (m_gridSettings && m_config) {

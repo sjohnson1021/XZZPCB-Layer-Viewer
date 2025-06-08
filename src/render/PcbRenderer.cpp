@@ -62,6 +62,9 @@ bool PcbRenderer::Initialize(int initial_width, int initial_height, std::shared_
             this->MarkBoardDirty();
             this->MarkGridDirty();
         });
+        m_board_data_manager_->RegisterLayerVisibilityChangeCallback([this](int layer_id, bool visible) {
+            this->MarkBoardDirty();  // Layer visibility changes require board redraw
+        });
     }
 
     std::cout << "PcbRenderer initialized." << std::endl;
@@ -74,6 +77,7 @@ void PcbRenderer::Shutdown()
     if (m_board_data_manager_) {
         m_board_data_manager_->UnregisterNetIdChangeCallback();
         m_board_data_manager_->UnregisterSettingsChangeCallback();
+        m_board_data_manager_->UnregisterLayerVisibilityChangeCallback();
     }
 
     if (m_render_pipeline_) {

@@ -429,8 +429,10 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                     continue;
                 }
 
-                // Filter components based on current view side
+                // Filter components based on current view side AND individual layer visibility
                 bool should_render_component = true;
+
+                // First check board side view filtering
                 if (current_view_side != BoardDataManager::BoardSide::kBoth) {
                     if (current_view_side == BoardDataManager::BoardSide::kTop && component_to_render->side != MountingSide::kTop) {
                         should_render_component = false;
@@ -439,8 +441,17 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                     }
                 }
 
+                // Then check individual layer visibility (this allows users to override board side view)
+                if (should_render_component) {
+                    // Check the component's actual layer (not the container layer)
+                    const Board::LayerInfo* comp_layer = board.GetLayerById(component_to_render->layer);
+                    if (!comp_layer || !comp_layer->IsVisible()) {
+                        should_render_component = false;
+                    }
+                }
+
                 if (!should_render_component) {
-                    continue;  // Skip this component based on view side filter
+                    continue;  // Skip this component based on view side filter or layer visibility
                 }
 
                 bool current_component_is_selected = false;  // Initialize for this specific component
@@ -671,6 +682,12 @@ void RenderPipeline::RenderComponent(BLContext& bl_ctx,
 	
     for (const auto& pin_ptr : component.pins) {
         if (pin_ptr && pin_ptr->IsVisible()) {
+            // Check if the pin's layer is visible
+            const Board::LayerInfo* pin_layer = board.GetLayerById(pin_ptr->GetLayerId());
+            if (!pin_layer || !pin_layer->IsVisible()) {
+                continue;  // Skip this pin if its layer is not visible
+            }
+
             bool is_pin_selected_net = (selected_net_id != -1 && pin_ptr->GetNetId() == selected_net_id);
             BLRgba32 final_pin_color = is_pin_selected_net ? pin_highlight_for_pins : pin_fill_color;
 			BLRgba32 final_pin_stroke_color = is_pin_selected_net ? pin_highlight_for_pins : pin_stroke_color;

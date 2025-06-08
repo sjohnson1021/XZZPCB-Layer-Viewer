@@ -331,6 +331,21 @@ void SettingsWindow::ShowControlSettings()
             m_control_settings_->m_snap_rotation_angle = 1.0f;
         if (m_control_settings_->m_snap_rotation_angle > 180.0f)
             m_control_settings_->m_snap_rotation_angle = 180.0f;
+
+        ImGui::Spacing();
+        ImGui::SeparatorText("Speed Controls");
+
+        // Zoom sensitivity control
+        ImGui::SliderFloat("Zoom Sensitivity", &m_control_settings_->m_zoom_sensitivity, 1.05f, 2.0f, "%.2f");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Controls how fast the mouse wheel zooms. Lower values = finer control, higher values = faster zooming.");
+        }
+
+        // Pan speed multiplier control
+        ImGui::SliderFloat("Pan Speed", &m_control_settings_->m_pan_speed_multiplier, 0.1f, 5.0f, "%.1fx");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Controls keyboard pan speed. Lower values = slower panning, higher values = faster panning.");
+        }
     }
 
     ImGui::SeparatorText("Keybinds");
@@ -414,8 +429,6 @@ void SettingsWindow::ShowControlSettings()
 
 void SettingsWindow::ShowLayerControls(const std::shared_ptr<Board>& currentBoard)
 {  // Updated signature
-    // ImGui::SeparatorText("PCB Layer Visibility"); // Combined into Layer Styling
-
     if (!currentBoard) {
         ImGui::TextDisabled("No board loaded. Layer controls unavailable.");
         return;
@@ -426,55 +439,222 @@ void SettingsWindow::ShowLayerControls(const std::shared_ptr<Board>& currentBoar
         return;
     }
 
-    // Assuming Board has an interface like:
-    // int GetLayerCount() const;
-    // std::string GetLayerName(int layerIndex) const;
-    // bool IsLayerVisible(int layerIndex) const;
-    // void SetLayerVisible(int layerIndex, bool visible);
-    // And that modifying visibility through SetLayerVisible might trigger a redraw elsewhere.
-
     bool folding_enabled = m_board_data_manager_->IsBoardFoldingEnabled(); // Use current state, not pending
+    const auto& layers = currentBoard->GetLayers();
 
-    for (int i = 0; i < currentBoard->GetLayerCount(); ++i) {
-        std::string layerName = currentBoard->GetLayerName(i);
-        if (layerName.empty()) {
-            layerName = "Unnamed Layer " + std::to_string(i);
-        }
-
-        // Skip duplicate component/pin layer controls when board folding is enabled
-        if (folding_enabled) {
-            // Get the layer info to check the layer ID
-            const auto& layers = currentBoard->GetLayers();
+    // "Show All" button
+    if (ImGui::Button("Show All Layers")) {
+        for (int i = 0; i < currentBoard->GetLayerCount(); ++i) {
             if (i < layers.size()) {
                 int layer_id = layers[i].GetId();
-                // Skip individual top/bottom component and pin layers when folding is enabled
-                // These are controlled by the board side view setting instead
-                if (layer_id == Board::kTopCompLayer || layer_id == Board::kBottomCompLayer ||
-                    layer_id == Board::kTopPinsLayer || layer_id == Board::kBottomPinsLayer) {
+                // Skip component/pin layers when folding is enabled (they're controlled by board side view)
+                if (folding_enabled && (layer_id == Board::kTopCompLayer || layer_id == Board::kBottomCompLayer ||
+                                       layer_id == Board::kTopPinsLayer || layer_id == Board::kBottomPinsLayer)) {
                     continue;
+                }
+            }
+            m_board_data_manager_->SetLayerVisible(i, true);
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Hide All Layers")) {
+        for (int i = 0; i < currentBoard->GetLayerCount(); ++i) {
+            if (i < layers.size()) {
+                int layer_id = layers[i].GetId();
+                // Skip component/pin layers when folding is enabled
+                if (folding_enabled && (layer_id == Board::kTopCompLayer || layer_id == Board::kBottomCompLayer ||
+                                       layer_id == Board::kTopPinsLayer || layer_id == Board::kBottomPinsLayer)) {
+                    continue;
+                }
+            }
+            m_board_data_manager_->SetLayerVisible(i, false);
+        }
+    }
+
+    ImGui::Spacing();
+
+    // Group trace layers (1-16) in a collapsible section
+    if (ImGui::CollapsingHeader("Trace Layers (1-16)", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Indent();
+
+        // Toggle all traces button
+        if (ImGui::SmallButton("All On##traces")) {
+            for (int i = 0; i < currentBoard->GetLayerCount(); ++i) {
+                if (i < layers.size()) {
+                    int layer_id = layers[i].GetId();
+                    if (layer_id >= 1 && layer_id <= 16) {
+                        m_board_data_manager_->SetLayerVisible(i, true);
+                    }
+                }
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("All Off##traces")) {
+            for (int i = 0; i < currentBoard->GetLayerCount(); ++i) {
+                if (i < layers.size()) {
+                    int layer_id = layers[i].GetId();
+                    if (layer_id >= 1 && layer_id <= 16) {
+                        m_board_data_manager_->SetLayerVisible(i, false);
+                    }
                 }
             }
         }
 
-        bool layerVisible = currentBoard->IsLayerVisible(i);
+        // Show individual trace layer controls
+        for (int i = 0; i < currentBoard->GetLayerCount(); ++i) {
+            if (i < layers.size()) {
+                int layer_id = layers[i].GetId();
+                if (layer_id >= 1 && layer_id <= 16) {
+                    // Push unique ID to avoid conflicts
+                    ImGui::PushID(i);
 
-        if (ImGui::Checkbox(layerName.c_str(), &layerVisible)) {
-            currentBoard->SetLayerVisible(i, layerVisible);
-            // Optionally, mark the board as dirty or trigger an event if needed
+                    std::string layerName = currentBoard->GetLayerName(i);
+                    if (layerName.empty()) {
+                        layerName = "Layer " + std::to_string(layer_id);
+                    }
+
+                    bool layerVisible = currentBoard->IsLayerVisible(i);
+                    if (ImGui::Checkbox(layerName.c_str(), &layerVisible)) {
+                        m_board_data_manager_->SetLayerVisible(i, layerVisible);
+                    }
+
+                    ImGui::PopID();
+                }
+            }
         }
+
+        ImGui::Unindent();
+    }
+
+    // Group unknown layers (18-27) in a collapsible section
+    if (ImGui::CollapsingHeader("Unknown Layers (18-27)")) {
+        ImGui::Indent();
+
+        // Toggle all unknown layers button
+        if (ImGui::SmallButton("All On##unknown")) {
+            for (int i = 0; i < currentBoard->GetLayerCount(); ++i) {
+                if (i < layers.size()) {
+                    int layer_id = layers[i].GetId();
+                    if (layer_id >= 18 && layer_id <= 27) {
+                        m_board_data_manager_->SetLayerVisible(i, true);
+                    }
+                }
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("All Off##unknown")) {
+            for (int i = 0; i < currentBoard->GetLayerCount(); ++i) {
+                if (i < layers.size()) {
+                    int layer_id = layers[i].GetId();
+                    if (layer_id >= 18 && layer_id <= 27) {
+                        m_board_data_manager_->SetLayerVisible(i, false);
+                    }
+                }
+            }
+        }
+
+        // Show individual unknown layer controls
+        for (int i = 0; i < currentBoard->GetLayerCount(); ++i) {
+            if (i < layers.size()) {
+                int layer_id = layers[i].GetId();
+                if (layer_id >= 18 && layer_id <= 27) {
+                    // Push unique ID to avoid conflicts
+                    ImGui::PushID(i);
+
+                    std::string layerName = currentBoard->GetLayerName(i);
+                    if (layerName.empty()) {
+                        layerName = "Unknown Layer " + std::to_string(layer_id);
+                    }
+
+                    bool layerVisible = currentBoard->IsLayerVisible(i);
+                    if (ImGui::Checkbox(layerName.c_str(), &layerVisible)) {
+                        m_board_data_manager_->SetLayerVisible(i, layerVisible);
+                    }
+
+                    ImGui::PopID();
+                }
+            }
+        }
+
+        ImGui::Unindent();
+    }
+
+    // Component and Pin layers (always show these controls)
+    if (ImGui::CollapsingHeader("Components & Pins", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Indent();
+        for (int i = 0; i < currentBoard->GetLayerCount(); ++i) {
+            if (i < layers.size()) {
+                int layer_id = layers[i].GetId();
+
+                // Only show component and pin layers
+                if (layer_id == Board::kTopCompLayer || layer_id == Board::kBottomCompLayer ||
+                    layer_id == Board::kTopPinsLayer || layer_id == Board::kBottomPinsLayer) {
+
+                    // Push unique ID to avoid conflicts
+                    ImGui::PushID(i);
+
+                    std::string layerName = currentBoard->GetLayerName(i);
+					if (layer_id == Board::kTopCompLayer) layerName = "Top Components";
+					else if (layer_id == Board::kBottomCompLayer) layerName = "Bottom Components";
+					else if (layer_id == Board::kTopPinsLayer) layerName = "Top Pins";
+					else if (layer_id == Board::kBottomPinsLayer) layerName = "Bottom Pins";
+					else layerName = "Layer " + std::to_string(layer_id);
+				
+
+                    bool layerVisible = currentBoard->IsLayerVisible(i);
+
+                    // Disable controls when folding is enabled (but still show current state)
+                    if (ImGui::Checkbox(layerName.c_str(), &layerVisible)) {
+                        m_board_data_manager_->SetLayerVisible(i, layerVisible);
+                    }
+
+                    ImGui::PopID();
+                }
+            }
+        }
+
+        ImGui::Unindent();
+    }
+
+    // Other layers (not in the above groups)
+    if (ImGui::CollapsingHeader("Other Layers", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Indent();
+
+        for (int i = 0; i < currentBoard->GetLayerCount(); ++i) {
+            if (i < layers.size()) {
+                int layer_id = layers[i].GetId();
+
+                // Skip layers that are in other groups or VIAs (too integrated with trace layers)
+                if ((layer_id >= 1 && layer_id <= 16) || (layer_id >= 18 && layer_id <= 27) ||
+                    layer_id == Board::kTopCompLayer || layer_id == Board::kBottomCompLayer ||
+                    layer_id == Board::kTopPinsLayer || layer_id == Board::kBottomPinsLayer ||
+                    layer_id == Board::kViasLayer) {
+                    continue;
+                }
+
+                // Push unique ID to avoid conflicts
+                ImGui::PushID(i);
+
+                std::string layerName = currentBoard->GetLayerName(i);
+                if (layerName.empty()) {
+                    layerName = "Layer " + std::to_string(layer_id);
+                }
+
+                bool layerVisible = currentBoard->IsLayerVisible(i);
+                if (ImGui::Checkbox(layerName.c_str(), &layerVisible)) {
+                    m_board_data_manager_->SetLayerVisible(i, layerVisible);
+                }
+
+                ImGui::PopID();
+            }
+        }
+
+        ImGui::Unindent();
     }
 }
 
 void SettingsWindow::ShowAppearanceSettings(const std::shared_ptr<Board>& currentBoard)
 {
-    if (!m_app_clear_color_) {
-        ImGui::Text("Application clear color not available.");
-    } else {
-        ImGui::SeparatorText("Application Appearance");
-        ImGui::ColorEdit3("Background Color", m_app_clear_color_, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_DisplayRGB);
-        ImGui::Spacing();
-    }
-
     // Board View Settings
     ImGui::SeparatorText("Board View");
 

@@ -12,6 +12,9 @@
 ControlSettings::ControlSettings()
 {
     InitializeDefaultKeybinds();
+    // Initialize default speed values
+    m_zoom_sensitivity = 1.1F;
+    m_pan_speed_multiplier = 1.0F;
     // Later, we will add loading from config here, potentially overriding defaults.
 }
 
@@ -107,4 +110,28 @@ void ControlSettings::SaveKeybindsToConfig(Config& config)
     }
 }
 
-// Implement load/save methods here if added to the header
+void ControlSettings::LoadSettingsFromConfig(const Config& config)
+{
+    // Load keybinds
+    LoadKeybindsFromConfig(config);
+
+    // Load speed control settings
+    m_zoom_sensitivity = config.GetFloat("controls.zoom_sensitivity", 1.1F);
+    m_pan_speed_multiplier = config.GetFloat("controls.pan_speed_multiplier", 1.0F);
+
+    // Apply reasonable limits to loaded values
+    if (m_zoom_sensitivity < 1.05F) m_zoom_sensitivity = 1.05F;
+    if (m_zoom_sensitivity > 2.0F) m_zoom_sensitivity = 2.0F;
+    if (m_pan_speed_multiplier < 0.1F) m_pan_speed_multiplier = 0.1F;
+    if (m_pan_speed_multiplier > 5.0F) m_pan_speed_multiplier = 5.0F;
+}
+
+void ControlSettings::SaveSettingsToConfig(Config& config)
+{
+    // Save keybinds
+    SaveKeybindsToConfig(config);
+
+    // Save speed control settings
+    config.SetFloat("controls.zoom_sensitivity", m_zoom_sensitivity);
+    config.SetFloat("controls.pan_speed_multiplier", m_pan_speed_multiplier);
+}
