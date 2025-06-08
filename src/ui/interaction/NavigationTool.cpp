@@ -70,8 +70,12 @@ NavigationTool::NavigationTool(std::shared_ptr<Camera> camera,
       m_control_settings_(control_settings),
       m_board_data_manager_(board_data_manager),
       m_is_hovering_element_(false),  // Initialize new members
-      m_selected_net_id_(-1)
+      m_selected_net_id_(-1),
+      m_cache_valid_(false),  // Initialize cache as invalid
+      m_cached_board_side_(BoardDataManager::BoardSide::kBoth)
 {
+    // Note: We don't register callbacks to avoid interfering with existing callbacks
+    // from PcbRenderer and Application. Instead, we use a polling approach to detect changes.
 }
 
 void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is_viewport_hovered, ImVec2 viewport_top_left, ImVec2 viewport_size)
@@ -106,12 +110,12 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
             float pick_tolerance = 2.0f / camera->GetZoom();   // World units
             pick_tolerance = std::max(0.01f, pick_tolerance);  // Ensure minimum pick tolerance
 
-            // Get all potentially interactive elements
-            std::vector<ElementInteractionInfo> interactive_elements = current_board->GetAllVisibleElementsForInteraction();
+            // Get cached interactive elements (performance optimization)
+            const std::vector<ElementInteractionInfo>& interactive_elements = GetCachedInteractiveElements();
 
             // Check for hover
             // Iterate in reverse to prioritize elements rendered on top (assuming later elements in vector are "on top")
-            // However, GetAllVisibleElementsForInteraction doesn't guarantee render order.
+            // However, GetCachedInteractiveElements doesn't guarantee render order.
             // For now, simple iteration. If z-ordering becomes an issue, this needs refinement.
             for (const auto& item : interactive_elements) {
                 if (!item.element) {
@@ -129,6 +133,7 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
                 int clicked_net_id = -1;
                 const Element* clicked_element = nullptr;
 
+                // Use the same cached elements for click detection
                 for (const auto& item : interactive_elements) {
                     if (item.element && item.element->IsHit(transformedWorldMousePos, pick_tolerance, item.parent_component)) {
                         clicked_element = item.element;
@@ -165,6 +170,7 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
                 // CRITICAL FIX: Check if board flipping is allowed before attempting to flip
                 if (m_board_data_manager_->CanFlipBoard()) {
                     m_board_data_manager_->ToggleViewSide();
+                    // Cache will be automatically invalidated on next access due to board side change
                     std::cout << "NavigationTool: Board view toggled to " << BoardSideToString(m_board_data_manager_->GetCurrentViewSide()) << std::endl;
                 } else {
                     std::cout << "NavigationTool: Board flipping disabled - folding must be enabled and viewing Top/Bottom side" << std::endl;
@@ -403,6 +409,9 @@ void NavigationTool::OnActivated()
     m_board_data_manager_->SetSelectedNetId(-1);
     m_is_hovering_element_ = false;
     m_hovered_element_info_ = "";
+
+    // Invalidate cache when tool is activated to ensure fresh data
+    InvalidateElementCache();
 }
 
 void NavigationTool::OnDeactivated()
@@ -412,6 +421,9 @@ void NavigationTool::OnDeactivated()
     m_is_hovering_element_ = false;
     m_hovered_element_info_ = "";
     // Optionally keep m_selectedNetId or clear it based on desired behavior
+
+    // Clear cache when tool is deactivated to free memory
+    InvalidateElementCache();
 }
 
 int NavigationTool::GetSelectedNetId() const
@@ -431,4 +443,111 @@ void NavigationTool::ClearSelection()
 
 // The old helper methods (CheckElementHover, GetNetIdAtPosition, IsMouseOverTrace, etc.)
 // are now removed as their logic is handled by Element::isHit and Element::getInfo/getNetId
-// and the loop over GetAllVisibleElementsForInteraction.
+// and the loop over GetCachedInteractiveElements.
+
+// --- Performance Optimization: Element Caching System Implementation ---
+
+void NavigationTool::InvalidateElementCache() const
+{
+    m_cache_valid_ = false;
+    m_cached_interactive_elements_.clear();
+    m_cached_layer_visibility_.clear();
+    m_cached_board_.reset();
+}
+
+bool NavigationTool::HasCacheInvalidatingChanges() const
+{
+    if (!m_board_data_manager_) {
+        return true;  // No board data manager means cache should be invalid
+    }
+
+    std::shared_ptr<const Board> current_board = m_board_data_manager_->GetBoard();
+
+    // Check if board changed (most common case)
+    if (current_board != m_cached_board_) {
+        return true;
+    }
+
+    // Check if board side changed (second most common case)
+    if (m_board_data_manager_->GetCurrentViewSide() != m_cached_board_side_) {
+        return true;
+    }
+
+    // Only check layer visibility if we have a valid board and cached state
+    if (current_board && current_board->IsLoaded() && !m_cached_layer_visibility_.empty()) {
+        int layer_count = current_board->GetLayerCount();
+        if (m_cached_layer_visibility_.size() != static_cast<size_t>(layer_count)) {
+            return true;
+        }
+
+        // Quick check: only compare a few key layers first (optimization for large layer counts)
+        // Check layers 0, 1, 16, 28 (common important layers) before doing full scan
+        const std::vector<int> key_layers = {0, 1, 16, 28};
+        for (int layer_id : key_layers) {
+            if (layer_id < layer_count) {
+                if (m_board_data_manager_->IsLayerVisible(layer_id) != m_cached_layer_visibility_[layer_id]) {
+                    return true;
+                }
+            }
+        }
+
+        // If key layers match, do full scan (less frequent)
+        for (int i = 0; i < layer_count; ++i) {
+            if (m_board_data_manager_->IsLayerVisible(i) != m_cached_layer_visibility_[i]) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+void NavigationTool::UpdateElementCache() const
+{
+    if (!m_board_data_manager_) {
+        InvalidateElementCache();
+        return;
+    }
+
+    std::shared_ptr<const Board> current_board = m_board_data_manager_->GetBoard();
+    if (!current_board || !current_board->IsLoaded()) {
+        InvalidateElementCache();
+        return;
+    }
+
+    // Update cached state
+    m_cached_board_ = current_board;
+    m_cached_board_side_ = m_board_data_manager_->GetCurrentViewSide();
+
+    int layer_count = current_board->GetLayerCount();
+    m_cached_layer_visibility_.resize(layer_count);
+    for (int i = 0; i < layer_count; ++i) {
+        m_cached_layer_visibility_[i] = m_board_data_manager_->IsLayerVisible(i);
+    }
+
+    // Get fresh elements from the board
+    m_cached_interactive_elements_ = current_board->GetAllVisibleElementsForInteraction();
+    m_cache_valid_ = true;
+
+    // Only log cache updates for large boards to avoid spam
+    if (m_cached_interactive_elements_.size() > 1000) {
+        std::cout << "NavigationTool: Element cache updated with " << m_cached_interactive_elements_.size() << " elements" << std::endl;
+    }
+}
+
+const std::vector<ElementInteractionInfo>& NavigationTool::GetCachedInteractiveElements() const
+{
+    // Check if cache needs to be invalidated due to changes
+    if (m_cache_valid_ && HasCacheInvalidatingChanges()) {
+        // Only log cache invalidation for large boards to avoid spam
+        if (m_cached_interactive_elements_.size() > 1000) {
+            std::cout << "NavigationTool: Cache invalidated due to detected changes" << std::endl;
+        }
+        m_cache_valid_ = false;
+    }
+
+    if (!m_cache_valid_) {
+        UpdateElementCache();
+    }
+    return m_cached_interactive_elements_;
+}

@@ -1,16 +1,16 @@
 #pragma once
 
 #include <string>  // For m_hoveredElementInfo
+#include <vector>  // For cached elements
 
 #include "imgui.h"
 
+#include "core/BoardDataManager.hpp"  // Need full declaration for BoardSide enum
 #include "pcb/Board.hpp"
 #include "ui/interaction/InteractionTool.hpp"
 #include "utils/Vec2.hpp"
 // Forward declaration
 class ControlSettings;
-class BoardDataManager;  // Forward Declaration
-class Board;             // Forward needed if we pass Board directly, but DataManager is better
 
 class NavigationTool : public InteractionTool
 {
@@ -34,12 +34,29 @@ public:
 private:
     std::shared_ptr<ControlSettings> m_control_settings_;
     std::shared_ptr<BoardDataManager> m_board_data_manager_;
+
     // --- New members for hover and selection ---
     std::string m_hovered_element_info_;
     bool m_is_hovering_element_ = false;
     int m_selected_net_id_ = -1;  // -1 indicates no net is selected
     // Potentially store more info about the selected element if needed
     // --- End new members ---
+
+    // --- Performance optimization: Element caching system ---
+    mutable std::vector<ElementInteractionInfo> m_cached_interactive_elements_;
+    mutable bool m_cache_valid_ = false;
+
+    // Cache state tracking for invalidation detection
+    mutable BoardDataManager::BoardSide m_cached_board_side_ = BoardDataManager::BoardSide::kBoth;
+    mutable std::vector<bool> m_cached_layer_visibility_;
+    mutable std::shared_ptr<const Board> m_cached_board_;
+
+    // Cache management methods
+    void InvalidateElementCache() const;
+    void UpdateElementCache() const;
+    const std::vector<ElementInteractionInfo>& GetCachedInteractiveElements() const;
+    bool HasCacheInvalidatingChanges() const;
+    // --- End caching system ---
 
     // TransformMousePositionForBoardFlip method removed - no longer needed
 
