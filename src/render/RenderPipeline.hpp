@@ -1,6 +1,8 @@
 #pragma once
 
 #include <string>  // Added for std::string
+#include <unordered_map>
+#include <memory>
 
 #include <blend2d.h>  // Include for BLContext
 
@@ -20,6 +22,24 @@ class Component;  // Forward declare Component
 class TextLabel;  // Forward declare TextLabel
 class Pin;        // Forward declare Pin
 // class Layer; // No longer forward-declaring the old Layer class assumption
+
+// Performance optimization: Cached rendering state to avoid repeated BoardDataManager calls
+struct RenderingState {
+    int selected_net_id = -1;
+    const class Element* selected_element = nullptr;
+    BoardDataManager::BoardSide current_view_side = BoardDataManager::BoardSide::kBoth;
+    float board_outline_thickness = 0.1f;
+    std::unordered_map<BoardDataManager::ColorType, BLRgba32> theme_color_cache;
+    std::unordered_map<int, BLRgba32> layer_id_color_cache;
+    bool is_board_folding_enabled = false;
+
+    // Cache validity tracking
+    mutable bool is_valid = false;
+    mutable std::shared_ptr<const Board> cached_board;
+    mutable BoardDataManager::BoardSide cached_view_side = BoardDataManager::BoardSide::kBoth;
+    mutable int cached_selected_net_id = -1;
+    mutable const Element* cached_selected_element = nullptr;
+};
 
 class RenderPipeline
 {
@@ -93,6 +113,30 @@ private:
     // Helper function to get the visible area in world coordinates
     [[nodiscard]] BLRect GetVisibleWorldBounds(const Camera& camera, const Viewport& viewport) const;
 
+    // Performance optimization: Cached rendering state management
+    const RenderingState& GetCachedRenderingState(const Board& board) const;
+    void InvalidateRenderingStateCache() const;
+
+    // Performance optimization: Batch rendering methods to reduce state changes
+    void SetFillColorOptimized(BLContext& ctx, const BLRgba32& color) const;
+    void SetStrokeColorOptimized(BLContext& ctx, const BLRgba32& color) const;
+    void SetStrokeWidthOptimized(BLContext& ctx, double width) const;
+    void ResetBlend2DStateTracking() const;
+
+    // Performance optimization: Object pool management
+    BLPath& GetPooledPath() const;
+    void ReturnPooledPath(BLPath& path) const;
+    void InitializeObjectPools() const;
+
+    // Performance monitoring and debugging
+    void LogPerformanceStats() const;
+    size_t GetElementsRendered() const { return m_elements_rendered_; }
+    size_t GetElementsCulled() const { return m_elements_culled_; }
+    double GetCullingRatio() const {
+        size_t total = m_elements_rendered_ + m_elements_culled_;
+        return total > 0 ? static_cast<double>(m_elements_culled_) / total : 0.0;
+    }
+
     // std::vector<std::unique_ptr<RenderStage>> m_stages;
     // Or a more direct approach if stages are fixed:
     // void GeometryPass(RenderContext& context);
@@ -108,5 +152,27 @@ private:
 
     // Cache for loaded font faces
     std::map<std::string, BLFontFace> m_font_face_cache_;
+
+    // Performance optimization: Cached rendering state
+    mutable RenderingState m_cached_rendering_state_;
+
+    // Performance optimization: Batch rendering state
+    mutable BLRgba32 m_last_fill_color_;
+    mutable BLRgba32 m_last_stroke_color_;
+    mutable double m_last_stroke_width_;
+    mutable bool m_blend2d_state_dirty_;
+
+    // Performance optimization: Culling statistics for debugging
+    mutable size_t m_elements_rendered_;
+    mutable size_t m_elements_culled_;
+
+    // Performance optimization: Object pools for frequently allocated objects
+    mutable std::vector<BLPath> m_path_pool_;
+    mutable size_t m_path_pool_index_;
+
+    // Performance optimization: Reusable containers to avoid allocations
+    mutable std::vector<int> m_temp_layer_ids_;
+    mutable std::vector<ElementType> m_temp_element_types_;
+
     // Add any other members needed for managing rendering state or resources for the pipeline
 };

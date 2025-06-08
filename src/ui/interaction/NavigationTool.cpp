@@ -148,20 +148,28 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
 
                 if (m_board_data_manager_->GetSelectedNetId() == clicked_net_id && clicked_net_id != -1) {  // Clicking an already selected net deselects it
                     m_board_data_manager_->SetSelectedNetId(-1);
+                    #ifdef DEBUG_NAVIGATION
                     std::cout << "NavigationTool: Deselected Net ID: " << clicked_net_id << std::endl;
+                    #endif
                 } else if (clicked_net_id != -1) {
                     m_board_data_manager_->SetSelectedNetId(clicked_net_id);
+                    #ifdef DEBUG_NAVIGATION
                     std::cout << "NavigationTool: Selected Net ID: " << clicked_net_id << std::endl;
+                    #endif
                 } else {
                     m_board_data_manager_->SetSelectedNetId(-1);  // Clicked on empty space or non-net element
+                    #ifdef DEBUG_NAVIGATION
                     std::cout << "NavigationTool: Clicked empty or non-net element, selection cleared." << std::endl;
+                    #endif
                 }
 
+                #ifdef DEBUG_NAVIGATION
                 if (clicked_element) {
                     std::cout << "NavigationTool: Selected Element: " << clicked_element->GetInfo() << std::endl;
                 } else {
                     std::cout << "NavigationTool: No element selected." << std::endl;
                 }
+                #endif
                 // mark the board as dirty pcbrenderer
             }
 
@@ -171,9 +179,13 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
                 if (m_board_data_manager_->CanFlipBoard()) {
                     m_board_data_manager_->ToggleViewSide();
                     // Cache will be automatically invalidated on next access due to board side change
+                    #ifdef DEBUG_NAVIGATION
                     std::cout << "NavigationTool: Board view toggled to " << BoardSideToString(m_board_data_manager_->GetCurrentViewSide()) << std::endl;
+                    #endif
                 } else {
+                    #ifdef DEBUG_NAVIGATION
                     std::cout << "NavigationTool: Board flipping disabled - folding must be enabled and viewing Top/Bottom side" << std::endl;
+                    #endif
                 }
             }
         }

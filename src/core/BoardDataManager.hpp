@@ -63,7 +63,8 @@ public:
     void ApplyPendingFoldingSettings(); // Apply pending settings to current board
 
     // --- Board Side View ---
-    enum class BoardSide {
+    // Performance optimization: Use uint8_t for smaller memory footprint
+    enum class BoardSide : uint8_t {
         kTop,     // Show only top side components
         kBottom,  // Show only bottom side components
         kBoth     // Show both sides (default)
@@ -93,7 +94,8 @@ public:
     void RegisterLayerVisibilityChangeCallback(LayerVisibilityChangeCallback callback);
     void UnregisterLayerVisibilityChangeCallback();
 
-    enum class ColorType
+    // Performance optimization: Use uint8_t for smaller memory footprint
+    enum class ColorType : uint8_t
     {
         kNetHighlight,
         kSelectedElementHighlight,  // New: separate color for directly selected elements
@@ -110,6 +112,9 @@ public:
 
     void SetColor(ColorType type, BLRgba32 color);
     BLRgba32 GetColor(ColorType type) const;
+
+    // Performance optimization: Batch color retrieval to reduce mutex overhead
+    void GetColors(const std::vector<ColorType>& types, std::unordered_map<ColorType, BLRgba32>& out_colors) const;
 
     std::unordered_map<ColorType, BLRgba32> color_map;
     void LoadColorsFromConfig(const class Config &config);

@@ -11,7 +11,8 @@
 class Board;
 class Component;  // Added: Parent component context for pins
 
-enum class ElementType {
+// Performance optimization: Use uint8_t for smaller memory footprint
+enum class ElementType : uint8_t {
     kNone,
     kTrace,
     kVia,

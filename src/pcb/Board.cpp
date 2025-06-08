@@ -27,6 +27,62 @@ Board::Board(const std::string& filePath) : file_path(filePath), m_is_loaded_(fa
     Initialize(filePath);
 }
 
+// Performance optimization: Move constructor
+Board::Board(Board&& other) noexcept
+    : board_name(std::move(other.board_name)),
+      file_path(std::move(other.file_path)),
+      width(other.width),
+      height(other.height),
+      origin_offset(other.origin_offset),
+      layers(std::move(other.layers)),
+      m_elements_by_layer(std::move(other.m_elements_by_layer)),
+      m_nets(std::move(other.m_nets)),
+      m_is_loaded_(other.m_is_loaded_),
+      m_error_message_(std::move(other.m_error_message_)),
+      m_board_data_manager_(std::move(other.m_board_data_manager_)),
+      m_control_settings_(std::move(other.m_control_settings_)),
+      m_is_folded_(other.m_is_folded_),
+      m_board_center_x_(other.m_board_center_x_)
+{
+    // Reset other object to valid but empty state
+    other.width = 0.0;
+    other.height = 0.0;
+    other.origin_offset = {0.0, 0.0};
+    other.m_is_loaded_ = false;
+    other.m_is_folded_ = false;
+    other.m_board_center_x_ = 0.0;
+}
+
+// Performance optimization: Move assignment operator
+Board& Board::operator=(Board&& other) noexcept
+{
+    if (this != &other) {
+        board_name = std::move(other.board_name);
+        file_path = std::move(other.file_path);
+        width = other.width;
+        height = other.height;
+        origin_offset = other.origin_offset;
+        layers = std::move(other.layers);
+        m_elements_by_layer = std::move(other.m_elements_by_layer);
+        m_nets = std::move(other.m_nets);
+        m_is_loaded_ = other.m_is_loaded_;
+        m_error_message_ = std::move(other.m_error_message_);
+        m_board_data_manager_ = std::move(other.m_board_data_manager_);
+        m_control_settings_ = std::move(other.m_control_settings_);
+        m_is_folded_ = other.m_is_folded_;
+        m_board_center_x_ = other.m_board_center_x_;
+
+        // Reset other object to valid but empty state
+        other.width = 0.0;
+        other.height = 0.0;
+        other.origin_offset = {0.0, 0.0};
+        other.m_is_loaded_ = false;
+        other.m_is_folded_ = false;
+        other.m_board_center_x_ = 0.0;
+    }
+    return *this;
+}
+
 // New initialization method that can be called by both constructor and loaders
 bool Board::Initialize(const std::string& filePath)
 {
@@ -93,6 +149,60 @@ void Board::AddLayer(const LayerInfo& layer)
     LayerInfo l = layer;
     l.is_visible = true;
     layers.push_back(l);
+}
+
+// Performance optimization: Move-based element addition methods
+void Board::AddArc(Arc&& arc)
+{
+    m_elements_by_layer[arc.GetLayerId()].emplace_back(std::make_unique<Arc>(std::move(arc)));
+}
+
+void Board::AddVia(Via&& via)
+{
+    m_elements_by_layer[via.GetLayerId()].emplace_back(std::make_unique<Via>(std::move(via)));
+}
+
+void Board::AddTrace(Trace&& trace)
+{
+    m_elements_by_layer[trace.GetLayerId()].emplace_back(std::make_unique<Trace>(std::move(trace)));
+}
+
+void Board::AddStandaloneTextLabel(TextLabel&& label)
+{
+    m_elements_by_layer[label.GetLayerId()].emplace_back(std::make_unique<TextLabel>(std::move(label)));
+}
+
+void Board::AddComponent(Component&& component)
+{
+    m_elements_by_layer[Board::kBottomCompLayer].emplace_back(std::make_unique<Component>(std::move(component)));
+}
+
+void Board::AddNet(Net&& net)
+{
+    int net_id = net.GetId();
+    m_nets.emplace(net_id, std::move(net));
+}
+
+void Board::AddLayer(LayerInfo&& layer)
+{
+    layer.is_visible = true;
+    layers.emplace_back(std::move(layer));
+}
+
+// Performance optimization: Reserve space methods
+void Board::ReserveElementSpace(int layer_id, size_t count)
+{
+    m_elements_by_layer[layer_id].reserve(count);
+}
+
+void Board::ReserveLayerSpace(size_t layer_count)
+{
+    layers.reserve(layer_count);
+}
+
+void Board::ReserveNetSpace(size_t net_count)
+{
+    m_nets.reserve(net_count);
 }
 
 // --- Layer Access Methods ---
@@ -296,34 +406,37 @@ ElementInteractionType GetElementInteractionType(const Element* element) {
     return ElementInteractionType::kTraces;
 }
 
-// --- GetAllVisibleElementsForInteraction (New Implementation) ---
+// --- Performance Optimized GetAllVisibleElementsForInteraction ---
 std::vector<ElementInteractionInfo> Board::GetAllVisibleElementsForInteraction() const
 {
+    // Performance optimization: Estimate capacity based on board complexity
+    size_t estimated_capacity = 1000;  // Base capacity
+    for (const auto& layer_pair : m_elements_by_layer) {
+        estimated_capacity += layer_pair.second.size();
+    }
+
     std::vector<ElementInteractionInfo> result;
-    result.reserve(5000);  // Pre-allocate, adjust based on typical board size
+    result.reserve(estimated_capacity);
 
-    // Get current board side view from BoardDataManager for filtering
-    BoardDataManager::BoardSide current_view_side = BoardDataManager::BoardSide::kBoth;
-    if (m_board_data_manager_) {
-        current_view_side = m_board_data_manager_->GetCurrentViewSide();
-    }
+    // Performance optimization: Cache frequently accessed values
+    const BoardDataManager::BoardSide current_view_side = m_board_data_manager_ ?
+        m_board_data_manager_->GetCurrentViewSide() : BoardDataManager::BoardSide::kBoth;
 
-    // Get element priority order from ControlSettings (use default if not available)
-    std::array<ElementInteractionType, static_cast<size_t>(ElementInteractionType::kCount)> priority_order;
-    if (m_control_settings_) {
-        priority_order = m_control_settings_->GetElementPriorityOrder();
-    } else {
-        // Default priority: Pins > Components > Traces > Vias > Text Labels
-        priority_order[0] = ElementInteractionType::kPins;
-        priority_order[1] = ElementInteractionType::kComponents;
-        priority_order[2] = ElementInteractionType::kTraces;
-        priority_order[3] = ElementInteractionType::kVias;
-        priority_order[4] = ElementInteractionType::kTextLabels;
-    }
+    // Performance optimization: Use static default priority order to avoid repeated allocation
+    static const std::array<ElementInteractionType, static_cast<size_t>(ElementInteractionType::kCount)> default_priority_order = {
+        ElementInteractionType::kPins,
+        ElementInteractionType::kComponents,
+        ElementInteractionType::kTraces,
+        ElementInteractionType::kVias,
+        ElementInteractionType::kTextLabels
+    };
 
-    // Collect all elements first, then sort by priority
+    const auto& priority_order = m_control_settings_ ?
+        m_control_settings_->GetElementPriorityOrder() : default_priority_order;
+
+    // Performance optimization: Collect elements directly into result vector with proper ordering
     std::vector<ElementInteractionInfo> all_elements;
-    all_elements.reserve(5000);
+    all_elements.reserve(estimated_capacity);
 
     // 1. Iterate through standalone elements grouped by layer (excluding components - they're handled separately)
     for (const auto& layer_pair : m_elements_by_layer) {

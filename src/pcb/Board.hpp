@@ -35,9 +35,17 @@ struct ElementInteractionInfo {
 class Board
 {
 public:
-    // Constructor that takes a file path (implementation will be in Board.cpp)
+    // Performance optimization: Add move semantics and optimized constructors
     explicit Board(const std::string& file_path);
-    Board();  // Keep default constructor if needed, or remove if filePath constructor is primary
+    Board();  // Default constructor
+
+    // Performance optimization: Move constructor and assignment
+    Board(Board&& other) noexcept;
+    Board& operator=(Board&& other) noexcept;
+
+    // Delete copy constructor and assignment to prevent expensive copies
+    Board(const Board&) = delete;
+    Board& operator=(const Board&) = delete;
 
     // New initialization method
     bool Initialize(const std::string& file_path);
@@ -104,13 +112,14 @@ public:
     static constexpr int kBottomPinsLayer = 31;
     std::vector<LayerInfo> layers;
 
-    // --- NEW PCB Element Storage ---
+    // --- Performance Optimized PCB Element Storage ---
     // Elements are grouped by layer ID for efficient layer-based operations.
     // Components are stored separately as they are containers of other elements (pins, specific text).
-    std::map<int, std::vector<std::unique_ptr<Element>>> m_elements_by_layer;
+    // Performance optimization: Use unordered_map for faster layer lookups and reserve space
+    std::unordered_map<int, std::vector<std::unique_ptr<Element>>> m_elements_by_layer;
     std::unordered_map<int, Net> m_nets;  // Keep storing nets as before
 
-    // --- Methods to add elements (modified) ---
+    // --- Performance Optimized Methods to add elements ---
     // These will now emplace std::unique_ptr<Element> into m_elementsByLayer
     void AddArc(const Arc& arc);
     void AddVia(const Via& via);
@@ -119,6 +128,20 @@ public:
     void AddComponent(Component& component);        // Will store in m_components
     void AddNet(const Net& net);                          // Will store in m_nets
     void AddLayer(const LayerInfo& layer);                // Will store in layers
+
+    // Performance optimization: Move-based element addition methods
+    void AddArc(Arc&& arc);
+    void AddVia(Via&& via);
+    void AddTrace(Trace&& trace);
+    void AddStandaloneTextLabel(TextLabel&& label);
+    void AddComponent(Component&& component);
+    void AddNet(Net&& net);
+    void AddLayer(LayerInfo&& layer);
+
+    // Performance optimization: Reserve space for elements to reduce reallocations
+    void ReserveElementSpace(int layer_id, size_t count);
+    void ReserveLayerSpace(size_t layer_count);
+    void ReserveNetSpace(size_t net_count);
 
     // --- Methods to retrieve elements (modified/new) ---
     // Old GetTraces, GetVias, etc. are removed. Use GetAllVisibleElementsForInteraction or iterate m_elementsByLayer if needed.

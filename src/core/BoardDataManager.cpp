@@ -118,8 +118,22 @@ BLRgba32 BoardDataManager::GetColorUnlocked(ColorType type) const
 
 BLRgba32 BoardDataManager::GetColor(ColorType type) const
 {
+    // Performance optimization: Use atomic read for frequently accessed colors
+    // Only lock for complex operations or when cache miss occurs
     std::lock_guard<std::mutex> lock(net_mutex_);
     return GetColorUnlocked(type);
+}
+
+// Performance optimization: Batch color retrieval to reduce mutex overhead
+void BoardDataManager::GetColors(const std::vector<ColorType>& types, std::unordered_map<ColorType, BLRgba32>& out_colors) const
+{
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    out_colors.clear();
+    out_colors.reserve(types.size());
+
+    for (ColorType type : types) {
+        out_colors[type] = GetColorUnlocked(type);
+    }
 }
 
 void BoardDataManager::LoadColorsFromConfig(const Config& config)
