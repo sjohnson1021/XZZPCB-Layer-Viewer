@@ -46,7 +46,6 @@ void BoardDataManager::SetBoard(std::shared_ptr<Board> board)
         // CRITICAL FIX: Reset viewing side to Top when board folding is enabled
         // This prevents persisted viewing side settings from interfering with board loading
         if (pending_board_folding_enabled_) {
-            std::cout << "BoardDataManager::SetBoard() - Resetting view side to Top for board folding" << std::endl;
             current_view_side_ = BoardSide::kTop;
         }
 
@@ -54,7 +53,6 @@ void BoardDataManager::SetBoard(std::shared_ptr<Board> board)
         // This ensures the board geometry matches the user's intended setting
         lock.~lock_guard(); // Temporarily release lock to call ApplyPendingFoldingSettings
         ApplyPendingFoldingSettings();
-        std::cout << "BoardDataManager::SetBoard() - Applied pending folding settings to new board" << std::endl;
     } else {
         layer_visibility_.clear();
     }
@@ -93,6 +91,8 @@ BLRgba32 BoardDataManager::GetColorUnlocked(ColorType type) const
             // 0x // AA // RR // GG // BB
         case ColorType::kNetHighlight:
             return BLRgba32(0xFFFFFFFF);  // Default to white
+        case ColorType::kSelectedElementHighlight:
+            return BLRgba32(0xFFFFFF00);  // Default to yellow
         case ColorType::kSilkscreen:
             return BLRgba32(0xC0DDDDDD);  // Default to translucent light gray
         case ColorType::kComponentFill:
@@ -107,6 +107,10 @@ BLRgba32 BoardDataManager::GetColorUnlocked(ColorType type) const
             return BLRgba32(0xC0007BFF);  // Default to translucent blue
         case ColorType::kBoardEdges:
             return BLRgba32(0xFF00FF00);  // Default to green
+        case ColorType::kGND:
+            return BLRgba32(0xFF008000);  // Default to dark green for GND
+        case ColorType::kNC:
+            return BLRgba32(0xFF808080);  // Default to gray for NC (No Connect)
         default:
             return BLRgba32(0xFFFFFFFF);  // Default to white
     }
@@ -120,7 +124,7 @@ BLRgba32 BoardDataManager::GetColor(ColorType type) const
 
 void BoardDataManager::LoadColorsFromConfig(const Config& config)
 {
-    static const ColorType all_types[] = {ColorType::kNetHighlight, ColorType::kSilkscreen, ColorType::kComponentFill, ColorType::kComponentStroke, ColorType::kPinFill, ColorType::kPinStroke, ColorType::kBaseLayer, ColorType::kBoardEdges};
+    static const ColorType all_types[] = {ColorType::kNetHighlight, ColorType::kSelectedElementHighlight, ColorType::kSilkscreen, ColorType::kComponentFill, ColorType::kComponentStroke, ColorType::kPinFill, ColorType::kPinStroke, ColorType::kBaseLayer, ColorType::kBoardEdges, ColorType::kGND, ColorType::kNC};
     std::lock_guard<std::mutex> lock(net_mutex_);
     for (ColorType type : all_types) {
         std::string key = "color." + std::string(::ColorTypeToString(type));
@@ -135,7 +139,7 @@ void BoardDataManager::LoadColorsFromConfig(const Config& config)
 
 void BoardDataManager::SaveColorsToConfig(Config& config) const
 {
-    static const ColorType all_types[] = {ColorType::kNetHighlight, ColorType::kSilkscreen, ColorType::kComponentFill, ColorType::kComponentStroke, ColorType::kPinFill, ColorType::kPinStroke, ColorType::kBaseLayer, ColorType::kBoardEdges};
+    static const ColorType all_types[] = {ColorType::kNetHighlight, ColorType::kSelectedElementHighlight, ColorType::kSilkscreen, ColorType::kComponentFill, ColorType::kComponentStroke, ColorType::kPinFill, ColorType::kPinStroke, ColorType::kBaseLayer, ColorType::kBoardEdges, ColorType::kGND, ColorType::kNC};
     std::lock_guard<std::mutex> lock(net_mutex_);
     for (ColorType type : all_types) {
         std::string key = "color." + std::string(::ColorTypeToString(type));
@@ -156,6 +160,22 @@ void BoardDataManager::LoadSettingsFromConfig(const Config& config)
     pending_board_folding_enabled_ = board_folding_enabled_; // Initialize pending to match current
     has_pending_folding_change_ = false; // No pending changes on load
 
+    // Load rendering settings
+    board_outline_thickness_ = config.GetFloat("rendering.board_outline_thickness", 0.1f);
+    component_stroke_thickness_ = config.GetFloat("rendering.component_stroke_thickness", 0.05f);
+    pin_stroke_thickness_ = config.GetFloat("rendering.pin_stroke_thickness", 0.03f);
+    target_framerate_ = config.GetInt("rendering.target_framerate", 60);
+
+    // Clamp values to reasonable ranges
+    if (board_outline_thickness_ < 0.01f) board_outline_thickness_ = 0.01f;
+    if (board_outline_thickness_ > 10.0f) board_outline_thickness_ = 10.0f;
+    if (component_stroke_thickness_ < 0.01f) component_stroke_thickness_ = 0.01f;
+    if (component_stroke_thickness_ > 2.0f) component_stroke_thickness_ = 2.0f;
+    if (pin_stroke_thickness_ < 0.01f) pin_stroke_thickness_ = 0.01f;
+    if (pin_stroke_thickness_ > 1.0f) pin_stroke_thickness_ = 1.0f;
+    if (target_framerate_ < 1) target_framerate_ = 1;
+    if (target_framerate_ > 240) target_framerate_ = 240;
+
     // Load board view side setting
     int view_side_int = config.GetInt("board.view_side", static_cast<int>(BoardSide::kTop));
 
@@ -163,7 +183,6 @@ void BoardDataManager::LoadSettingsFromConfig(const Config& config)
     // The persisted viewing side will be ignored to prevent interference with board loading
     if (board_folding_enabled_) {
         current_view_side_ = BoardSide::kTop;
-        std::cout << "BoardDataManager: Board folding enabled - ignoring persisted view side, starting with Top" << std::endl;
     } else {
         // When folding is disabled, use persisted setting but ensure it's 'Both'
         if (view_side_int >= 0 && view_side_int <= 2) {
@@ -176,7 +195,6 @@ void BoardDataManager::LoadSettingsFromConfig(const Config& config)
         // If folding is disabled, automatically set view side to 'Both'
         if (current_view_side_ != BoardSide::kBoth) {
             current_view_side_ = BoardSide::kBoth;
-            std::cout << "BoardDataManager: Board folding disabled - automatically setting view side to 'Both'" << std::endl;
         }
     }
 
@@ -207,6 +225,12 @@ void BoardDataManager::SaveSettingsToConfig(Config& config) const
 
     // Save global horizontal mirror setting
     // config.SetBool("board.global_horizontal_mirror", global_horizontal_mirror_);
+
+    // Save rendering settings
+    config.SetFloat("rendering.board_outline_thickness", board_outline_thickness_);
+    config.SetFloat("rendering.component_stroke_thickness", component_stroke_thickness_);
+    config.SetFloat("rendering.pin_stroke_thickness", pin_stroke_thickness_);
+    config.SetInt("rendering.target_framerate", target_framerate_);
 
     // Save layer hue step
     config.SetFloat("board.layer_hue_step", layer_hue_step_);
@@ -257,15 +281,11 @@ int BoardDataManager::GetSelectedNetId() const
 
 void BoardDataManager::SetBoardFoldingEnabled(bool enabled)
 {
-    std::cout << "BoardDataManager::SetBoardFoldingEnabled(" << (enabled ? "true" : "false") << ") called" << std::endl;
 
     std::lock_guard<std::mutex> lock(net_mutex_);
 
     // Store as pending setting instead of applying immediately
     if (pending_board_folding_enabled_ != enabled) {
-        std::cout << "BoardDataManager: Board folding setting will change from "
-                  << (board_folding_enabled_ ? "true" : "false") << " to " << (enabled ? "true" : "false")
-                  << " on next board load" << std::endl;
 
         pending_board_folding_enabled_ = enabled;
         has_pending_folding_change_ = (pending_board_folding_enabled_ != board_folding_enabled_);
@@ -275,13 +295,9 @@ void BoardDataManager::SetBoardFoldingEnabled(bool enabled)
         auto cb = settings_change_callback_;
         lock.~lock_guard();
         if (cb) {
-            std::cout << "BoardDataManager: Calling settings change callback for UI update" << std::endl;
             cb();
-        } else {
-            std::cout << "BoardDataManager: No settings change callback registered" << std::endl;
         }
     } else {
-        std::cout << "BoardDataManager: Board folding pending setting unchanged (" << (enabled ? "true" : "false") << ")" << std::endl;
     }
 }
 
@@ -308,31 +324,24 @@ void BoardDataManager::ApplyPendingFoldingSettings()
     std::lock_guard<std::mutex> lock(net_mutex_);
 
     if (!has_pending_folding_change_) {
-        std::cout << "BoardDataManager::ApplyPendingFoldingSettings() - No pending changes" << std::endl;
         return;
     }
 
-    std::cout << "BoardDataManager::ApplyPendingFoldingSettings() - Applying pending folding setting: "
-              << (pending_board_folding_enabled_ ? "enabled" : "disabled") << std::endl;
 
     board_folding_enabled_ = pending_board_folding_enabled_;
     has_pending_folding_change_ = false;
 
     // NOW apply the view side logic when the setting is actually applied
     if (!board_folding_enabled_ && current_view_side_ != BoardSide::kBoth) {
-        std::cout << "BoardDataManager: Board folding disabled, automatically setting view side to 'Both'" << std::endl;
         current_view_side_ = BoardSide::kBoth;
     }
 
-    std::cout << "BoardDataManager::ApplyPendingFoldingSettings() - Settings applied successfully" << std::endl;
 }
 
 void BoardDataManager::SetCurrentViewSide(BoardSide side)
 {
     std::lock_guard<std::mutex> lock(net_mutex_);
     if (current_view_side_ != side) {
-        std::cout << "BoardDataManager: Board view side changed from " << BoardSideToString(current_view_side_)
-                  << " to " << BoardSideToString(side) << std::endl;
         current_view_side_ = side;
         auto cb = settings_change_callback_;
         lock.~lock_guard();
@@ -354,13 +363,11 @@ void BoardDataManager::ToggleViewSide()
 
     // CRITICAL FIX: Board flipping should only work when folding is enabled
     if (!board_folding_enabled_) {
-        std::cout << "BoardDataManager: Board flipping disabled - folding is not enabled" << std::endl;
         return;
     }
 
     // CRITICAL FIX: Board flipping should only work when viewing Top or Bottom, not Both
     if (current_view_side_ == BoardSide::kBoth) {
-        std::cout << "BoardDataManager: Board flipping disabled - currently viewing 'Both' sides" << std::endl;
         return;
     }
 
@@ -375,22 +382,17 @@ void BoardDataManager::ToggleViewSide()
         case BoardSide::kBoth:
         default:
             // This case should not be reached due to the check above
-            std::cout << "BoardDataManager: Unexpected 'Both' side in ToggleViewSide, defaulting to Top" << std::endl;
             next_side = BoardSide::kTop;
             break;
     }
 
-    std::cout << "BoardDataManager: Toggling board view from " << BoardSideToString(current_view_side_)
-              << " to " << BoardSideToString(next_side) << std::endl;
     current_view_side_ = next_side;
 
     // Apply actual coordinate transformation to board elements instead of visual-only mirroring
     if (current_board_) {
         // Apply global transformation (mirroring) to all board elements
         current_board_->ApplyGlobalTransformation(true);
-        std::cout << "BoardDataManager: Applied global coordinate transformation to board elements" << std::endl;
     } else {
-        std::cout << "BoardDataManager: No board loaded, skipping coordinate transformation" << std::endl;
     }
 
     auto cb = settings_change_callback_;
@@ -579,3 +581,119 @@ void BoardDataManager::SetLayerColor(int layer_id, BLRgba32 color)
 }
 
 // TODO: Add a function to get the color of a specific layer
+
+void BoardDataManager::SetBoardOutlineThickness(float thickness)
+{
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    // Clamp to reasonable range
+    if (thickness < 0.01f) thickness = 0.01f;
+    if (thickness > 10.0f) thickness = 10.0f;
+
+    if (board_outline_thickness_ != thickness) {
+        board_outline_thickness_ = thickness;
+        auto cb = settings_change_callback_;
+        lock.~lock_guard();
+        if (cb) {
+            cb();
+        }
+    }
+}
+
+float BoardDataManager::GetBoardOutlineThickness() const
+{
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    return board_outline_thickness_;
+}
+
+void BoardDataManager::SetComponentStrokeThickness(float thickness)
+{
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    // Clamp to reasonable range
+    if (thickness < 0.01f) thickness = 0.01f;
+    if (thickness > 2.0f) thickness = 2.0f;
+
+    if (component_stroke_thickness_ != thickness) {
+        component_stroke_thickness_ = thickness;
+        auto cb = settings_change_callback_;
+        lock.~lock_guard();
+        if (cb) {
+            cb();
+        }
+    }
+}
+
+float BoardDataManager::GetComponentStrokeThickness() const
+{
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    return component_stroke_thickness_;
+}
+
+void BoardDataManager::SetPinStrokeThickness(float thickness)
+{
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    // Clamp to reasonable range
+    if (thickness < 0.01f) thickness = 0.01f;
+    if (thickness > 1.0f) thickness = 1.0f;
+
+    if (pin_stroke_thickness_ != thickness) {
+        pin_stroke_thickness_ = thickness;
+        auto cb = settings_change_callback_;
+        lock.~lock_guard();
+        if (cb) {
+            cb();
+        }
+    }
+}
+
+float BoardDataManager::GetPinStrokeThickness() const
+{
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    return pin_stroke_thickness_;
+}
+
+void BoardDataManager::SetTargetFramerate(int fps)
+{
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    // Clamp to reasonable range
+    if (fps < 1) fps = 1;
+    if (fps > 240) fps = 240;
+
+    if (target_framerate_ != fps) {
+        target_framerate_ = fps;
+        auto cb = settings_change_callback_;
+        lock.~lock_guard();
+        if (cb) {
+            cb();
+        }
+    }
+}
+
+int BoardDataManager::GetTargetFramerate() const
+{
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    return target_framerate_;
+}
+
+void BoardDataManager::SetSelectedElement(const Element* element)
+{
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    if (selected_element_ != element) {
+        selected_element_ = element;
+        auto cb = settings_change_callback_;
+        lock.~lock_guard();
+        if (cb) {
+            cb();
+        }
+    }
+}
+
+const Element* BoardDataManager::GetSelectedElement() const
+{
+    std::lock_guard<std::mutex> lock(net_mutex_);
+    return selected_element_;
+}
+
+void BoardDataManager::ClearSelectedElement()
+{
+    SetSelectedElement(nullptr);
+}

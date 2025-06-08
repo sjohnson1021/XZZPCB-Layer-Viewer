@@ -50,6 +50,11 @@ public:
     void SetSelectedNetId(int net_id);
     int GetSelectedNetId() const;
 
+    // --- Selected Element Highlighting ---
+    void SetSelectedElement(const class Element* element);
+    const class Element* GetSelectedElement() const;
+    void ClearSelectedElement();
+
     // --- Board Folding ---
     void SetBoardFoldingEnabled(bool enabled);
     bool IsBoardFoldingEnabled() const;
@@ -91,6 +96,7 @@ public:
     enum class ColorType
     {
         kNetHighlight,
+        kSelectedElementHighlight,  // New: separate color for directly selected elements
         kSilkscreen,
         kComponentFill,
         kComponentStroke,
@@ -98,6 +104,8 @@ public:
         kPinStroke,
         kBaseLayer,
         kBoardEdges,
+		kGND,
+		kNC
     };
 
     void SetColor(ColorType type, BLRgba32 color);
@@ -106,6 +114,19 @@ public:
     std::unordered_map<ColorType, BLRgba32> color_map;
     void LoadColorsFromConfig(const class Config &config);
     void SaveColorsToConfig(class Config &config) const;
+
+    // --- Rendering Settings ---
+    void SetBoardOutlineThickness(float thickness);
+    float GetBoardOutlineThickness() const;
+
+    void SetComponentStrokeThickness(float thickness);
+    float GetComponentStrokeThickness() const;
+
+    void SetPinStrokeThickness(float thickness);
+    float GetPinStrokeThickness() const;
+
+    void SetTargetFramerate(int fps);
+    int GetTargetFramerate() const;
 
     // Configuration persistence for all settings
     void LoadSettingsFromConfig(const class Config &config);
@@ -119,6 +140,7 @@ private:
     float layer_hue_step_ = 15.0F;  // Renamed from m_layerHueStep
 
     int selected_net_id_ = -1;     // Renamed from m_selectedNetId
+    const class Element* selected_element_ = nullptr;  // Currently selected individual element
     mutable std::mutex net_mutex_; // Renamed from m_netMutex
 
     bool board_folding_enabled_ = false; // Current board folding state (applied to loaded board)
@@ -133,6 +155,12 @@ private:
     SettingsChangeCallback settings_change_callback_;                // Renamed from m_settingsChangeCallback
     LayerVisibilityChangeCallback layer_visibility_change_callback_; // Renamed from m_layerVisibilityChangeCallback
 
+    // New rendering settings
+    float board_outline_thickness_ = 0.1f;  // Default board outline thickness
+    float component_stroke_thickness_ = 0.05f;  // Default component stroke thickness
+    float pin_stroke_thickness_ = 0.03f;    // Default pin stroke thickness
+    int target_framerate_ = 60;             // Default target framerate
+
     BLRgba32 GetColorUnlocked(ColorType type) const;
 };
 
@@ -143,6 +171,8 @@ static inline const char *ColorTypeToString(BoardDataManager::ColorType type)
     {
     case BoardDataManager::ColorType::kNetHighlight:
         return "Net Highlight";
+    case BoardDataManager::ColorType::kSelectedElementHighlight:
+        return "Selected Element Highlight";
     case BoardDataManager::ColorType::kSilkscreen:
         return "Silkscreen";
     case BoardDataManager::ColorType::kComponentFill:
@@ -157,6 +187,10 @@ static inline const char *ColorTypeToString(BoardDataManager::ColorType type)
         return "Base Layer";
     case BoardDataManager::ColorType::kBoardEdges:
         return "Board Edges";
+	case BoardDataManager::ColorType::kGND:
+        return "GND";
+	case BoardDataManager::ColorType::kNC:
+        return "NC";
     default:
         return "Unknown";
     }

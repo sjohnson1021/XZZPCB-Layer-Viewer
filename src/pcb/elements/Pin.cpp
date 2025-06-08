@@ -92,6 +92,21 @@ bool Pin::IsHit(const Vec2& world_mouse, float tolerance, const Component* paren
     // Transform mouse position relative to pin center
     Vec2 mouse_relative_to_pin = {world_mouse.x_ax - pin_center.x_ax, world_mouse.y_ax - pin_center.y_ax};
 
+    // Apply rotation transformation to account for pin rotation
+    // Rotate the mouse position by the negative of the pin's rotation to transform it into the pin's local coordinate system
+    if (std::abs(rotation) > 1e-6) {  // Only apply rotation if it's significant
+        double rotation_rad = -rotation * (kPi / 180.0);  // Convert to radians and negate for inverse transform
+        double cos_r = std::cos(rotation_rad);
+        double sin_r = std::sin(rotation_rad);
+
+        // Apply rotation matrix
+        double rotated_x = mouse_relative_to_pin.x_ax * cos_r - mouse_relative_to_pin.y_ax * sin_r;
+        double rotated_y = mouse_relative_to_pin.x_ax * sin_r + mouse_relative_to_pin.y_ax * cos_r;
+
+        mouse_relative_to_pin.x_ax = rotated_x;
+        mouse_relative_to_pin.y_ax = rotated_y;
+    }
+
     // Now, check if mouse_relative_to_pin is within the pin's specific geometry
     return std::visit(
         [&](const auto& shape) -> bool {
@@ -180,7 +195,10 @@ std::string Pin::GetInfo(const Component* parentComponent, const Board* board) c
     }
     return oss.str();
 }
-
+std::string Pin::GetNetName(const Board& board) const
+{
+	return board.GetNetById(this->GetNetId())->GetName();
+}
 void Pin::Translate(double dist_x, double dist_y)
 {
     // Pin coordinates are GLOBAL coordinates, so translate them directly
@@ -191,8 +209,6 @@ void Pin::Translate(double dist_x, double dist_y)
 void Pin::Mirror(double center_axis)
 {
     // Pin coordinates are GLOBAL, so mirror them directly across the center axis
-	printf("Pin::Mirror() called with center_axis=%f, pin_x=%f, pin_y=%f\n", center_axis, coords.x_ax, coords.y_ax);
     coords.x_ax = 2 * center_axis - coords.x_ax;
-	printf("Pin::Mirror() Result: pin_x=%f, pin_y=%f\n", coords.x_ax, coords.y_ax);
     // Y coordinate remains unchanged for horizontal mirroring
 }

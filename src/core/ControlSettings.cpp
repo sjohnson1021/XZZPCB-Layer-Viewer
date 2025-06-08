@@ -4,6 +4,25 @@
 
 #include "core/Config.hpp"  // Required for Load/Save methods
 
+// Helper function implementation
+const char* ElementInteractionTypeToString(ElementInteractionType type)
+{
+    switch (type) {
+        case ElementInteractionType::kPins:
+            return "Pins";
+        case ElementInteractionType::kComponents:
+            return "Components";
+        case ElementInteractionType::kTraces:
+            return "Traces";
+        case ElementInteractionType::kVias:
+            return "Vias";
+        case ElementInteractionType::kTextLabels:
+            return "Text Labels";
+        default:
+            return "Unknown";
+    }
+}
+
 // ControlSettings::ControlSettings() {
 //     // Initialize default keybinds if necessary
 //     // m_keybinds[InputAction::OpenFile] = "Ctrl+O";
@@ -12,6 +31,7 @@
 ControlSettings::ControlSettings()
 {
     InitializeDefaultKeybinds();
+    InitializeDefaultElementPriority();
     // Initialize default speed values
     m_zoom_sensitivity = 1.1F;
     m_pan_speed_multiplier = 1.0F;
@@ -124,6 +144,17 @@ void ControlSettings::LoadSettingsFromConfig(const Config& config)
     if (m_zoom_sensitivity > 2.0F) m_zoom_sensitivity = 2.0F;
     if (m_pan_speed_multiplier < 0.1F) m_pan_speed_multiplier = 0.1F;
     if (m_pan_speed_multiplier > 5.0F) m_pan_speed_multiplier = 5.0F;
+
+    // Load element interaction priority (initialize with defaults first)
+    InitializeDefaultElementPriority();
+    for (size_t i = 0; i < m_element_priority_order.size(); ++i) {
+        std::string key = "controls.element_priority_" + std::to_string(i);
+        int priority_value = config.GetInt(key, static_cast<int>(m_element_priority_order[i]));
+        // Validate the loaded value is within enum range
+        if (priority_value >= 0 && priority_value < static_cast<int>(ElementInteractionType::kCount)) {
+            m_element_priority_order[i] = static_cast<ElementInteractionType>(priority_value);
+        }
+    }
 }
 
 void ControlSettings::SaveSettingsToConfig(Config& config)
@@ -134,4 +165,35 @@ void ControlSettings::SaveSettingsToConfig(Config& config)
     // Save speed control settings
     config.SetFloat("controls.zoom_sensitivity", m_zoom_sensitivity);
     config.SetFloat("controls.pan_speed_multiplier", m_pan_speed_multiplier);
+
+    // Save element interaction priority
+    for (size_t i = 0; i < m_element_priority_order.size(); ++i) {
+        std::string key = "controls.element_priority_" + std::to_string(i);
+        config.SetInt(key, static_cast<int>(m_element_priority_order[i]));
+    }
+}
+
+void ControlSettings::InitializeDefaultElementPriority()
+{
+    // Default priority order: Pins > Components > Traces > Vias > Text Labels
+    m_element_priority_order[0] = ElementInteractionType::kPins;
+    m_element_priority_order[1] = ElementInteractionType::kComponents;
+    m_element_priority_order[2] = ElementInteractionType::kTraces;
+    m_element_priority_order[3] = ElementInteractionType::kVias;
+    m_element_priority_order[4] = ElementInteractionType::kTextLabels;
+}
+
+const std::array<ElementInteractionType, static_cast<size_t>(ElementInteractionType::kCount)>& ControlSettings::GetElementPriorityOrder() const
+{
+    return m_element_priority_order;
+}
+
+void ControlSettings::SetElementPriorityOrder(const std::array<ElementInteractionType, static_cast<size_t>(ElementInteractionType::kCount)>& priority_order)
+{
+    m_element_priority_order = priority_order;
+}
+
+void ControlSettings::ResetElementPriorityToDefault()
+{
+    InitializeDefaultElementPriority();
 }

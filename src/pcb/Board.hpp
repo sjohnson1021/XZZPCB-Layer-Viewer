@@ -45,6 +45,9 @@ public:
     // Set the BoardDataManager for handling layer visibility changes
     void SetBoardDataManager(std::shared_ptr<BoardDataManager> manager);
 
+    // Set the ControlSettings for accessing interaction priority settings
+    void SetControlSettings(std::shared_ptr<class ControlSettings> control_settings);
+
     // --- Board Metadata ---
     std::string board_name;
     std::string file_path;  // Path to the original PCB file
@@ -180,6 +183,7 @@ private:
     // If PcbLoader is to be used internally:
     // void ParseBoardFile(const std::string& filePath);
     std::shared_ptr<BoardDataManager> m_board_data_manager_;
+    std::shared_ptr<class ControlSettings> m_control_settings_;
 
     // Board folding state
     bool m_is_folded_ = false;

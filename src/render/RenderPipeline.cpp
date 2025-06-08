@@ -206,14 +206,19 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
     std::unordered_map<BoardDataManager::ColorType, BLRgba32> theme_color_cache;
     std::unordered_map<int, BLRgba32> layer_id_color_cache;
     int selected_net_id = -1;
+    const Element* selected_element = nullptr;
     BoardDataManager::BoardSide current_view_side = BoardDataManager::BoardSide::kBoth;
 
-    // Populate color caches, selected_net_id, and current view side
+    // Populate color caches, selected_net_id, selected_element, current view side, and rendering settings
+    float board_outline_thickness = 0.1f;  // Default thickness
     if (m_render_context_ && m_render_context_->GetBoardDataManager()) {
         auto bdm = m_render_context_->GetBoardDataManager();
         selected_net_id = bdm->GetSelectedNetId();
+        selected_element = bdm->GetSelectedElement();
         current_view_side = bdm->GetCurrentViewSide();
+        board_outline_thickness = bdm->GetBoardOutlineThickness();
         theme_color_cache[BoardDataManager::ColorType::kNetHighlight] = bdm->GetColor(BoardDataManager::ColorType::kNetHighlight);
+        theme_color_cache[BoardDataManager::ColorType::kSelectedElementHighlight] = bdm->GetColor(BoardDataManager::ColorType::kSelectedElementHighlight);
         theme_color_cache[BoardDataManager::ColorType::kComponentFill] = bdm->GetColor(BoardDataManager::ColorType::kComponentFill);
         theme_color_cache[BoardDataManager::ColorType::kComponentStroke] = bdm->GetColor(BoardDataManager::ColorType::kComponentStroke);
         theme_color_cache[BoardDataManager::ColorType::kPinFill] = bdm->GetColor(BoardDataManager::ColorType::kPinFill);
@@ -235,6 +240,8 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
     BLRgba32 fallback_color(0xFFFF0000);  // Red
     BLRgba32 highlight_color =
         theme_color_cache.count(BoardDataManager::ColorType::kNetHighlight) ? theme_color_cache.at(BoardDataManager::ColorType::kNetHighlight) : BLRgba32(0xFFFFFF00);  // Yellow fallback for highlight
+    BLRgba32 selected_element_highlight_color =
+        theme_color_cache.count(BoardDataManager::ColorType::kSelectedElementHighlight) ? theme_color_cache.at(BoardDataManager::ColorType::kSelectedElementHighlight) : BLRgba32(0xFFFFFF00);  // Yellow fallback for selected element
     BLRgba32 component_fill_color =
         theme_color_cache.count(BoardDataManager::ColorType::kComponentFill) ? theme_color_cache.at(BoardDataManager::ColorType::kComponentFill) : BLRgba32(0xFF007BFF);  // Blue fallback for component
     BLRgba32 component_stroke_color = 
@@ -296,9 +303,13 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                     continue;
 
                 bool is_selected_net = (selected_net_id != -1 && element_ptr->GetNetId() == selected_net_id);
+                bool is_selected_element = (selected_element != nullptr && element_ptr.get() == selected_element);
                 BLRgba32 current_element_color;
 
-                if (is_selected_net) {
+                if (is_selected_element) {
+                    // Selected element takes priority over net highlighting
+                    current_element_color = selected_element_highlight_color;
+                } else if (is_selected_net) {
                     current_element_color = highlight_color;
                 } else if (current_type == ElementType::kComponent) {  // Components handled separately unless forced here
                     current_element_color = component_fill_color;
@@ -335,20 +346,29 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                                     end_cap = BL_STROKE_CAP_ROUND_REV;
                                 }
                             }
-                            RenderTrace(bl_ctx, *trace, adjusted_world_view_rect, start_cap, end_cap);
+
+                            // Pass board outline thickness for board outline elements
+                            double thickness_override = is_board_outline_pass ? board_outline_thickness : -1.0;
+                            RenderTrace(bl_ctx, *trace, adjusted_world_view_rect, start_cap, end_cap, thickness_override);
                             trace_cap_manager[net_id] = {current_start_point, current_end_point};
                         }
                         break;
                     case ElementType::kArc:
                         if (auto arc = dynamic_cast<const Arc*>(element_ptr.get())) {
-                            RenderArc(bl_ctx, *arc, adjusted_world_view_rect);
+                            // Pass board outline thickness for board outline elements
+                            double thickness_override = is_board_outline_pass ? board_outline_thickness : -1.0;
+                            RenderArc(bl_ctx, *arc, adjusted_world_view_rect, thickness_override);
                         }
                         break;
                     case ElementType::kVia:
                         if (auto via = dynamic_cast<const Via*>(element_ptr.get())) {
                             BLRgba32 via_color_from;
                             BLRgba32 via_color_to;
-                            if (is_selected_net) {
+                            if (is_selected_element) {
+                                // Selected element takes priority
+                                via_color_from = selected_element_highlight_color;
+                                via_color_to = selected_element_highlight_color;
+                            } else if (is_selected_net) {
                                 via_color_from = highlight_color;
                                 via_color_to = highlight_color;
                             } else {
@@ -454,19 +474,31 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                     continue;  // Skip this component based on view side filter or layer visibility
                 }
 
-                bool current_component_is_selected = false;  // Initialize for this specific component
+                bool current_component_is_selected_element = (selected_element != nullptr && selected_element == component_to_render);
+                bool current_component_is_selected_net = false;  // Initialize for this specific component
                 if (selected_net_id != -1) {
                     for (const auto& pin_ptr : component_to_render->pins) {
                         if (pin_ptr && pin_ptr->GetNetId() == selected_net_id) {
-                            current_component_is_selected = true;
+                            current_component_is_selected_net = true;
                             break;
                         }
                     }
                 }
 
-                BLRgba32 comp_fill_color = current_component_is_selected ? highlight_color : component_fill_color;
-				BLRgba32 comp_stroke_color = current_component_is_selected ? highlight_color : component_stroke_color;
-                RenderComponent(bl_ctx, *component_to_render, board, adjusted_world_view_rect, comp_fill_color, comp_stroke_color, theme_color_cache, selected_net_id);
+                BLRgba32 comp_fill_color;
+                BLRgba32 comp_stroke_color;
+                if (current_component_is_selected_element) {
+                    // Selected element takes priority
+                    comp_fill_color = selected_element_highlight_color;
+                    comp_stroke_color = selected_element_highlight_color;
+                } else if (current_component_is_selected_net) {
+                    comp_fill_color = highlight_color;
+                    comp_stroke_color = highlight_color;
+                } else {
+                    comp_fill_color = component_fill_color;
+                    comp_stroke_color = component_stroke_color;
+                }
+                RenderComponent(bl_ctx, *component_to_render, board, adjusted_world_view_rect, comp_fill_color, comp_stroke_color, theme_color_cache, selected_net_id, selected_element);
             }
         }
     }
@@ -494,7 +526,7 @@ void RenderPipeline::RenderGrid(BLContext& bl_ctx, const Camera& camera, const V
 // Private helper methods for rendering specific PCB elements
 // These would typically be declared in RenderPipeline.hpp if it were being modified here.
 
-void RenderPipeline::RenderTrace(BLContext& bl_ctx, const Trace& trace, const BLRect& world_view_rect, BLStrokeCap start_cap, BLStrokeCap end_cap)
+void RenderPipeline::RenderTrace(BLContext& bl_ctx, const Trace& trace, const BLRect& world_view_rect, BLStrokeCap start_cap, BLStrokeCap end_cap, double thickness_override)
 {
     // AABB for the trace line segment
     double min_x = std::min(trace.GetStartX(), trace.GetEndX());
@@ -510,12 +542,17 @@ void RenderPipeline::RenderTrace(BLContext& bl_ctx, const Trace& trace, const BL
     }
 
     // Color is set by RenderBoard.
-    double width = trace.GetWidth();
-    if (width <= 0) {
-        width = kDefaultTraceWidth;  // Default width. TODO: Configurable or dynamic based on zoom.
+    double final_width;
+    if (thickness_override > 0.0) {
+        final_width = thickness_override;  // Use override thickness (e.g., for board outline)
+    } else {
+        final_width = trace.GetWidth();
+        if (final_width <= 0) {
+            final_width = kDefaultTraceWidth;  // Default width. TODO: Configurable or dynamic based on zoom.
+        }
     }
 
-    bl_ctx.setStrokeWidth(width);
+    bl_ctx.setStrokeWidth(final_width);
     bl_ctx.setStrokeStartCap(start_cap);
     bl_ctx.setStrokeEndCap(end_cap);
     bl_ctx.setStrokeJoin(BL_STROKE_JOIN_ROUND);  // Keep round joins for now
@@ -558,7 +595,7 @@ void RenderPipeline::RenderVia(BLContext& bl_ctx, const Via& via, const Board& b
     // Drill hole rendering can be added here if desired.
 }
 
-void RenderPipeline::RenderArc(BLContext& bl_ctx, const Arc& arc, const BLRect& world_view_rect)
+void RenderPipeline::RenderArc(BLContext& bl_ctx, const Arc& arc, const BLRect& world_view_rect, double thickness_override)
 {
     // AABB for the arc (approximated by the bounding box of its circle)
     // More precise AABB would involve checking arc extents, but this is usually sufficient for culling.
@@ -571,11 +608,16 @@ void RenderPipeline::RenderArc(BLContext& bl_ctx, const Arc& arc, const BLRect& 
     }
 
     // Color is set by RenderBoard.
-    double thickness = arc.GetThickness();
-    if (thickness <= 0) {
-        thickness = kDefaultArcThickness;  // Default thickness.
+    double final_thickness;
+    if (thickness_override > 0.0) {
+        final_thickness = thickness_override;  // Use override thickness (e.g., for board outline)
+    } else {
+        final_thickness = arc.GetThickness();
+        if (final_thickness <= 0) {
+            final_thickness = kDefaultArcThickness;  // Default thickness.
+        }
     }
-    bl_ctx.setStrokeWidth(thickness);
+    bl_ctx.setStrokeWidth(final_thickness);
     double start_angle_rad = arc.GetStartAngle() * (kPi / 180.0);
     double end_angle_rad = arc.GetEndAngle() * (kPi / 180.0);
     double sweep_angle_rad = end_angle_rad - start_angle_rad;
@@ -601,7 +643,8 @@ void RenderPipeline::RenderComponent(BLContext& bl_ctx,
                                      const BLRgba32& component_fill_color,
 									 const BLRgba32& component_stroke_color,
                                      const std::unordered_map<BoardDataManager::ColorType, BLRgba32>& theme_color_cache,
-                                     int selected_net_id)
+                                     int selected_net_id,
+                                     const Element* selected_element)
 {
     // Calculate component's world AABB accounting for rotation
     double comp_w = component.width;
@@ -671,15 +714,24 @@ void RenderPipeline::RenderComponent(BLContext& bl_ctx,
 
     // Stroke is always the component_stroke_color (which is already correctly highlight or theme)
     bl_ctx.setStrokeStyle(component_stroke_color);
-    bl_ctx.setStrokeWidth(0.1);  // Thin outline
+
+    // Set stroke thickness from BoardDataManager
+    float component_stroke_thickness = 0.05f;  // Default thickness
+    if (m_render_context_ && m_render_context_->GetBoardDataManager()) {
+        auto board_data_manager = m_render_context_->GetBoardDataManager();
+        component_stroke_thickness = board_data_manager->GetComponentStrokeThickness();
+    }
+    bl_ctx.setStrokeWidth(component_stroke_thickness);
     bl_ctx.strokePath(outline);
 
     // Render Component Pins
     BLRgba32 pin_highlight_for_pins =
         theme_color_cache.count(BoardDataManager::ColorType::kNetHighlight) ? theme_color_cache.at(BoardDataManager::ColorType::kNetHighlight) : BLRgba32(0xFFFFFFFF);  // Consistent highlight fallback
+    BLRgba32 selected_element_highlight_for_pins =
+        theme_color_cache.count(BoardDataManager::ColorType::kSelectedElementHighlight) ? theme_color_cache.at(BoardDataManager::ColorType::kSelectedElementHighlight) : BLRgba32(0xFFFFFF00);  // Consistent selected element fallback
     BLRgba32 pin_fill_color = theme_color_cache.count(BoardDataManager::ColorType::kPinFill) ? theme_color_cache.at(BoardDataManager::ColorType::kPinFill): BLRgba32(0xC0999999);  // Consistent pin theme fallback (from RenderBoard)
     BLRgba32 pin_stroke_color = theme_color_cache.count(BoardDataManager::ColorType::kPinStroke) ? theme_color_cache.at(BoardDataManager::ColorType::kPinStroke) : BLRgba32(0xC0000000);  // Consistent pin stroke fallback (from RenderBoard)
-	
+
     for (const auto& pin_ptr : component.pins) {
         if (pin_ptr && pin_ptr->IsVisible()) {
             // Check if the pin's layer is visible
@@ -688,12 +740,54 @@ void RenderPipeline::RenderComponent(BLContext& bl_ctx,
                 continue;  // Skip this pin if its layer is not visible
             }
 
+            bool is_pin_selected_element = (selected_element != nullptr && selected_element == pin_ptr.get());
             bool is_pin_selected_net = (selected_net_id != -1 && pin_ptr->GetNetId() == selected_net_id);
-            BLRgba32 final_pin_color = is_pin_selected_net ? pin_highlight_for_pins : pin_fill_color;
-			BLRgba32 final_pin_stroke_color = is_pin_selected_net ? pin_highlight_for_pins : pin_stroke_color;
-            RenderPin(bl_ctx, *pin_ptr, &component, final_pin_color, final_pin_stroke_color);
-        }
+
+            BLRgba32 final_fill_color;
+            BLRgba32 final_stroke_color;
+		    std::string net_name = pin_ptr->GetNetName(board);
+
+
+            if (is_pin_selected_element) {
+                // Selected element takes priority over net highlighting
+                final_fill_color = selected_element_highlight_for_pins;
+                final_stroke_color = selected_element_highlight_for_pins;
+            } else if (is_pin_selected_net) {
+                final_fill_color = pin_highlight_for_pins;
+                final_stroke_color = pin_highlight_for_pins;
+            } else if (net_name == "GND") {
+        		// Use GND color from BoardDataManager
+        		if (m_render_context_ && m_render_context_->GetBoardDataManager()) {
+            		auto board_data_manager = m_render_context_->GetBoardDataManager();
+            		final_fill_color = board_data_manager->GetColor(BoardDataManager::ColorType::kGND);
+            		final_stroke_color = final_fill_color;  // Use same color for stroke
+       			 }
+			} else if (net_name == "NC") {
+				// Use NC color from BoardDataManager
+				if (m_render_context_ && m_render_context_->GetBoardDataManager()) {
+					auto board_data_manager = m_render_context_->GetBoardDataManager();
+					final_fill_color = board_data_manager->GetColor(BoardDataManager::ColorType::kNC);
+					final_stroke_color = final_fill_color;  // Use same color for stroke
+				}
+			}else {
+                final_fill_color = pin_fill_color;
+                final_stroke_color = pin_stroke_color;
+            }
+		
+
+    bl_ctx.setFillStyle(final_fill_color);
+    bl_ctx.setStrokeStyle(final_stroke_color);
+
+    // Set stroke thickness from BoardDataManager
+    float stroke_thickness = 0.03f;  // Default thickness
+    if (m_render_context_ && m_render_context_->GetBoardDataManager()) {
+        auto board_data_manager = m_render_context_->GetBoardDataManager();
+        stroke_thickness = board_data_manager->GetPinStrokeThickness();
     }
+    bl_ctx.setStrokeWidth(stroke_thickness);
+            RenderPin(bl_ctx, *pin_ptr, &component, final_fill_color, final_stroke_color, board);
+        }
+}
 
     // Render Component-Specific Text Labels
     for (const auto& label_ptr : component.text_labels) {
@@ -916,7 +1010,7 @@ void RenderPipeline::RenderTextLabel(BLContext& bl_ctx, const TextLabel& text_la
 //         } }, pin.pad_shape);
 // }
 // Render a pin using Blend2D, automatically handling all shape types
-void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* parent_component, const BLRgba32& fill_color, const BLRgba32& stroke_color)
+void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* parent_component, const BLRgba32& fill_color, const BLRgba32& stroke_color, const Board& board)
 {
     // Get pin dimensions (these are in the pin's local coordinate system)
     auto [pin_width, pin_height] = pin.GetDimensions();  // Should return dimensions pre-rotation
@@ -946,6 +1040,7 @@ void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* 
         effective_rotation = rotation;  // Keep as-is for now
     }
 
+
     ctx.setFillStyle(fill_color);
 	ctx.setStrokeStyle(stroke_color);
 
@@ -966,6 +1061,7 @@ void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* 
         ctx.rotate(-effective_rotation * (kPi / 180.0));  // Convert degrees to radians (negative for testing)
         ctx.translate(-x_coord, -y_coord);
     }
+
 
     // Render based on shape type
     std::visit(

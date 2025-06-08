@@ -1,12 +1,15 @@
 #include "pcb/Board.hpp"
 
+#include <algorithm>  // For std::sort
 #include <iostream>
 
 #include "core/BoardDataManager.hpp"   // Include for implementation
+#include "core/ControlSettings.hpp"    // Include for interaction priority settings
 #include "pcb/BoardLoaderFactory.hpp"  // Include the factory
 
-// Include concrete element types for make_unique
+// Include concrete element types for make_unique and type checking
 #include "pcb/elements/Arc.hpp"
+#include "pcb/elements/Pin.hpp"
 #include "pcb/elements/TextLabel.hpp"
 #include "pcb/elements/Trace.hpp"
 #include "pcb/elements/Via.hpp"
@@ -276,30 +279,80 @@ BoardPoint2D Board::NormalizeCoordinatesAndGetCenterOffset(const BLRect& origina
 // If PcbLoader is used internally by Board::ParseBoardFile (example skeleton)
 // ... existing code ...
 
+// Helper function to determine element type for priority sorting
+ElementInteractionType GetElementInteractionType(const Element* element) {
+    if (dynamic_cast<const Pin*>(element)) {
+        return ElementInteractionType::kPins;
+    } else if (dynamic_cast<const Component*>(element)) {
+        return ElementInteractionType::kComponents;
+    } else if (dynamic_cast<const Trace*>(element)) {
+        return ElementInteractionType::kTraces;
+    } else if (dynamic_cast<const Via*>(element)) {
+        return ElementInteractionType::kVias;
+    } else if (dynamic_cast<const TextLabel*>(element)) {
+        return ElementInteractionType::kTextLabels;
+    }
+    // Default to traces for unknown types
+    return ElementInteractionType::kTraces;
+}
+
 // --- GetAllVisibleElementsForInteraction (New Implementation) ---
 std::vector<ElementInteractionInfo> Board::GetAllVisibleElementsForInteraction() const
 {
     std::vector<ElementInteractionInfo> result;
     result.reserve(5000);  // Pre-allocate, adjust based on typical board size
 
-    // 1. Iterate through standalone elements grouped by layer
+    // Get current board side view from BoardDataManager for filtering
+    BoardDataManager::BoardSide current_view_side = BoardDataManager::BoardSide::kBoth;
+    if (m_board_data_manager_) {
+        current_view_side = m_board_data_manager_->GetCurrentViewSide();
+    }
+
+    // Get element priority order from ControlSettings (use default if not available)
+    std::array<ElementInteractionType, static_cast<size_t>(ElementInteractionType::kCount)> priority_order;
+    if (m_control_settings_) {
+        priority_order = m_control_settings_->GetElementPriorityOrder();
+    } else {
+        // Default priority: Pins > Components > Traces > Vias > Text Labels
+        priority_order[0] = ElementInteractionType::kPins;
+        priority_order[1] = ElementInteractionType::kComponents;
+        priority_order[2] = ElementInteractionType::kTraces;
+        priority_order[3] = ElementInteractionType::kVias;
+        priority_order[4] = ElementInteractionType::kTextLabels;
+    }
+
+    // Collect all elements first, then sort by priority
+    std::vector<ElementInteractionInfo> all_elements;
+    all_elements.reserve(5000);
+
+    // 1. Iterate through standalone elements grouped by layer (excluding components - they're handled separately)
     for (const auto& layer_pair : m_elements_by_layer) {
         const LayerInfo* layer_info = GetLayerById(layer_pair.first);
         if (layer_info && layer_info->IsVisible()) {
             for (const auto& element_ptr : layer_pair.second) {
                 if (element_ptr && element_ptr->IsVisible())  // Assuming Element base has isVisible()
                 {
-                    result.push_back({element_ptr.get(), nullptr});
+                    // Skip components - they will be handled in the component-specific section with proper priority
+                    const Component* comp = dynamic_cast<const Component*>(element_ptr.get());
+                    if (comp) {
+                        continue;  // Skip components here
+                    }
+                    all_elements.push_back({element_ptr.get(), nullptr});
                 }
             }
         } else {
-            std::cout << "Board: Layer " << layer_pair.first << " is not visible or not found" << std::endl;
         }
     }
 
-    // 2. Iterate through components and their elements (Pins, component-specific TextLabels)
-    auto comp_layer_it = m_elements_by_layer.find(Board::kBottomCompLayer);
-    if (comp_layer_it != m_elements_by_layer.end()) {
+    // 2. Iterate through components in both top and bottom component layers
+    std::vector<int> component_layers = {Board::kTopCompLayer, Board::kBottomCompLayer};
+
+    for (int comp_layer_id : component_layers) {
+        auto comp_layer_it = m_elements_by_layer.find(comp_layer_id);
+        if (comp_layer_it == m_elements_by_layer.end()) {
+            continue;
+        }
+
         for (const auto& element_ptr : comp_layer_it->second) {
             if (!element_ptr)
                 continue;
@@ -310,33 +363,96 @@ std::vector<ElementInteractionInfo> Board::GetAllVisibleElementsForInteraction()
 
             const LayerInfo* comp_layer_info = GetLayerById(comp->layer);  // Component's primary layer
 
-            if (comp_layer_info && comp_layer_info->IsVisible()) {
-                // Add Pins of the component
+            // Apply board side filtering for components (same logic as RenderPipeline.cpp)
+            bool should_include_component = true;
+            if (current_view_side != BoardDataManager::BoardSide::kBoth) {
+                if (current_view_side == BoardDataManager::BoardSide::kTop && comp->side != MountingSide::kTop) {
+                    should_include_component = false;
+                } else if (current_view_side == BoardDataManager::BoardSide::kBottom && comp->side != MountingSide::kBottom) {
+                    should_include_component = false;
+                }
+            }
+
+            // Also check individual layer visibility
+            if (should_include_component && comp_layer_info && comp_layer_info->IsVisible()) {
+                // Add Pins of the component (with board side filtering)
                 for (const auto& pin_ptr : comp->pins) {
                     if (!pin_ptr)
                         continue;
-                    const LayerInfo* pin_layer_info = GetLayerById(pin_ptr->GetLayerId());
-                    if (pin_ptr->IsVisible() && pin_layer_info && pin_layer_info->IsVisible()) {
-                        result.push_back({pin_ptr.get(), comp});
+
+                    // Apply board side filtering for pins based on their parent component's side
+                    bool should_include_pin = true;
+                    if (current_view_side != BoardDataManager::BoardSide::kBoth) {
+                        if (current_view_side == BoardDataManager::BoardSide::kTop && comp->side != MountingSide::kTop) {
+                            should_include_pin = false;
+                        } else if (current_view_side == BoardDataManager::BoardSide::kBottom && comp->side != MountingSide::kBottom) {
+                            should_include_pin = false;
+                        }
+                    }
+
+                    if (should_include_pin) {
+                        const LayerInfo* pin_layer_info = GetLayerById(pin_ptr->GetLayerId());
+                        if (pin_ptr->IsVisible() && pin_layer_info && pin_layer_info->IsVisible()) {
+                            all_elements.push_back({pin_ptr.get(), comp});
+                        }
                     }
                 }
-                // Add TextLabels of the component
+
+                // Add the Component itself to the interaction list
+                all_elements.push_back({comp, nullptr});
+
+                // Add TextLabels of the component (with board side filtering)
                 for (const auto& label_ptr : comp->text_labels) {
                     if (!label_ptr)
                         continue;
-                    const LayerInfo* label_layer_info = GetLayerById(label_ptr->GetLayerId());
-                    if (label_ptr->IsVisible() && label_layer_info && label_layer_info->IsVisible()) {
-                        result.push_back({label_ptr.get(), comp});
-                    } else {
-                        std::cout << "Board: TextLabel on layer " << label_ptr->GetLayerId() << " is not visible or layer not found" << std::endl;
+
+                    // Apply board side filtering for text labels based on their parent component's side
+                    bool should_include_label = true;
+                    if (current_view_side != BoardDataManager::BoardSide::kBoth) {
+                        if (current_view_side == BoardDataManager::BoardSide::kTop && comp->side != MountingSide::kTop) {
+                            should_include_label = false;
+                        } else if (current_view_side == BoardDataManager::BoardSide::kBottom && comp->side != MountingSide::kBottom) {
+                            should_include_label = false;
+                        }
+                    }
+
+                    if (should_include_label) {
+                        const LayerInfo* label_layer_info = GetLayerById(label_ptr->GetLayerId());
+                        if (label_ptr->IsVisible() && label_layer_info && label_layer_info->IsVisible()) {
+                            all_elements.push_back({label_ptr.get(), comp});
+                        } else {
+                        }
                     }
                 }
             } else {
-                std::cout << "Board: Component layer is not visible or not found" << std::endl;
             }
         }
     }
-    return result;
+
+    // Sort elements by priority order
+    std::sort(all_elements.begin(), all_elements.end(),
+        [&priority_order](const ElementInteractionInfo& a, const ElementInteractionInfo& b) {
+            ElementInteractionType type_a = GetElementInteractionType(a.element);
+            ElementInteractionType type_b = GetElementInteractionType(b.element);
+
+            // Find priority indices for both types
+            int priority_a = static_cast<int>(ElementInteractionType::kCount);  // Default to lowest priority
+            int priority_b = static_cast<int>(ElementInteractionType::kCount);
+
+            for (size_t i = 0; i < priority_order.size(); ++i) {
+                if (priority_order[i] == type_a) {
+                    priority_a = static_cast<int>(i);
+                }
+                if (priority_order[i] == type_b) {
+                    priority_b = static_cast<int>(i);
+                }
+            }
+
+            // Lower index = higher priority (should come first)
+            return priority_a < priority_b;
+        });
+
+    return all_elements;
 }
 
 const Net* Board::GetNetById(int net_id) const
@@ -351,6 +467,11 @@ const Net* Board::GetNetById(int net_id) const
 void Board::SetBoardDataManager(std::shared_ptr<BoardDataManager> manager)
 {
     m_board_data_manager_ = manager;
+}
+
+void Board::SetControlSettings(std::shared_ptr<ControlSettings> control_settings)
+{
+    m_control_settings_ = control_settings;
 }
 
 // --- Board Folding Implementation ---
@@ -448,9 +569,6 @@ void Board::AssignComponentSidesAndFold(double center_x)
 				pin_ptr->SetLayerId(Board::kBottomPinsLayer);
 
 			}
-            // Log information about the component being mirrored
-            std::cout << "Mirrored component " << comp->reference_designator
-                      << " (pins: " << comp->pins.size() << ")" << std::endl;
         } else {
             comp->side = MountingSide::kTop;
 			comp->layer = Board::kTopCompLayer;
@@ -466,16 +584,13 @@ void Board::AssignComponentSidesAndFold(double center_x)
 
 void Board::ApplyBoardFolding()
 {
-    std::cout << "Board::ApplyBoardFolding() called" << std::endl;
 
     if (m_is_folded_) {
-        std::cout << "Board::ApplyBoardFolding() - Already folded, skipping" << std::endl;
         return;  // Already folded
     }
 
     // Detect the center axis
     m_board_center_x_ = DetectBoardCenterAxis();
-    std::cout << "Board::ApplyBoardFolding() - Detected center axis at X=" << m_board_center_x_ << std::endl;
 
     // Mirror traces and other elements from right side to left side
     for (auto& layer_pair : m_elements_by_layer) {
@@ -554,7 +669,6 @@ void Board::ApplyBoardFolding()
     CleanDuplicateOutlineSegments();
 
     m_is_folded_ = true;
-    std::cout << "Board::ApplyBoardFolding() - Board folding completed successfully" << std::endl;
 }
 
 void Board::RevertBoardFolding()
@@ -566,52 +680,38 @@ void Board::RevertBoardFolding()
     // For now, we'll just mark as unfolded and let the board be reloaded
     m_is_folded_ = false;
 
-    std::cout << "Board folding reverted. Consider reloading the board for full restoration." << std::endl;
 }
 
 void Board::UpdateFoldingState()
 {
-    std::cout << "Board::UpdateFoldingState() called" << std::endl;
 
     if (!m_board_data_manager_) {
-        std::cout << "Board::UpdateFoldingState() - No BoardDataManager, skipping" << std::endl;
         return;
     }
 
     bool should_be_folded = m_board_data_manager_->IsBoardFoldingEnabled();
-    std::cout << "Board::UpdateFoldingState() - Should be folded: " << (should_be_folded ? "true" : "false") << std::endl;
-    std::cout << "Board::UpdateFoldingState() - Currently folded: " << (m_is_folded_ ? "true" : "false") << std::endl;
 
     if (should_be_folded && !m_is_folded_) {
-        std::cout << "Board folding enabled. Applying folding..." << std::endl;
         ApplyBoardFolding();
     } else if (!should_be_folded && m_is_folded_) {
-        std::cout << "Board folding disabled. Reverting folding..." << std::endl;
         RevertBoardFolding();
     } else {
-        std::cout << "Board::UpdateFoldingState() - No folding state change needed" << std::endl;
     }
 }
 
 void Board::ApplyGlobalTransformation(bool mirror_horizontally)
 {
-    std::cout << "Board::ApplyGlobalTransformation() called with mirror_horizontally="
-              << (mirror_horizontally ? "true" : "false") << std::endl;
-
     if (!mirror_horizontally) {
-        std::cout << "Board::ApplyGlobalTransformation() - No mirroring requested, skipping" << std::endl;
         return;
     }
 
     // Get board bounds to determine the center axis for mirroring
     BLRect board_bounds = GetBoundingBox(false);
     if (board_bounds.w <= 0 && board_bounds.h <= 0) {
-        std::cout << "Board::ApplyGlobalTransformation() - No valid board bounds, skipping" << std::endl;
         return;
     }
 
     double center_x = board_bounds.x + board_bounds.w / 2.0;
-    std::cout << "Board::ApplyGlobalTransformation() - Using center axis at X=" << center_x << std::endl;
 
     // Mirror non-component elements in all layers
     for (auto& layer_pair : m_elements_by_layer) {
@@ -622,9 +722,6 @@ void Board::ApplyGlobalTransformation(bool mirror_horizontally)
             layer_id == Board::kTopPinsLayer || layer_id == Board::kBottomPinsLayer) {
             continue;
         }
-
-        std::cout << "Board::ApplyGlobalTransformation() - Processing layer " << layer_id
-                  << " with " << layer_pair.second.size() << " elements" << std::endl;
 
         for (auto& element_ptr : layer_pair.second) {
             if (!element_ptr) continue;
@@ -642,20 +739,13 @@ void Board::ApplyGlobalTransformation(bool mirror_horizontally)
         auto comp_layer_it = m_elements_by_layer.find(comp_layer);
         if (comp_layer_it == m_elements_by_layer.end()) continue;
 
-        std::cout << "Board::ApplyGlobalTransformation() - Processing component layer " << comp_layer
-                  << " with " << comp_layer_it->second.size() << " components" << std::endl;
-
         for (auto& element_ptr : comp_layer_it->second) {
             if (!element_ptr) continue;
 
             // Check if this element is a Component
             if (auto comp_ptr = dynamic_cast<Component*>(element_ptr.get())) {
-                std::cout << "Board::ApplyGlobalTransformation() - Mirroring component "
-                          << comp_ptr->reference_designator << std::endl;
                 comp_ptr->Mirror(center_x);
             }
         }
     }
-
-    std::cout << "Board::ApplyGlobalTransformation() - Global transformation completed" << std::endl;
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>  // For std::cos, std::sin
+#include <iostream>  // For std::cout debug output
 #include <math.h>
 #include <memory>   // For std::unique_ptr
 #include <sstream>  // For std::stringstream
@@ -170,9 +171,9 @@ public:
         // For a component, we don't need the parent component parameter since it is the parent
         double const kCompW = width > 0 ? width : 0.1;
         double const kCompH = height > 0 ? height : 0.1;
-        Vec2 center = GetCenter();
-        double comp_cx = center.x_ax;
-        double comp_cy = center.y_ax;
+        // Use the component's actual center coordinates (which have been updated by transformations like mirroring)
+        double comp_cx = center_x;
+        double comp_cy = center_y;
         double const kCompRotRad = rotation * (kPi / 180.0);
         double const kCosR = std::cos(kCompRotRad);
         double const kSinR = std::sin(kCompRotRad);

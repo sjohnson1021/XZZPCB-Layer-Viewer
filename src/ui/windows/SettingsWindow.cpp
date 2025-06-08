@@ -1,5 +1,6 @@
 #include "ui/windows/SettingsWindow.hpp"
 
+#include <algorithm>  // For std::max, std::min
 #include <iostream>
 
 #include "imgui_internal.h"  // For ImGui::GetCurrentWindow(); (can be avoided if not strictly needed)
@@ -425,6 +426,119 @@ void SettingsWindow::ShowControlSettings()
             ImGui::EndTable();
         }
     }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("Interaction Priority");
+    if (ImGui::CollapsingHeader("Element Selection Priority", ImGuiTreeNodeFlags_None)) {
+        ImGui::TextWrapped("Drag and drop to reorder element types by selection priority. Elements higher in the list will be selected first when overlapping.");
+        ImGui::Spacing();
+		ImGui::Indent();
+        // Get current priority order from ControlSettings
+        auto current_priority = m_control_settings_->GetElementPriorityOrder();
+
+        // Create a mutable copy for UI manipulation
+        static std::array<ElementInteractionType, static_cast<size_t>(ElementInteractionType::kCount)> ui_priority_order;
+        static bool initialized = false;
+        if (!initialized) {
+            ui_priority_order = current_priority;
+            initialized = true;
+        }
+
+        ImGui::PushItemFlag(ImGuiItemFlags_AllowDuplicateId, true);
+
+        // Calculate the available width for the priority list
+        float available_width = ImGui::GetContentRegionAvail().x;
+        float item_width = std::max(200.0f, available_width - 20.0f); // Minimum 200px, or full width minus padding
+
+        // Get style and position info for mouse-based drag calculation
+        ImGuiStyle& style = ImGui::GetStyle();
+        ImVec2 window_position = ImGui::GetWindowPos();
+        ImVec2 cursor_start_position = ImGui::GetCursorPos();
+
+        // Calculate item height (selectable height + spacing)
+        float item_height = ImGui::GetTextLineHeightWithSpacing();
+
+        // Calculate the starting position for the first item
+        ImVec2 first_item_position(
+            window_position.x + cursor_start_position.x,
+            window_position.y + cursor_start_position.y
+        );
+
+        for (int n = 0; n < static_cast<int>(ElementInteractionType::kCount); n++) {
+            ElementInteractionType element_type = ui_priority_order[n];
+            const char* item = ElementInteractionTypeToString(element_type);
+
+            // Create a button-like selectable with some styling
+            ImGui::PushID(n);
+
+            // Add some visual styling to make it look more like a button
+            ImVec4 button_color = ImVec4(0.26f, 0.59f, 0.98f, 0.40f);
+            ImVec4 button_hovered = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
+            ImVec4 button_active = ImVec4(0.06f, 0.53f, 0.98f, 1.00f);
+
+            ImGui::PushStyleColor(ImGuiCol_Header, button_color);
+            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, button_hovered);
+            ImGui::PushStyleColor(ImGuiCol_HeaderActive, button_active);
+
+            // Add priority number and icon with better formatting
+            std::string display_text = std::to_string(n + 1) + ". " + std::string(item) + " ⚬";
+
+            // Use explicit width to ensure text is not cut off
+            bool is_selected = ImGui::Selectable(display_text.c_str(), false, ImGuiSelectableFlags_None, ImVec2(item_width, item_height));
+
+            ImGui::PopStyleColor(3);
+            ImGui::PopID();
+
+            // Handle drag and drop reordering using mouse position
+            if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+                // Calculate which item position the mouse is currently over
+                float mouse_y = ImGui::GetMousePos().y;
+                int target_index = static_cast<int>((mouse_y - first_item_position.y) / item_height);
+
+                // Clamp target index to valid range
+                target_index = std::max(0, std::min(target_index, static_cast<int>(ElementInteractionType::kCount) - 1));
+
+                // Only swap if we're targeting a different position
+                if (target_index != n && target_index >= 0 && target_index < static_cast<int>(ElementInteractionType::kCount) ) {
+                    // Swap the items
+                    ElementInteractionType temp = ui_priority_order[n];
+                    ui_priority_order[n] = ui_priority_order[target_index];
+                    ui_priority_order[target_index] = temp;
+                }
+            }
+
+            // Show tooltip with more information
+            if (ImGui::IsItemHovered()) {
+                ImGui::BeginTooltip();
+                ImGui::Text("Priority %d: %s", n + 1, item);
+                ImGui::TextWrapped("Drag up/down to change priority. Higher priority elements are selected first when multiple elements overlap.");
+                ImGui::EndTooltip();
+            }
+        }
+
+        ImGui::PopItemFlag();
+
+        ImGui::Spacing();
+        if (ImGui::Button("Reset to Default Priority")) {
+            // Reset to default order
+            m_control_settings_->ResetElementPriorityToDefault();
+            ui_priority_order = m_control_settings_->GetElementPriorityOrder();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Apply Changes")) {
+            // Apply the priority changes to the actual system
+            m_control_settings_->SetElementPriorityOrder(ui_priority_order);
+            std::cout << "Interaction priority order updated:" << std::endl;
+            for (int i = 0; i < static_cast<int>(ElementInteractionType::kCount); i++) {
+                std::cout << "  " << (i + 1) << ". " << ElementInteractionTypeToString(ui_priority_order[i]) << std::endl;
+            }
+        }
+
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Apply the current priority order to element selection behavior.");
+        }
+		ImGui::Unindent();
+    }
 }
 
 void SettingsWindow::ShowLayerControls(const std::shared_ptr<Board>& currentBoard)
@@ -729,135 +843,169 @@ void SettingsWindow::ShowAppearanceSettings(const std::shared_ptr<Board>& curren
 
     // TODO: Move these to their own sections
 
-    ImGui::SeparatorText("Board Colors");
-    // Net Highlighting
-    BLRgba32 highlightColor = m_board_data_manager_->GetColor(BoardDataManager::ColorType::kNetHighlight);
-    float colorArr_NetHighlightColor[4] = {highlightColor.r() / 255.0f, highlightColor.g() / 255.0f, highlightColor.b() / 255.0f, highlightColor.a() / 255.0f};
-    if (ImGui::ColorEdit4("Net Highlight Color", colorArr_NetHighlightColor, ImGuiColorEditFlags_Float)) {
-        m_board_data_manager_->SetColor(BoardDataManager::ColorType::kNetHighlight,
-                                        BLRgba32(static_cast<uint32_t>(colorArr_NetHighlightColor[0] * 255),
-                                                 static_cast<uint32_t>(colorArr_NetHighlightColor[1] * 255),
-                                                 static_cast<uint32_t>(colorArr_NetHighlightColor[2] * 255),
-                                                 static_cast<uint32_t>(colorArr_NetHighlightColor[3] * 255)));
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Color used to highlight elements that belong to the selected net.");
-    }
-    ImGui::Spacing();
+    if (ImGui::CollapsingHeader("Board Colors")) {
+        ImGui::Indent();
 
-    // Silkscreen Colors
-    BLRgba32 silkscreenColor = m_board_data_manager_->GetColor(BoardDataManager::ColorType::kSilkscreen);
-    float colorArr_SilkscreenColor[4] = {silkscreenColor.r() / 255.0f, silkscreenColor.g() / 255.0f, silkscreenColor.b() / 255.0f, silkscreenColor.a() / 255.0f};
-    if (ImGui::ColorEdit4("Silkscreen Color", colorArr_SilkscreenColor, ImGuiColorEditFlags_Float)) {
-        m_board_data_manager_->SetColor(BoardDataManager::ColorType::kSilkscreen,
-                                        BLRgba32(static_cast<uint32_t>(colorArr_SilkscreenColor[0] * 255),
-                                                 static_cast<uint32_t>(colorArr_SilkscreenColor[1] * 255),
-                                                 static_cast<uint32_t>(colorArr_SilkscreenColor[2] * 255),
-                                                 static_cast<uint32_t>(colorArr_SilkscreenColor[3] * 255)));
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Color used to render silkscreen elements.");
-    }
-    ImGui::Spacing();
+        // ========================================
+        // HIGHLIGHTING COLORS
+        // ========================================
+        ImGui::SeparatorText("Highlighting");
 
-    // Component Colors
-    BLRgba32 componentFillColor = m_board_data_manager_->GetColor(BoardDataManager::ColorType::kComponentFill);
-    float colorArr_ComponentFillColor[4] = {componentFillColor.r() / 255.0f, componentFillColor.g() / 255.0f, componentFillColor.b() / 255.0f, componentFillColor.a() / 255.0f};
-    if (ImGui::ColorEdit4("Component Fill Color", colorArr_ComponentFillColor, ImGuiColorEditFlags_Float)) {
-        m_board_data_manager_->SetColor(BoardDataManager::ColorType::kComponentFill,
-                                        BLRgba32(static_cast<uint32_t>(colorArr_ComponentFillColor[0] * 255),
-                                                 static_cast<uint32_t>(colorArr_ComponentFillColor[1] * 255),
-                                                 static_cast<uint32_t>(colorArr_ComponentFillColor[2] * 255),
-                                                 static_cast<uint32_t>(colorArr_ComponentFillColor[3] * 255)));
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Color used to render the background/fill of components.");
-    }
+        // Selected Element Highlight Color
+        RenderColorControl("Selected Element Highlight", BoardDataManager::ColorType::kSelectedElementHighlight,
+                          "Color used to highlight directly selected components/pins (separate from net highlighting).");
 
-    BLRgba32 componentStrokeColor = m_board_data_manager_->GetColor(BoardDataManager::ColorType::kComponentStroke);
-    float colorArr_ComponentStrokeColor[4] = {componentStrokeColor.r() / 255.0f, componentFillColor.g() / 255.0f, componentFillColor.b() / 255.0f, componentFillColor.a() / 255.0f};
-    if (ImGui::ColorEdit4("Component Stroke Color", colorArr_ComponentStrokeColor, ImGuiColorEditFlags_Float)) {
-        m_board_data_manager_->SetColor(BoardDataManager::ColorType::kComponentStroke,
-                                        BLRgba32(static_cast<uint32_t>(colorArr_ComponentStrokeColor[0] * 255),
-                                                 static_cast<uint32_t>(colorArr_ComponentStrokeColor[1] * 255),
-                                                 static_cast<uint32_t>(colorArr_ComponentStrokeColor[2] * 255),
-                                                 static_cast<uint32_t>(colorArr_ComponentStrokeColor[3] * 255)));
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Color used to render the outline/stroke of components.");
-    }
+        // Net Highlight Color
+        RenderColorControl("Net Highlight Color", BoardDataManager::ColorType::kNetHighlight,
+                          "Color used to highlight elements that belong to the selected net.");
 
-    ImGui::Spacing();
+        ImGui::Spacing();
 
-    // Pin Colors
-    BLRgba32 pinFillColor = m_board_data_manager_->GetColor(BoardDataManager::ColorType::kPinFill);
-    float colorArr_PinFillColor[4] = {pinFillColor.r() / 255.0f, pinFillColor.g() / 255.0f, pinFillColor.b() / 255.0f, pinFillColor.a() / 255.0f};
-    if (ImGui::ColorEdit4("Pin Fill Color", colorArr_PinFillColor, ImGuiColorEditFlags_Float)) {
-        m_board_data_manager_->SetColor(BoardDataManager::ColorType::kPinFill,
-                                        BLRgba32(static_cast<uint32_t>(colorArr_PinFillColor[0] * 255),
-                                                 static_cast<uint32_t>(colorArr_PinFillColor[1] * 255),
-                                                 static_cast<uint32_t>(colorArr_PinFillColor[2] * 255),
-                                                 static_cast<uint32_t>(colorArr_PinFillColor[3] * 255)));
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Color used to render the background/fill of pins.");
-    }
+        // ========================================
+        // COMPONENT COLORS
+        // ========================================
+        ImGui::SeparatorText("Components");
 
-    BLRgba32 pinStrokeColor = m_board_data_manager_->GetColor(BoardDataManager::ColorType::kPinStroke);
-    float colorArr_PinStrokeColor[4] = {pinStrokeColor.r() / 255.0f, pinStrokeColor.g() / 255.0f, pinStrokeColor.b() / 255.0f, pinStrokeColor.a() / 255.0f};
-    if (ImGui::ColorEdit4("Pin Stroke Color", colorArr_PinStrokeColor, ImGuiColorEditFlags_Float)) {
-		m_board_data_manager_->SetColor(BoardDataManager::ColorType::kPinStroke,
-                                        BLRgba32(static_cast<uint32_t>(colorArr_PinStrokeColor[0] * 255),
-                                                 static_cast<uint32_t>(colorArr_PinStrokeColor[1] * 255),
-                                                 static_cast<uint32_t>(colorArr_PinStrokeColor[2] * 255),
-												 static_cast<uint32_t>(colorArr_PinStrokeColor[3] * 255)));
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Color used to render the outline/stroke of pins.");
-    }
-    ImGui::Spacing();
+        // Component Fill Color
+        RenderColorControl("Component Fill Color", BoardDataManager::ColorType::kComponentFill,
+                          "Color used to render the background/fill of components.");
 
-    // Board Edges Colors
+        // Component Stroke Color and Thickness
+        RenderColorControl("Component Stroke Color", BoardDataManager::ColorType::kComponentStroke,
+                          "Color used to render the outline/stroke of components.");
 
-    BLRgba32 boardEdgesColor = m_board_data_manager_->GetColor(BoardDataManager::ColorType::kBoardEdges);
-    float colorArr_BoardEdgesColor[4] = {boardEdgesColor.r() / 255.0f, boardEdgesColor.g() / 255.0f, boardEdgesColor.b() / 255.0f, boardEdgesColor.a() / 255.0f};
-    if (ImGui::ColorEdit4("Board Edges Color", colorArr_BoardEdgesColor, ImGuiColorEditFlags_Float)) {
-        m_board_data_manager_->SetColor(BoardDataManager::ColorType::kBoardEdges,
-                                        BLRgba32(static_cast<uint32_t>(colorArr_BoardEdgesColor[0] * 255),
-                                                 static_cast<uint32_t>(colorArr_BoardEdgesColor[1] * 255),
-                                                 static_cast<uint32_t>(colorArr_BoardEdgesColor[2] * 255),
-                                                 static_cast<uint32_t>(colorArr_BoardEdgesColor[3] * 255)));
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Color used to render board edges.");
-    }
+        ImGui::SameLine();
+		ImGui::Text("| Thickness");
+        ImGui::SameLine();
+        float componentStrokeThickness = m_board_data_manager_->GetComponentStrokeThickness();
+        ImGui::SetNextItemWidth(80);
+        if (ImGui::SliderFloat("##ComponentStrokeThickness", &componentStrokeThickness, 0.01f, 2.0f, "%.2f")) {
+            m_board_data_manager_->SetComponentStrokeThickness(componentStrokeThickness);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Thickness of component stroke/outline.");
+        }
 
-    ImGui::Spacing();
+        ImGui::Spacing();
 
-    // Base Layer Color
-    BLRgba32 baseColor = m_board_data_manager_->GetColor(BoardDataManager::ColorType::kBaseLayer);
-    float colorArr_BaseColor[4] = {baseColor.r() / 255.0f, baseColor.g() / 255.0f, baseColor.b() / 255.0f, baseColor.a() / 255.0f};
-    if (ImGui::ColorEdit4("Base Layer Color", colorArr_BaseColor, ImGuiColorEditFlags_Float)) {
-        m_board_data_manager_->SetColor(BoardDataManager::ColorType::kBaseLayer,
-                                        BLRgba32(static_cast<uint32_t>(colorArr_BaseColor[0] * 255),
-                                                 static_cast<uint32_t>(colorArr_BaseColor[1] * 255),
-                                                 static_cast<uint32_t>(colorArr_BaseColor[2] * 255),
-                                                 static_cast<uint32_t>(colorArr_BaseColor[3] * 255)));
-        m_board_data_manager_->RegenerateLayerColors(currentBoard);
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("The starting color for the first layer. Subsequent layers will have their hue shifted from this color.");
-    }
+        // ========================================
+        // PIN COLORS
+        // ========================================
+        ImGui::SeparatorText("Pins");
 
-    // Hue Step per Layer
-    float hueStep = m_board_data_manager_->GetLayerHueStep();
-    if (ImGui::DragFloat("Hue Shift per Layer", &hueStep, 1.0f, 0.0f, 180.0f, "%.1f degrees")) {
-        m_board_data_manager_->SetLayerHueStep(hueStep);
-        m_board_data_manager_->RegenerateLayerColors(currentBoard);
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("How much the hue is shifted for each subsequent layer, in degrees.");
-    }
+        // Pin Fill Color
+        RenderColorControl("Pin Fill Color", BoardDataManager::ColorType::kPinFill,
+                          "Color used to render the background/fill of pins.");
+
+        // Pin Stroke Color and Thickness
+        RenderColorControl("Pin Stroke Color", BoardDataManager::ColorType::kPinStroke,
+                          "Color used to render the outline/stroke of pins.");
+
+        ImGui::SameLine();
+		ImGui::Text("| Thickness");
+        ImGui::SameLine();
+        float pinStrokeThickness = m_board_data_manager_->GetPinStrokeThickness();
+        ImGui::SetNextItemWidth(80);
+        if (ImGui::SliderFloat("##PinStrokeThickness", &pinStrokeThickness, 0.01f, 1.0f, "%.2f")) {
+            m_board_data_manager_->SetPinStrokeThickness(pinStrokeThickness);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Thickness of pin stroke/outline.");
+        }
+
+        // Special Pin Colors
+        RenderColorControl("GND Pin Color", BoardDataManager::ColorType::kGND,
+                          "Color used to render pins connected to GND nets.");
+
+        RenderColorControl("NC Pin Color", BoardDataManager::ColorType::kNC,
+                          "Color used to render pins that are not connected (NC).");
+
+        ImGui::Spacing();
+
+        // ========================================
+        // LAYER COLORS
+        // ========================================
+        ImGui::SeparatorText("Layers");
+
+        // Base Layer Color
+        BLRgba32 baseColor = m_board_data_manager_->GetColor(BoardDataManager::ColorType::kBaseLayer);
+        float colorArr_BaseColor[4] = {baseColor.r() / 255.0f, baseColor.g() / 255.0f, baseColor.b() / 255.0f, baseColor.a() / 255.0f};
+        if (ImGui::ColorEdit4("Base Layer Color", colorArr_BaseColor, ImGuiColorEditFlags_Float)) {
+            m_board_data_manager_->SetColor(BoardDataManager::ColorType::kBaseLayer,
+                                            BLRgba32(static_cast<uint32_t>(colorArr_BaseColor[0] * 255),
+                                                    static_cast<uint32_t>(colorArr_BaseColor[1] * 255),
+                                                    static_cast<uint32_t>(colorArr_BaseColor[2] * 255),
+                                                    static_cast<uint32_t>(colorArr_BaseColor[3] * 255)));
+            m_board_data_manager_->RegenerateLayerColors(currentBoard);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("The starting color for the first layer. Subsequent layers will have their hue shifted from this color.");
+        }
+
+        // Hue Step per Layer
+        float hueStep = m_board_data_manager_->GetLayerHueStep();
+        if (ImGui::DragFloat("Hue Shift per Layer", &hueStep, 1.0f, 0.0f, 180.0f, "%.1f degrees")) {
+            m_board_data_manager_->SetLayerHueStep(hueStep);
+            m_board_data_manager_->RegenerateLayerColors(currentBoard);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("How much the hue is shifted for each subsequent layer, in degrees.");
+        }
+
+        ImGui::Spacing();
+
+        // ========================================
+        // BOARD APPEARANCE
+        // ========================================
+        ImGui::SeparatorText("Board Appearance");
+
+        // Silkscreen Color
+        RenderColorControl("Silkscreen Color", BoardDataManager::ColorType::kSilkscreen,
+                          "Color used to render silkscreen elements.");
+
+        // Board Edges Color and Thickness
+        RenderColorControl("Board Edges Color", BoardDataManager::ColorType::kBoardEdges,
+                          "Color used to render board edges.");
+
+        ImGui::SameLine();
+		ImGui::Text("| Thickness");
+        ImGui::SameLine();
+        float outlineThickness = m_board_data_manager_->GetBoardOutlineThickness();
+        ImGui::SetNextItemWidth(80);
+        if (ImGui::SliderFloat("##BoardOutlineThickness", &outlineThickness, 0.01f, 2.0f, "%.2f")) {
+            m_board_data_manager_->SetBoardOutlineThickness(outlineThickness);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Thickness of the board outline/edges rendering.");
+        }
+		ImGui::Spacing();
+		ImGui::SeparatorText("Rendering Settings");
+		ImGui::Spacing();
+
+		// Target Framerate
+		int targetFps = m_board_data_manager_->GetTargetFramerate();
+		if (ImGui::SliderInt("Target Framerate", &targetFps, 15, 120, "%d FPS")) {
+			m_board_data_manager_->SetTargetFramerate(targetFps);
+		}
+		if (ImGui::IsItemHovered()) {
+			ImGui::SetTooltip("Target framerate for rendering. Lower values reduce CPU/GPU usage.");
+		}
+
+		// Quick framerate presets
+		ImGui::SameLine();
+		if (ImGui::Button("30")) {
+			m_board_data_manager_->SetTargetFramerate(30);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("60")) {
+			m_board_data_manager_->SetTargetFramerate(60);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("120")) {
+			m_board_data_manager_->SetTargetFramerate(120);
+		}
+		ImGui::Unindent();
+	}
     ImGui::Spacing();
 
     ShowLayerControls(currentBoard);  // Pass currentBoard
@@ -896,4 +1044,27 @@ void SettingsWindow::RenderUI(const std::shared_ptr<Board>& currentBoard)
         ImGui::EndTabBar();
     }
     ImGui::End();  // This End matches the successful Begin
+}
+
+void SettingsWindow::RenderColorControl(const char* label, BoardDataManager::ColorType color_type, const char* tooltip)
+{
+    BLRgba32 color = m_board_data_manager_->GetColor(color_type);
+    float color_array[4] = {
+        color.r() / 255.0f,
+        color.g() / 255.0f,
+        color.b() / 255.0f,
+        color.a() / 255.0f
+    };
+
+    if (ImGui::ColorEdit4(label, color_array, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_None)) {
+        m_board_data_manager_->SetColor(color_type,
+                                        BLRgba32(static_cast<uint32_t>(color_array[0] * 255),
+                                                static_cast<uint32_t>(color_array[1] * 255),
+                                                static_cast<uint32_t>(color_array[2] * 255),
+                                                static_cast<uint32_t>(color_array[3] * 255)));
+    }
+
+    if (ImGui::IsItemHovered() && tooltip) {
+        ImGui::SetTooltip("%s", tooltip);
+    }
 }

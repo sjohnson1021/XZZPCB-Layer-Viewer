@@ -1,6 +1,21 @@
 #pragma once
 
 #include "core/InputActions.hpp"  // Include the new header
+#include <vector>
+#include <array>
+
+// Enum for different element types that can be interacted with
+enum class ElementInteractionType : uint8_t {
+    kPins = 0,
+    kComponents,
+    kTraces,
+    kVias,
+    kTextLabels,
+    kCount  // Keep last for array sizing
+};
+
+// Helper function to convert ElementInteractionType to string
+const char* ElementInteractionTypeToString(ElementInteractionType type);
 
 // Forward declaration for potential key types if we make it more complex
 // enum class InputAction { OpenFile, ResetView, ... };
@@ -18,6 +33,9 @@ struct ControlSettings {
     // Keybinds map
     KeybindMap m_keybinds;
 
+    // Element interaction priority (lower index = higher priority)
+    std::array<ElementInteractionType, static_cast<size_t>(ElementInteractionType::kCount)> m_element_priority_order;
+
     ControlSettings();  // Constructor to initialize defaults
 
     // Methods to manage keybinds
@@ -27,12 +45,18 @@ struct ControlSettings {
     void SaveKeybindsToConfig(class Config& config);          // Forward declare Config
     void ResetKeybindsToDefault();
 
-    // Methods to manage all settings (keybinds + speed controls)
+    // Methods to manage element interaction priority
+    [[nodiscard]] const std::array<ElementInteractionType, static_cast<size_t>(ElementInteractionType::kCount)>& GetElementPriorityOrder() const;
+    void SetElementPriorityOrder(const std::array<ElementInteractionType, static_cast<size_t>(ElementInteractionType::kCount)>& priority_order);
+    void ResetElementPriorityToDefault();
+
+    // Methods to manage all settings (keybinds + speed controls + interaction priority)
     void LoadSettingsFromConfig(const class Config& config);
     void SaveSettingsToConfig(class Config& config);
 
 private:
     void InitializeDefaultKeybinds();
+    void InitializeDefaultElementPriority();
 
     // Potentially methods to load/save settings in the future
     // void LoadFromFile(const std::string& path);

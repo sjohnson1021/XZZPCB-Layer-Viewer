@@ -127,14 +127,19 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
             // Handle Mouse Click for Selection (Left Click)
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && is_viewport_focused) {
                 int clicked_net_id = -1;
+                const Element* clicked_element = nullptr;
+
                 for (const auto& item : interactive_elements) {
                     if (item.element && item.element->IsHit(transformedWorldMousePos, pick_tolerance, item.parent_component)) {
+                        clicked_element = item.element;
                         clicked_net_id = item.element->GetNetId();  // Assuming getNetId() is part of Element base or handled by derived.
                                                                     // If element is not associated with a net, it should return -1 or similar.
-                        if (clicked_net_id != -1)
-                            break;  // Found an element with a net
+                        break;  // Found the first hit element (prioritize by render order)
                     }
                 }
+
+                // Always set the selected element (even if nullptr for empty space)
+                m_board_data_manager_->SetSelectedElement(clicked_element);
 
                 if (m_board_data_manager_->GetSelectedNetId() == clicked_net_id && clicked_net_id != -1) {  // Clicking an already selected net deselects it
                     m_board_data_manager_->SetSelectedNetId(-1);
@@ -145,6 +150,12 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
                 } else {
                     m_board_data_manager_->SetSelectedNetId(-1);  // Clicked on empty space or non-net element
                     std::cout << "NavigationTool: Clicked empty or non-net element, selection cleared." << std::endl;
+                }
+
+                if (clicked_element) {
+                    std::cout << "NavigationTool: Selected Element: " << clicked_element->GetInfo() << std::endl;
+                } else {
+                    std::cout << "NavigationTool: No element selected." << std::endl;
                 }
                 // mark the board as dirty pcbrenderer
             }

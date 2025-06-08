@@ -56,4 +56,7 @@ private:
     void ShowControlSettings();
     void ShowAppearanceSettings(const std::shared_ptr<Board>& current_board);
     void ShowLayerControls(const std::shared_ptr<Board>& current_board);
+
+    // Helper method for rendering color controls
+    void RenderColorControl(const char* label, BoardDataManager::ColorType color_type, const char* tooltip);
 }; 

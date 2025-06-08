@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <iostream>
+#include <thread>
 
 #include <SDL3/SDL_filesystem.h>
 
@@ -195,6 +196,7 @@ int Application::Run()
     std::cout << "Running application..." << std::endl;
 
     auto lastTime = std::chrono::high_resolution_clock::now();
+    auto lastFrameTime = lastTime;
 
     while (IsRunning()) {
         auto currentTime = std::chrono::high_resolution_clock::now();
@@ -205,6 +207,21 @@ int Application::Run()
 
         Update(deltaTime);
         Render();
+
+        // Framerate limiting
+        if (m_boardDataManager) {
+            int targetFps = m_boardDataManager->GetTargetFramerate();
+            if (targetFps > 0) {
+                auto targetFrameDuration = std::chrono::microseconds(1000000 / targetFps);
+                auto frameTime = std::chrono::high_resolution_clock::now() - lastFrameTime;
+
+                if (frameTime < targetFrameDuration) {
+                    auto sleepTime = targetFrameDuration - frameTime;
+                    std::this_thread::sleep_for(sleepTime);
+                }
+                lastFrameTime = std::chrono::high_resolution_clock::now();
+            }
+        }
     }
 
     Shutdown();
@@ -588,11 +605,14 @@ void Application::OpenPcbFile(const std::string& filePath)
     if (newBoard) {
         m_currentBoard = std::move(newBoard);
 
-        // Set up the BoardDataManager reference in the board
+        // Set up the BoardDataManager and ControlSettings references in the board
         if (m_boardDataManager) {
             m_currentBoard->SetBoardDataManager(m_boardDataManager);
             m_boardDataManager->SetBoard(m_currentBoard);
             m_boardDataManager->RegenerateLayerColors(m_currentBoard);
+        }
+        if (m_controlSettings) {
+            m_currentBoard->SetControlSettings(m_controlSettings);
 
             // Apply folding if enabled
             std::cout << "Application: Checking if board folding should be applied..." << std::endl;

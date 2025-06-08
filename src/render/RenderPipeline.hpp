@@ -69,9 +69,9 @@ public:
     );
 
     // Helper methods for rendering specific PCB elements
-    void RenderTrace(BLContext& bl_ctx, const Trace& trace, const BLRect& world_view_rect, BLStrokeCap start_cap, BLStrokeCap end_cap);
+    void RenderTrace(BLContext& bl_ctx, const Trace& trace, const BLRect& world_view_rect, BLStrokeCap start_cap, BLStrokeCap end_cap, double thickness_override = -1.0);
     void RenderVia(BLContext& bl_ctx, const Via& via, const Board& board, const BLRect& world_view_rect, const BLRgba32& color_from, const BLRgba32& color_to);
-    void RenderArc(BLContext& bl_ctx, const Arc& arc, const BLRect& world_view_rect);
+    void RenderArc(BLContext& bl_ctx, const Arc& arc, const BLRect& world_view_rect, double thickness_override = -1.0);
     void RenderComponent(BLContext& bl_ctx,
                          const Component& component,
                          const Board& board,
@@ -79,11 +79,12 @@ public:
                          const BLRgba32& component_fill_color,
 						 const BLRgba32& component_stroke_color,
                          const std::unordered_map<BoardDataManager::ColorType, BLRgba32>& theme_color_cache,
-                         int selected_net_id);
+                         int selected_net_id,
+                         const class Element* selected_element = nullptr);
     void RenderTextLabel(BLContext& bl_ctx, const TextLabel& text_label, const BLRgba32& color);
     // TODO: Consider passing layer_properties_map to RenderTextLabel if it needs more than just color
     // void RenderPin(BLContext &bl_ctx, const Pin &pin, const Component &component, const Board &board, const BLRgba32 &highlightColor);
-    void RenderPin(BLContext& ctx, const Pin& pin, const Component* parent_component, const BLRgba32& fill_color, const BLRgba32& stroke_color);
+    void RenderPin(BLContext& ctx, const Pin& pin, const Component* parent_component, const BLRgba32& fill_color, const BLRgba32& stroke_color, const Board& board);
 
 private:
     // Helper to get a cached font face or load it if not found
