@@ -7,6 +7,7 @@
 
 #include <blend2d.h>
 
+#include "pcb/Board.hpp"               // For Board class and Net access
 #include "pcb/elements/Component.hpp"  // For parentComponent context
 #include "utils/Constants.hpp"         // For kPi
 #include "utils/GeometryUtils.hpp"     // For geometry_utils:: functions
@@ -135,7 +136,7 @@ bool Pin::IsHit(const Vec2& world_mouse, float tolerance, const Component* paren
         pad_shape);
 }
 
-std::string Pin::GetInfo(const Component* parentComponent) const
+std::string Pin::GetInfo(const Component* parentComponent, const Board* board) const
 {
     std::ostringstream oss;
     oss << "Pin: " << pin_name << "\n";
@@ -147,8 +148,19 @@ std::string Pin::GetInfo(const Component* parentComponent) const
     }
     oss << "World Pin Center: (" << world_pos.x_ax << ", " << world_pos.y_ax << ") World Rot: " << world_rot << " deg\n";
     oss << "Layer: " << GetLayerId() << ", Side: " << side << "\n";
+
+    // Enhanced net information display
     if (GetNetId() != -1) {
-        oss << "Net ID: " << GetNetId() << "\n";
+        if (board) {
+            const Net* net = board->GetNetById(GetNetId());
+            if (net) {
+                oss << "Net: " << (net->GetName().empty() ? "[Unnamed]" : net->GetName()) << " (ID: " << GetNetId() << ")\n";
+            } else {
+                oss << "Net ID: " << GetNetId() << " [Not Found]\n";
+            }
+        } else {
+            oss << "Net ID: " << GetNetId() << "\n";
+        }
     }
     oss << "Shape: ";
     std::visit(

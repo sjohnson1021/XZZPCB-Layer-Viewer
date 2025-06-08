@@ -26,6 +26,20 @@ public:
     // Required helper methods for unit conversion and display
     [[nodiscard]] std::string_view UnitToString();
     static float GetUnitDisplayScale();  // For converting internal units to display units
+    static float InchesToMm(float inches);  // Convert inches to millimeters
+    static float MmToInches(float mm);     // Convert millimeters to inches
+    static float GetCleanImperialSpacing(float inches);  // Get clean imperial spacing value
+    static float GetCleanMetricSpacing(float mm);        // Get clean metric spacing value
+
+    // Configuration persistence methods
+    void LoadSettingsFromConfig(const class Config& config);
+    void SaveSettingsToConfig(class Config& config) const;
+
+    // World coordinate conversion helpers
+    static float WorldUnitsToInches(float world_units);   // Convert world coordinates to inches
+    static float InchesToWorldUnits(float inches);        // Convert inches to world coordinates
+    static float WorldUnitsToMm(float world_units);       // Convert world coordinates to mm
+    static float MmToWorldUnits(float mm);                // Convert mm to world coordinates
 
     // Keep getters if some logic is involved or for read-only external access
     // but for ImGui, direct member access is simpler if we make them public.
@@ -34,11 +48,13 @@ public:
     //  Allow direct access for ImGui widgets
     bool m_visible = true;
     GridStyle m_style = GridStyle::kLines;
-    GridUnitSystem m_unit_system = GridUnitSystem::kMetric;
+    GridUnitSystem m_unit_system = GridUnitSystem::kImperial;  // Default to Imperial since XZZ files use mils/inches
 
-    // Base spacing for major grid lines in world units (mm for metric, inches for imperial)
+    // Base spacing for major grid lines in world coordinate units (0.1 mils)
     // This is the spacing when zoom is 1.0 and dynamic adjustment hasn't kicked in significantly.
-    float m_base_major_spacing = 100.0F;
+    // Default value of 2500.0 represents 0.25 inch (2500 * 0.1 mils = 250 mils = 0.25 inch)
+    // This provides better default spacing for PCB design work
+    float m_base_major_spacing = 2500.0F;
 
     // Number of subdivisions between major grid lines to draw minor lines
     int m_subdivisions = 10;

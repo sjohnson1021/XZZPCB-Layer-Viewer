@@ -33,7 +33,7 @@ public:
     // Pure virtual methods to be implemented by derived classes
     virtual BLRect GetBoundingBox(const Component* parent_component = nullptr) const = 0;
     virtual bool IsHit(const Vec2& world_mouse_pos, float tolerance, const Component* parent_component = nullptr) const = 0;
-    virtual std::string GetInfo(const Component* parent_component = nullptr) const = 0;
+    virtual std::string GetInfo(const Component* parent_component = nullptr, const class Board* board = nullptr) const = 0;
 
     // Method to translate the element's coordinates
     virtual void Translate(double dx, double dy) = 0;

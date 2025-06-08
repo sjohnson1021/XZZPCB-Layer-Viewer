@@ -126,8 +126,9 @@ bool Application::InitializeUISubsystems()
     m_grid = std::make_shared<Grid>(m_gridSettings);
     m_boardDataManager = std::make_shared<BoardDataManager>();
 
-    // Load BoardDataManager settings from config
+    // Load settings from config
     if (m_config) {
+        m_gridSettings->LoadSettingsFromConfig(*m_config);
         m_boardDataManager->LoadSettingsFromConfig(*m_config);
     }
 
@@ -231,6 +232,10 @@ void Application::Shutdown()
         m_controlSettings->SaveKeybindsToConfig(*m_config);
     }
 
+    if (m_gridSettings && m_config) {
+        m_gridSettings->SaveSettingsToConfig(*m_config);
+    }
+
     if (m_boardDataManager && m_config) {
         m_boardDataManager->SaveSettingsToConfig(*m_config);
     }
@@ -311,8 +316,88 @@ void Application::Update(float deltaTime)
     // (void)deltaTime;
 }
 
+void Application::ProcessGlobalKeyboardShortcuts()
+{
+    // Debug output to understand blocking conditions
+    static bool debug_logged = false;
+    if (!debug_logged) {
+        std::cout << "ProcessGlobalKeyboardShortcuts: m_controlSettings=" << (m_controlSettings ? "valid" : "null")
+                  << ", WantCaptureKeyboard=" << ImGui::GetIO().WantCaptureKeyboard << std::endl;
+        debug_logged = true;
+    }
+
+    // Only process shortcuts if we have control settings and ImGui is not capturing keyboard
+    if (!m_controlSettings) {
+        return;
+    }
+
+    // For global shortcuts like Ctrl+O, we should process them even if ImGui wants keyboard
+    // Only skip if we're actively typing in a text field
+    if (ImGui::GetIO().WantTextInput) {
+        return;
+    }
+
+    // Helper function to check if a keybind is active (similar to NavigationTool)
+    auto IsKeybindActive = [](const KeyCombination& kb, ImGuiIO& io) -> bool {
+        if (!kb.IsBound()) {
+            return false;
+        }
+
+        // Check if the key was just pressed (not held down)
+        if (!ImGui::IsKeyPressed(kb.key, false)) {
+            return false;
+        }
+
+        // Check modifiers
+        if (kb.ctrl && !io.KeyCtrl) {
+            return false;
+        }
+        if (kb.shift && !io.KeyShift) {
+            return false;
+        }
+        if (kb.alt && !io.KeyAlt) {
+            return false;
+        }
+
+        // Ensure unwanted modifiers are not pressed
+        if (!kb.ctrl && io.KeyCtrl) {
+            return false;
+        }
+        if (!kb.shift && io.KeyShift) {
+            return false;
+        }
+        if (!kb.alt && io.KeyAlt) {
+            return false;
+        }
+
+        return true;
+    };
+
+    ImGuiIO& io = ImGui::GetIO();
+
+    // Check for Ctrl+O (Open File)
+    KeyCombination openFileKeybind = m_controlSettings->GetKeybind(InputAction::kOpenFile);
+
+    // Debug output for Ctrl+O specifically
+    if (ImGui::IsKeyPressed(ImGuiKey_O, false) && io.KeyCtrl) {
+        std::cout << "Ctrl+O detected! Keybind config - Key: " << static_cast<int>(openFileKeybind.key)
+                  << " (O=" << static_cast<int>(ImGuiKey_O) << ")"
+                  << ", Ctrl: " << openFileKeybind.ctrl
+                  << ", Shift: " << openFileKeybind.shift
+                  << ", Alt: " << openFileKeybind.alt << std::endl;
+    }
+
+    if (IsKeybindActive(openFileKeybind, io)) {
+        m_openFileRequested = true;  // Set the flag directly to trigger file dialog opening
+        std::cout << "Global shortcut: Open file dialog triggered" << std::endl;
+    }
+}
+
 void Application::RenderUI()
 {
+    // Process global keyboard shortcuts first
+    ProcessGlobalKeyboardShortcuts();
+
     // Handle main menu bar first, as it might affect the main viewport's WorkPos/WorkSize
     if (m_mainMenuBar) {
         m_mainMenuBar->RenderUI(*this);  // This calls ImGui::BeginMainMenuBar/EndMainMenuBar
@@ -352,8 +437,9 @@ void Application::RenderUI()
 
     ImGui::End();  // End of RootDockspaceWindow
 
-    // Handle file dialog opening (m_openFileRequested is set by MainMenuBar)
+    // Handle file dialog opening (m_openFileRequested is set by MainMenuBar or global shortcuts)
     if (m_openFileRequested && m_fileDialogInstance && m_boardLoaderFactory) {
+        std::cout << "Opening file dialog..." << std::endl;
         std::string supportedExtensions = m_boardLoaderFactory->GetSupportedExtensionsFilterString();
         std::vector<std::string> extensionsList = m_boardLoaderFactory->GetSupportedExtensions();
 
@@ -378,6 +464,7 @@ void Application::RenderUI()
         m_fileDialogInstance->OpenDialog("ChooseFileDlgKey", "Choose PCB File", supportedExtensions.empty() ? nullptr : supportedExtensions.c_str(), config);
 
         m_openFileRequested = false;  // Reset flag after initiating dialog opening
+        std::cout << "File dialog opened successfully" << std::endl;
     }
 
     // Handle visibility requests for other windows, potentially set by MainMenuBar

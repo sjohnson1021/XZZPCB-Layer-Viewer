@@ -236,7 +236,7 @@ public:
         return kRotatedX >= -kHalfWidth - tolerance && kRotatedX <= kHalfWidth + tolerance && kRotatedY >= -kHalfHeight - tolerance && kRotatedY <= kHalfHeight + tolerance;
     }
 
-    std::string GetInfo(const Component* parentComponent = nullptr) const override
+    std::string GetInfo(const Component* parentComponent = nullptr, const Board* /*board*/ = nullptr) const override
     {
         // For a component, we don't need the parent component parameter since it is the parent
         std::stringstream k_ss = {};

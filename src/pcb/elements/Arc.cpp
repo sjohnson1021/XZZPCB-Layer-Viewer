@@ -6,6 +6,7 @@
 
 #include <blend2d.h>
 
+#include "pcb/Board.hpp"               // For Board class and Net access
 #include "pcb/elements/Component.hpp"  // For parentComponent, though not used by Arc
 #include "utils/Constants.hpp"         // For kPi
 #include "utils/GeometryUtils.hpp"     // For geometric calculations
@@ -47,14 +48,26 @@ bool Arc::IsHit(const Vec2& world_mouse_pos, float tolerance, const Component* /
     return geometry_utils::IsAngleBetween(kAngleRadMouseToCenter, start_angle, end_angle);
 }
 
-std::string Arc::GetInfo(const Component* /*parent_component*/) const
+std::string Arc::GetInfo(const Component* /*parent_component*/, const Board* board) const
 {
     std::ostringstream oss;
     oss << "Arc\n";
     oss << "Layer: " << GetLayerId() << "\n";
+
+    // Enhanced net information display
     if (GetNetId() != -1) {
-        oss << "Net ID: " << GetNetId() << "\n";
+        if (board) {
+            const Net* net = board->GetNetById(GetNetId());
+            if (net) {
+                oss << "Net: " << (net->GetName().empty() ? "[Unnamed]" : net->GetName()) << " (ID: " << GetNetId() << ")\n";
+            } else {
+                oss << "Net ID: " << GetNetId() << " [Not Found]\n";
+            }
+        } else {
+            oss << "Net ID: " << GetNetId() << "\n";
+        }
     }
+
     oss << "Center: (" << center.x_ax << ", " << center.y_ax << ")\n";
     oss << "Radius: " << radius << ", Thickness: " << thickness << "\n";
     oss << "Angles: " << start_angle << " to " << end_angle << " deg";

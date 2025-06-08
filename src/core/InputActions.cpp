@@ -27,6 +27,8 @@ const char* InputActionToString(InputAction action)
             return "Reset View";
         case InputAction::kFlipBoard:
             return "Flip Board";
+        case InputAction::kOpenFile:
+            return "Open File";
         default:
             return "Unknown Action";
     }

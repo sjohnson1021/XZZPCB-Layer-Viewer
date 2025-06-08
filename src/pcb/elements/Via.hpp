@@ -42,7 +42,7 @@ public:
     // --- Overridden virtual methods ---
     BLRect GetBoundingBox(const Component* parent_component = nullptr) const override;
     bool IsHit(const Vec2& world_mouse_pos, float tolerance, const Component* parent_component = nullptr) const override;
-    std::string GetInfo(const Component* parent_component = nullptr) const override;
+    std::string GetInfo(const Component* parent_component = nullptr, const Board* board = nullptr) const override;
     void Translate(double dx, double dy) override;  // Declaration only
     void Mirror(double center_axis) override;
 

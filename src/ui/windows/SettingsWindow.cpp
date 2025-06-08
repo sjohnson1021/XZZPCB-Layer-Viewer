@@ -40,6 +40,42 @@ void SettingsWindow::ShowGridSettings()
         if (m_grid_settings_->m_visible) {
             ImGui::Indent();
 
+            // Unit System Selection
+            const char* unitSystems[] = {"Metric (mm)","Imperial (inches)"};
+            int currentUnitSystem = static_cast<int>(m_grid_settings_->m_unit_system);
+            if (ImGui::Combo("Unit System", &currentUnitSystem, unitSystems, IM_ARRAYSIZE(unitSystems))) {
+                GridUnitSystem newUnitSystem = static_cast<GridUnitSystem>(currentUnitSystem);
+                if (newUnitSystem != m_grid_settings_->m_unit_system) {
+                    GridUnitSystem oldUnitSystem = m_grid_settings_->m_unit_system;
+                    m_grid_settings_->m_unit_system = newUnitSystem;
+
+                    // Convert spacing values to clean, common values in the new unit system
+                    if (newUnitSystem == GridUnitSystem::kImperial && oldUnitSystem == GridUnitSystem::kMetric) {
+                        // Converting from Metric to Imperial
+                        // First convert world units to mm, then mm to inches, then get clean imperial value
+                        float mmValue = GridSettings::WorldUnitsToMm(m_grid_settings_->m_base_major_spacing);
+                        float inchesValue = GridSettings::MmToInches(mmValue);
+                        float cleanInches = GridSettings::GetCleanImperialSpacing(inchesValue);
+                        m_grid_settings_->m_base_major_spacing = GridSettings::InchesToWorldUnits(cleanInches);
+                        m_grid_settings_->m_subdivisions = 10;  // Common for imperial
+                    } else if (newUnitSystem == GridUnitSystem::kMetric && oldUnitSystem == GridUnitSystem::kImperial) {
+                        // Converting from Imperial to Metric
+                        // First convert world units to inches, then inches to mm, then get clean metric value
+                        float inchesValue = GridSettings::WorldUnitsToInches(m_grid_settings_->m_base_major_spacing);
+                        float mmValue = GridSettings::InchesToMm(inchesValue);
+                        float cleanMm = GridSettings::GetCleanMetricSpacing(mmValue);
+                        m_grid_settings_->m_base_major_spacing = GridSettings::MmToWorldUnits(cleanMm);
+                        m_grid_settings_->m_subdivisions = 10;  // Standard for metric (gives 0.5mm minor spacing for 5mm major)
+                    }
+
+                    std::cout << "Grid unit system changed to " << (newUnitSystem == GridUnitSystem::kImperial ? "Imperial" : "Metric")
+                              << ", spacing adjusted to " << m_grid_settings_->m_base_major_spacing << std::endl;
+                }
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Choose between Imperial (inches) and Metric (millimeters) units.\nXZZ files natively use thousandths of an inch (mils).\nSpacing values will be converted to clean, common values.");
+            }
+
             // Display unit
             std::string_view unitStr = m_grid_settings_->UnitToString();
 
@@ -92,18 +128,30 @@ void SettingsWindow::ShowGridSettings()
                 ImGui::Unindent();
             }
 
-            // Adjust spacing input based on unit system
+            // Spacing input controls - convert between world coordinates and display units
             if (m_grid_settings_->m_unit_system == GridUnitSystem::kMetric) {
-                // For metric, allow 1mm to 1000mm (1m) major spacing
-                ImGui::DragFloat(("Major Spacing (" + std::string(unitStr) + ")").c_str(), &m_grid_settings_->m_base_major_spacing, 1.0f, 1.0f, 1000.0f, "%.2f");
+                // Convert world units to mm for display
+                float displayValue = GridSettings::WorldUnitsToMm(m_grid_settings_->m_base_major_spacing);
+
+                // For metric, allow 0.1mm to 1000mm (1m) major spacing
+                if (ImGui::DragFloat(("Major Spacing (" + std::string(unitStr) + ")").c_str(), &displayValue, 0.5f, 0.1f, 1000.0f, "%.1f")) {
+                    // Convert back to world units when changed
+                    m_grid_settings_->m_base_major_spacing = GridSettings::MmToWorldUnits(displayValue);
+                }
                 if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Major grid line spacing in millimeters.\nCommon values: 1, 2, 5, 10, 20, 50, 100mm");
+                    ImGui::SetTooltip("Major grid line spacing in millimeters.\nCommon values: 1, 2.5, 5, 10, 25, 50, 100, 250mm");
                 }
             } else {
-                // For imperial, allow 0.1" to 36" (3 feet) major spacing
-                ImGui::DragFloat(("Major Spacing (" + std::string(unitStr) + ")").c_str(), &m_grid_settings_->m_base_major_spacing, 0.125f, 0.1f, 36.0f, "%.3f");
+                // Convert world units to inches for display
+                float displayValue = GridSettings::WorldUnitsToInches(m_grid_settings_->m_base_major_spacing);
+
+                // For imperial, allow 0.01" to 36" (3 feet) major spacing
+                if (ImGui::DragFloat(("Major Spacing (" + std::string(unitStr) + ")").c_str(), &displayValue, 0.01f, 0.01f, 36.0f, "%.3f")) {
+                    // Convert back to world units when changed
+                    m_grid_settings_->m_base_major_spacing = GridSettings::InchesToWorldUnits(displayValue);
+                }
                 if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Major grid line spacing in inches.\nCommon values: 0.1, 0.25, 0.5, 1, 2, 6, 12 inches");
+                    ImGui::SetTooltip("Major grid line spacing in inches.\nCommon values: 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 4, 6, 12 inches");
                 }
             }
 
@@ -128,20 +176,21 @@ void SettingsWindow::ShowGridSettings()
                     m_grid_settings_->m_subdivisions = metricSubdivisionValues[currentMetricSubIndex];
                 }
             } else {
-                // For imperial, prefer powers of 2: 1, 2, 4, 8, 16
-                const char* imperialSubdivisionOptions[] = {"1", "2", "4", "8", "16"};
-                const int imperialSubdivisionValues[] = {1, 2, 4, 8, 16};
+                // For imperial, prefer powers of 2 and common values: 1, 2, 4, 8, 10, 16
+                const char* imperialSubdivisionOptions[] = {"1", "2", "4", "8", "10", "16"};
+                const int imperialSubdivisionValues[] = {1, 2, 4, 8, 10, 16};
+                const int numImperialOptions = 6;
                 int currentImperialSubIndex = 0;
 
                 // Find closest match
-                for (int i = 0; i < 5; i++) {
+                for (int i = 0; i < numImperialOptions; i++) {
                     if (m_grid_settings_->m_subdivisions <= imperialSubdivisionValues[i]) {
                         currentImperialSubIndex = i;
                         break;
                     }
                 }
 
-                if (ImGui::Combo(subdivisionsLabel, &currentImperialSubIndex, imperialSubdivisionOptions, 5)) {
+                if (ImGui::Combo(subdivisionsLabel, &currentImperialSubIndex, imperialSubdivisionOptions, numImperialOptions)) {
                     m_grid_settings_->m_subdivisions = imperialSubdivisionValues[currentImperialSubIndex];
                 }
             }
@@ -231,22 +280,27 @@ KeyCombination CaptureKeybind()
     KeyCombination new_keybind = {};
     ImGuiIO& io = ImGui::GetIO();
 
+    // Check for non-modifier keys first
     for (ImGuiKey key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_NamedKey_END; key = (ImGuiKey) (key + 1)) {
+        // Skip modifier keys - we don't want them as the primary key
+        if (key == ImGuiKey_ModCtrl || key == ImGuiKey_ModShift || key == ImGuiKey_ModAlt || key == ImGuiKey_ModSuper ||
+			key == ImGuiKey_LeftCtrl || key == ImGuiKey_RightCtrl ||
+            key == ImGuiKey_LeftShift || key == ImGuiKey_RightShift ||
+            key == ImGuiKey_LeftAlt || key == ImGuiKey_RightAlt ||
+            key == ImGuiKey_LeftSuper || key == ImGuiKey_RightSuper) {
+            continue;
+        }
+
         if (ImGui::IsKeyPressed(key, false)) {  // `false` for `ImGuiKeyOwner_Any`, check if key was pressed this frame
             new_keybind.key = key;
+            // Capture modifier states when a non-modifier key is pressed
+            new_keybind.ctrl = io.KeyCtrl;
+            new_keybind.shift = io.KeyShift;
+            new_keybind.alt = io.KeyAlt;
             break;
         }
     }
-    // Also check for modifier keys that might be held *with* a non-modifier key press handled above
-    // or if only a modifier is pressed (though less common for a primary keybind key).
-    if (new_keybind.key != ImGuiKey_None) {  // Only set modifiers if a main key was pressed
-        new_keybind.ctrl = io.KeyCtrl;
-        new_keybind.shift = io.KeyShift;
-        new_keybind.alt = io.KeyAlt;
-    } else {
-        // Fallback for modifier-only or special keys if needed, e.g. if a modifier itself is the bind.
-        // For now, require a non-modifier key to be part of the bind.
-    }
+
     return new_keybind;
 }
 }  // namespace

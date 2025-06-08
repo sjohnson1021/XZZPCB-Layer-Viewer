@@ -74,6 +74,7 @@ private:
 
     // UI Rendering Helper
     void RenderUI(); // New method to group UI rendering calls
+    void ProcessGlobalKeyboardShortcuts(); // Process global keyboard shortcuts
 
     // PCB File Handling
     void OpenPcbFile(const std::string &filePath);

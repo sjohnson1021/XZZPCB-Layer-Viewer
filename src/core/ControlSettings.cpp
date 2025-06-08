@@ -38,6 +38,8 @@ void ControlSettings::InitializeDefaultKeybinds()
     ControlSettings::m_keybinds[InputAction::kZoomIn] = KeyCombination(ImGuiKey_Equal);  // Equal sign is often plus without shift
     // -: zoom out
     ControlSettings::m_keybinds[InputAction::kZoomOut] = KeyCombination(ImGuiKey_Minus);
+    // Ctrl+O: open file
+    ControlSettings::m_keybinds[InputAction::kOpenFile] = KeyCombination(ImGuiKey_O, true, false, false);  // Ctrl+O
 
     // It's a good idea to also map arrow keys and keypad +/- if desired as secondary defaults,
     // but the system should allow users to set these. For now, one primary default.

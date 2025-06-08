@@ -108,7 +108,7 @@ bool TextLabel::IsHit(const Vec2& world_mouse_pos, float /*tolerance*/, const Co
     // return hit_box.contains(world_mouse_pos.x, world_mouse_pos.y);
 }
 
-std::string TextLabel::GetInfo(const Component* parent_component) const
+std::string TextLabel::GetInfo(const Component* parent_component, const Board* /*board*/) const
 {
     std::ostringstream oss;
     oss << "Text Label\n";

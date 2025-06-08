@@ -29,13 +29,13 @@ Grid::~Grid() = default;
 void Grid::GetNiceUnitFactors(std::vector<float>& out_factors) const
 {
     if (m_settings_->m_unit_system == GridUnitSystem::kMetric) {
-        // Metric: 1, 2, 5, 10 series
-        out_factors = {1.0F, 2.0F, 5.0F};
+        // Metric: Clean multipliers for scaling base spacing
+        // Use standard 1-2-5 series: 0.1×, 0.2×, 0.5×, 1×, 2×, 5×, 10×, 20×, 50×, 100×
+        out_factors = {0.1F, 0.2F, 0.5F, 1.0F, 2.0F, 5.0F, 10.0F, 20.0F, 50.0F, 100.0F};
     } else {
-        // Imperial: Handle both decimal inches and fractions
-        // For decimal: 0.1, 0.25, 0.5, 1.0
-        // For fractions: 1/16, 1/8, 1/4, 1/2, 1
-        out_factors = {0.0625F, 0.125F, 0.25F, 0.5F, 1.0F};
+        // Imperial: Standard PCB design increments
+        // Common fractions and decimal inches: 1/16, 1/8, 1/4, 1/2, 1, 2, 4, 6, 12
+        out_factors = {0.0625F, 0.125F, 0.25F, 0.5F, 1.0F, 2.0F, 4.0F, 6.0F, 12.0F};
     }
 }
 
@@ -72,39 +72,23 @@ void Grid::GetEffectiveSpacings(const Camera& camera, float& out_major_spacing_w
             float smallest_diff = std::numeric_limits<float>::max();
             float target_screen_px = (min_px_step + max_px_step) / 2.0F;  // Aim for middle of the range
 
-            // Target world spacing that would make currentMajorScreenPx == targetScreenPx
-            float target_ideal_world_spacing = target_screen_px / zoom;
-            if (target_ideal_world_spacing < 1e-7F) {
-                target_ideal_world_spacing = 1e-7F;  // Prevent log10 of zero/negative
-            }
-
-            // Determine appropriate base scale using logarithmic approach based on unit system
-            float log_base = 10.0F;  // For metric system
-            if (m_settings_->m_unit_system == GridUnitSystem::kImperial) {
-                log_base = 2.0F;  // For imperial fractions (powers of 2)
-            }
-
-            float base_scale = std::pow(10.0F, std::floor(std::log10(target_ideal_world_spacing)));
-
-            // Get "nice" factors appropriate for the current unit system
+            // Get "nice" multiplier factors appropriate for the current unit system
             std::vector<float> nice_factors;
-            GetNiceUnitFactors(nice_factors);  // TODO: Fix this
+            GetNiceUnitFactors(nice_factors);
 
-            // Try different powers around the base scale
-            for (int i = -2; i <= 2; ++i) {
-                float const power_of10 = std::pow(10.0F, i);
-                for (float factor : nice_factors) {
-                    float candidate_spacing_world = base_scale * power_of10 * factor;
-                    if (candidate_spacing_world < 1e-6F)
-                        continue;  // Avoid too small spacing
+            // Try each multiplier applied to the user's base spacing
+            // This ensures we always get clean multiples of the user's chosen base spacing
+            for (float factor : nice_factors) {
+                float candidate_spacing_world = base_major_spacing_world * factor;
+                if (candidate_spacing_world < 1e-6F)
+                    continue;  // Avoid too small spacing
 
-                    float candidate_screen_px = candidate_spacing_world * zoom;
-                    if (candidate_screen_px >= min_px_step && candidate_screen_px <= max_px_step) {
-                        float diff = std::abs(candidate_screen_px - target_screen_px);
-                        if (diff < smallest_diff) {
-                            smallest_diff = diff;
-                            best_fit_major_spacing = candidate_spacing_world;
-                        }
+                float candidate_screen_px = candidate_spacing_world * zoom;
+                if (candidate_screen_px >= min_px_step && candidate_screen_px <= max_px_step) {
+                    float diff = std::abs(candidate_screen_px - target_screen_px);
+                    if (diff < smallest_diff) {
+                        smallest_diff = diff;
+                        best_fit_major_spacing = candidate_spacing_world;
                     }
                 }
             }
@@ -277,9 +261,18 @@ void Grid::RenderMeasurementReadout(BLContext& bl_ctx, const Viewport& viewport,
     std::stringstream ss;
     ss << std::fixed << std::setprecision(3);  // Display up to 3 decimal places
 
+    // Convert world coordinates to proper display units based on current unit system
+    bool is_metric = (m_settings_->m_unit_system == GridUnitSystem::kMetric);
+
     // Format major spacing
     if (info.major_lines_visible) {
-        ss << "Major: " << info.major_spacing << info.unit_string;
+        float display_major_spacing;
+        if (is_metric) {
+            display_major_spacing = GridSettings::WorldUnitsToMm(info.major_spacing);
+        } else {
+            display_major_spacing = GridSettings::WorldUnitsToInches(info.major_spacing);
+        }
+        ss << "Major: " << display_major_spacing << info.unit_string;
     } else {
         ss << "Major: Hidden";
     }
@@ -287,7 +280,13 @@ void Grid::RenderMeasurementReadout(BLContext& bl_ctx, const Viewport& viewport,
     // Format minor spacing
     ss << " | ";
     if (info.minor_lines_visible) {
-        ss << "Minor: " << info.minor_spacing << info.unit_string;
+        float display_minor_spacing;
+        if (is_metric) {
+            display_minor_spacing = GridSettings::WorldUnitsToMm(info.minor_spacing);
+        } else {
+            display_minor_spacing = GridSettings::WorldUnitsToInches(info.minor_spacing);
+        }
+        ss << "Minor: " << display_minor_spacing << info.unit_string;
     } else {
         ss << "Minor: Hidden";
     }

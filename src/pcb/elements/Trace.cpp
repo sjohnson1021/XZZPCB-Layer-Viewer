@@ -5,8 +5,8 @@
 
 #include <blend2d.h>
 
-#include "Component.hpp"  // For parentComponent, though not used by Trace
-
+#include "../Board.hpp"             // For Board class and Net access
+#include "Component.hpp"            // For parentComponent, though not used by Trace
 #include "utils/GeometryUtils.hpp"  // For geometric calculations
 
 BLRect Trace::GetBoundingBox(const Component* /*parentComponent*/) const
@@ -29,14 +29,26 @@ bool Trace::IsHit(const Vec2& world_mouse_pos, float tolerance, const Component*
                                                   static_cast<double>(tolerance));
 }
 
-std::string Trace::GetInfo(const Component* /*parentComponent*/) const
+std::string Trace::GetInfo(const Component* /*parentComponent*/, const Board* board) const
 {
     std::ostringstream oss = {};
     oss << "Trace\n";
     oss << "Layer: " << GetLayerId() << "\n";
+
+    // Enhanced net information display
     if (GetNetId() != -1) {
-        oss << "Net ID: " << GetNetId() << "\n";
+        if (board) {
+            const Net* net = board->GetNetById(GetNetId());
+            if (net) {
+                oss << "Net: " << (net->GetName().empty() ? "[Unnamed]" : net->GetName()) << " (ID: " << GetNetId() << ")\n";
+            } else {
+                oss << "Net ID: " << GetNetId() << " [Not Found]\n";
+            }
+        } else {
+            oss << "Net ID: " << GetNetId() << "\n";
+        }
     }
+
     oss << "Width: " << width << "\n";
     oss << "From: (" << x1 << ", " << y1 << ")\n";
     oss << "To: (" << x2 << ", " << y2 << ")";

@@ -6,6 +6,7 @@
 
 #include <blend2d.h>
 
+#include "pcb/Board.hpp"               // For Board class and Net access
 #include "pcb/elements/Component.hpp"  // For parentComponent, though not used by Via
 #include "utils/GeometryUtils.hpp"     // For geometric calculations
 
@@ -33,15 +34,27 @@ bool Via::IsHit(const Vec2& worldMousePos, float tolerance, const Component* /*p
                                            static_cast<double>(tolerance));
 }
 
-std::string Via::GetInfo(const Component* /*parentComponent*/) const
+std::string Via::GetInfo(const Component* /*parentComponent*/, const Board* board) const
 {
     std::ostringstream oss;
     oss << "Via\n";
     oss << "Position: (" << x << ", " << y << ")\n";
     oss << "Layers: " << layer_from << " to " << layer_to << " (Primary Element Layer: " << GetLayerId() << ")\n";
+
+    // Enhanced net information display
     if (GetNetId() != -1) {
-        oss << "Net ID: " << GetNetId() << "\n";
+        if (board) {
+            const Net* net = board->GetNetById(GetNetId());
+            if (net) {
+                oss << "Net: " << (net->GetName().empty() ? "[Unnamed]" : net->GetName()) << " (ID: " << GetNetId() << ")\n";
+            } else {
+                oss << "Net ID: " << GetNetId() << " [Not Found]\n";
+            }
+        } else {
+            oss << "Net ID: " << GetNetId() << "\n";
+        }
     }
+
     oss << "Drill Dia: " << drill_diameter << "\n";
     oss << "Pad From Layer: " << pad_radius_from << ", Pad To Layer: " << pad_radius_to;
     if (!optional_text.empty()) {

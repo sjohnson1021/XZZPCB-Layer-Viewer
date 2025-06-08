@@ -119,7 +119,7 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
                 }
                 if (item.element->IsHit(transformedWorldMousePos, pick_tolerance, item.parent_component)) {
                     m_is_hovering_element_ = true;
-                    m_hovered_element_info_ = item.element->GetInfo(item.parent_component);
+                    m_hovered_element_info_ = item.element->GetInfo(item.parent_component, current_board.get());
                     break;  // Found a hovered element
                 }
             }
