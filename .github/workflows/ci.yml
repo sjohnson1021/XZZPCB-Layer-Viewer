@@ -58,7 +58,7 @@ jobs:
     env:
       VCPKG_ROOT_DIR: ${{ github.workspace }}/vcpkg_installation # Path where lukka/run-vcpkg will install vcpkg
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg_bincache
-      VCPKG_BINARY_SOURCES: "clear;45;readwrite"
+      VCPKG_BINARY_SOURCES: "clear;x-gha;readwrite;timeout=45"
       ARTIFACT_NAME_PREFIX: "XZZPCB-Layer-Viewer"
       # Using vcpkg commit from the example, consider updating to a more recent one.
       VCPKG_COMMIT_ID: "f9d77ef46dfe708b51db358acdea2b97615d5193"
