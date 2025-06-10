@@ -5,7 +5,7 @@ on:
     branches:
       - main
     tags:
-      - 'v*.*.*' # Trigger on tags like v0.1.0, v1.2.3
+      - "v*.*.*" # Trigger on tags like v0.1.0, v1.2.3
   pull_request:
     branches:
       - main
@@ -18,18 +18,50 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - { name: "Windows MSVC", os: windows-latest, build_type: "release", package_os_suffix: "windows-x64.zip", package_cmd_os_specific: "7z a", exe_name: "XZZPCB-Layer-Viewer.exe", package_content: "XZZPCB-Layer-Viewer.exe" }
-          - { name: "Ubuntu GCC", os: ubuntu-latest, build_type: "release", package_os_suffix: "linux-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-Viewer", package_content: "XZZPCB-Layer-Viewer" }
-          - { name: "macOS Clang (13)", os: macos-13, build_type: "release", package_os_suffix: "macos-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-Viewer", package_content: "XZZPCB-Layer-Viewer" }
-          - { name: "macOS Clang (latest)", os: macos-latest, build_type: "release", package_os_suffix: "macos-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-Viewer", package_content: "XZZPCB-Layer-Viewer" }
+          - {
+              name: "Windows MSVC",
+              os: windows-latest,
+              build_type: "release",
+              package_os_suffix: "windows-x64.zip",
+              package_cmd_os_specific: "7z a",
+              exe_name: "XZZPCB-Layer-Viewer.exe",
+              package_content: "XZZPCB-Layer-Viewer.exe",
+            }
+          - {
+              name: "Ubuntu GCC",
+              os: ubuntu-latest,
+              build_type: "release",
+              package_os_suffix: "linux-x64.tar.gz",
+              package_cmd_os_specific: "tar czvf",
+              exe_name: "XZZPCB-Layer-Viewer",
+              package_content: "XZZPCB-Layer-Viewer",
+            }
+          - {
+              name: "macOS Clang (13)",
+              os: macos-13,
+              build_type: "release",
+              package_os_suffix: "macos-13-x64.tar.gz",
+              package_cmd_os_specific: "tar czvf",
+              exe_name: "XZZPCB-Layer-Viewer",
+              package_content: "XZZPCB-Layer-Viewer",
+            }
+          - {
+              name: "macOS Clang (latest)",
+              os: macos-latest,
+              build_type: "release",
+              package_os_suffix: "macos-latest-x64.tar.gz",
+              package_cmd_os_specific: "tar czvf",
+              exe_name: "XZZPCB-Layer-Viewer",
+              package_content: "XZZPCB-Layer-Viewer",
+            }
 
     env:
       VCPKG_ROOT_DIR: ${{ github.workspace }}/vcpkg_installation # Path where lukka/run-vcpkg will install vcpkg
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg_bincache
-      VCPKG_BINARY_SOURCES: 'clear;x-gha,readwrite'
+      VCPKG_BINARY_SOURCES: "clear;45;readwrite"
       ARTIFACT_NAME_PREFIX: "XZZPCB-Layer-Viewer"
       # Using vcpkg commit from the example, consider updating to a more recent one.
-      VCPKG_COMMIT_ID: '2c7705e70dcfb70e5f726459c3e399bd780bc1fc'
+      VCPKG_COMMIT_ID: "f9d77ef46dfe708b51db358acdea2b97615d5193"
     steps:
       - name: Cache SDL submodule
         uses: actions/cache@v4
@@ -63,8 +95,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-blend2d-submodule-
 
-
-
       - name: Checkout w/ Submodules
         uses: actions/checkout@v4
         with:
@@ -73,7 +103,6 @@ jobs:
 
       - name: Install ASMJIT
         run: git clone https://github.com/asmjit/asmjit external/blend2d/3rdparty/asmjit
-
 
       - name: Set reusable strings
         id: strings
@@ -111,8 +140,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-vcpkg-binary-cache-${{ hashFiles('**/vcpkg.json') }}-
             ${{ runner.os }}-vcpkg-binary-cache-
-
-
 
       # System-level dependencies (e.g. build tools for vcpkg, not libs from vcpkg.json)
       # lukka/run-vcpkg might handle some of these, but keeping them can be safer.
@@ -166,7 +193,7 @@ jobs:
           echo "--- Which Ninja ---"; which ninja || echo "Ninja not in PATH initially"
           echo "--- PATH ---"; echo "$PATH"
         shell: bash
-        
+
       # Setup vcpkg using lukka/run-vcpkg action
       # This will checkout vcpkg to VCPKG_ROOT_DIR, and install dependencies from vcpkg.json
       - name: Setup vcpkg and install dependencies
@@ -175,18 +202,17 @@ jobs:
         with:
           vcpkgDirectory: ${{ env.VCPKG_ROOT_DIR }}
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
-          vcpkgJsonGlob: 'vcpkg.json'
+          vcpkgJsonGlob: "vcpkg.json"
           runVcpkgInstall: true # Default is true, ensures dependencies are installed
 
-     
       # Configure, Build, and Test using lukka/run-cmake
       - name: Configure, Build, and Test
         uses: lukka/run-cmake@v10
         with:
-          cmakeListsTxtPath: '${{ github.workspace }}/CMakeLists.txt'
-          configurePreset: 'ninja-multi-vcpkg' # Your configure preset
-          buildPreset: 'ninja-vcpkg-${{ matrix.config.build_type }}' # build_type is already lowercase in matrix
-          testPreset: 'test-${{ matrix.config.build_type }}' # build_type is already lowercase in matrix
+          cmakeListsTxtPath: "${{ github.workspace }}/CMakeLists.txt"
+          configurePreset: "ninja-multi-vcpkg" # Your configure preset
+          buildPreset: "ninja-vcpkg-${{ matrix.config.build_type }}" # build_type is already lowercase in matrix
+          testPreset: "test-${{ matrix.config.build_type }}" # build_type is already lowercase in matrix
         env:
           VCPKG_MANIFEST_DIR: ${{ github.workspace }}
 
@@ -219,13 +245,13 @@ jobs:
           echo "Recursive listing of bin directory contents:"
           Get-ChildItem -Recurse -File "${{ github.workspace }}/builds/ninja-multi-vcpkg/bin" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName } | Sort-Object || echo "Failed to find files in bin directory"
         shell: pwsh
-        
+
       - name: Package Artifacts
         run: |
           CONFIG_SUBDIR="Release"
           PACKAGE_DIR="${{ github.workspace }}/builds/ninja-multi-vcpkg/bin/${CONFIG_SUBDIR}"
           ARTIFACT_PATH="${{ github.workspace }}/${{ steps.strings.outputs.versioned_artifact_name }}"
-          
+
           echo "Listing parent build directory: ${{ github.workspace }}/builds/ninja-multi-vcpkg/bin/"
           ls -la "${{ github.workspace }}/builds/ninja-multi-vcpkg/bin/"
           echo "Attempting to change to package directory: ${PACKAGE_DIR}"
@@ -244,7 +270,7 @@ jobs:
             echo "Listing current directory contents after DLL copy:"
             ls -la
           fi
-          
+
           echo "Attempting to package file(s): ${{ matrix.config.package_content }} (and copied DLLs for Windows) into ${ARTIFACT_PATH}"
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             # For Windows, 7z will grab all content of the current directory (which now includes the DLLs) if we use a wildcard or just the exe
