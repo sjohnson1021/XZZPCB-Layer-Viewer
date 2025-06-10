@@ -1,22 +1,36 @@
 # PCB Viewer
 
-A clean, modular PCB viewer application for viewing and analyzing PCB files.
+A simple, lightweight PCB viewer application for viewing and analyzing PCB files using SDL3, Blend2D and DearImGui, (and currently ImGuiFileDialog).
+
+Hoping to optimize and clean up the rendering pipeline to be more easily adapted to other projects. 
+
+
+# Credits
+
+This project would not have been possible without the following people, projects, and libraries:
+
+- @slimeinacloak, Paul Daniels (@inflex), Muerto (@MuertoGB), and others for the initial reverse engineering of the XZZ PCB file format. Major thanks to this team for their work, and for sharing their findings and code with the community.
+
+- [XZZPCB-ImHex] (https://github.com/slimeinacloak/XZZPCB-ImHex) for the initial reverse engineering of the XZZ PCB file format and example implementation in OBV
+- [Blend2D](https://github.com/blend2d/blend2d) for 2D rendering
+- [ImGui](https://github.com/ocornut/imgui) for the user interface
+- [ImGui-FileBrowser](https://github.com/AirGuanZ/imgui-filebrowser) for file browsing
+- [SDL3](https://github.com/libsdl-org/SDL) for windowing and input
 
 ## Features
 
-- Open and view XZZ format PCB files
-- Navigate and zoom PCB layout
+- Open and view XZZ format Layer PCB files
+- Navigate and zoom PCB layouts
 - Control layer visibility
 - Analyze component connections
-- View detailed component and pin information
+- Visualize trace layers
 
 ## Building
 
 ### Prerequisites
 
-- CMake 3.14 or higher
+- CMake 3.21 or higher
 - C++17 compatible compiler
-- SDL2 development libraries
 
 ### Build Instructions
 
