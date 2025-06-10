@@ -30,12 +30,33 @@ cd XZZPCB-Layer-Viewer
 # Initialize and update submodules
 git submodule update --init --recursive
 
-# Create a build directory
-mkdir build && cd build
+# Blend2D requires asmjit, as a submodule/included in a 3rdparty/ subdirectory
+cd external/blend2d/
+mkdir 3rdparty
+cd 3rdparty
+git clone https://github.com/asmjit/asmjit ./asmjit/
 
-# Configure and build
-cmake ..
-make
+#Back out to project root directory
+cd ../../../
+
+# Decide, whether you are using cmake alone, brew, or ninja
+
+        # Ninja-Multi-Vcpkg
+                # Configure
+                cmake --preset=ninja-multi-vcpkg -DCMAKE_BUILD_TYPE=Release
+
+                cd builds/ninja-multi-vcpkg
+                ninja -f build-Release.ninja
+
+        # CMake
+                # Create a build directory
+                mkdir build && cd build
+                #Configure
+                cmake -DCMAKE_BUILD_TYPE + RELEASE ..
+                cmake --build .
+
+        # Brew
+                #TODO - Look at current GitHub CI implementation for MacOS build process, document here
 
 # Run the application
 ./bin/XZZPCB-Layer-Viewer

@@ -13,10 +13,10 @@ public:
     virtual void Present() = 0;
 
     // Window and renderer handles/properties
-    virtual void* GetWindowHandle() const = 0;
-    virtual void* GetRendererHandle() const = 0;
-    virtual int GetWindowWidth() const = 0;
-    virtual int GetWindowHeight() const = 0;
+    [[nodiscard]] virtual void* GetWindowHandle() const = 0;
+    [[nodiscard]] virtual void* GetRendererHandle() const = 0;
+    [[nodiscard]] virtual int GetWindowWidth() const = 0;
+    [[nodiscard]] virtual int GetWindowHeight() const = 0;
 
     static Renderer* Create();
 }; 

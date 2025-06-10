@@ -1,0 +1,169 @@
+# .clang-tidy configuration for XZZPCB Layer Viewer
+# Based on the project style guide naming conventions
+
+# Enable readability-identifier-naming check and other relevant checks
+Checks: >
+  readability-identifier-naming,
+  readability-*,
+  modernize-*,
+  performance-*,
+  bugprone-*,
+  cppcoreguidelines-*,
+  misc-*,
+  -readability-magic-numbers,
+  -readability-avoid-const-params-in-decls,
+  -modernize-use-trailing-return-type,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -misc-non-private-member-variables-in-classes
+
+# Naming note:
+# Clang-Tidy uses the following case naming (inconsistent with common terms):
+# - CamelCase = PascalCase (e.g., MyClass, LayerType)
+# - camelBack = camelCase (e.g., getValue, doWork)
+# - lower_case = snake_case (e.g., my_variable, my_function)
+# - UPPER_CASE = SCREAMING_SNAKE_CASE (e.g., MY_CONSTANT, MY_MACRO)
+# - camel_Snake_Back = camel_snake_case (e.g., myVariable, myFunction)
+# - Camel_Snake_Case = CAMEL_SNAKE_CASE (e.g., MyVariable, MyFunction)
+# - aNy_CasE = any_case (e.g., myVariable, myFunction)
+# - Leading_upper_snake_case = leading_upper_snake_case (e.g., MY_CONSTANT, MY_MACRO)
+
+
+# Naming convention configuration
+CheckOptions:
+  # Classes and Structs: PascalCase
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+
+  # Enums: PascalCase
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+
+  # Enum Constants: kPascalCase (for scoped enums like LayerType::Copper)
+  - key: readability-identifier-naming.EnumConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumConstantPrefix
+    value: 'k'
+
+  # Type aliases: PascalCase
+  - key: readability-identifier-naming.TypedefCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypeAliasCase
+    value: CamelCase
+
+  # Template parameters: PascalCase
+  - key: readability-identifier-naming.TemplateParameterCase
+    value: CamelCase
+
+  # Public methods: PascalCase
+  - key: readability-identifier-naming.PublicMethodCase
+    value: CamelCase
+
+  # Private methods: PascalCase
+  - key: readability-identifier-naming.PrivateMethodCase
+    value: CamelCase
+  - key: readability-identifier-naming.ProtectedMethodCase
+    value: CamelCase
+
+  # Functions (free functions): PascalCase
+  - key: readability-identifier-naming.FunctionCase
+    value: CamelCase
+
+  # Variables: snake_case
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+  - key: readability-identifier-naming.VariableIgnoredRegexp
+    value: '^[a-z][a-z0-9_]*$'
+
+  # Parameters: snake_case
+  - key: readability-identifier-naming.ParameterCase
+    value: lower_case
+
+  # Local variables: snake_case
+  - key: readability-identifier-naming.LocalVariableCase
+    value: lower_case
+
+  # Member variables: snake_case_
+  - key: readability-identifier-naming.PrivateMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: '_'
+  - key: readability-identifier-naming.ProtectedMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.ProtectedMemberSuffix
+    value: '_'
+  - key: readability-identifier-naming.PublicMemberCase
+    value: lower_case
+
+  # Constants: kPascalCase
+  - key: readability-identifier-naming.ConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConstantPrefix
+    value: 'k'
+
+  # Static constants: kPascalCase
+  - key: readability-identifier-naming.StaticConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.StaticConstantPrefix
+    value: 'k'
+
+  # Global constants: kPascalCase
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.GlobalConstantPrefix
+    value: 'k'
+
+  # Constexpr variables: kPascalCase
+  - key: readability-identifier-naming.ConstexprVariableCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConstexprVariablePrefix
+    value: 'k'
+
+  # Global variables: snake_case (though generally discouraged)
+  - key: readability-identifier-naming.GlobalVariableCase
+    value: lower_case
+
+  # Static variables: snake_case
+  - key: readability-identifier-naming.StaticVariableCase
+    value: lower_case
+
+  # Namespaces: snake_case
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
+
+  # Macros: SCREAMING_SNAKE_CASE
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
+
+  # Union: PascalCase
+  - key: readability-identifier-naming.UnionCase
+    value: CamelCase
+
+  # Specific rule configurations
+  # Allow some flexibility for legacy code
+  - key: readability-identifier-naming.AggressiveDependentMemberLookup
+    value: 'false'
+
+  # Enforce modern C++ practices
+  - key: modernize-use-nullptr.NullMacros
+    value: 'NULL'
+
+  # Performance recommendations
+  - key: performance-for-range-copy.WarnOnAllAutoCopies
+    value: 'true'
+
+  # Core guidelines alignment
+  - key: cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
+    value: 'true'
+  - key: cppcoreguidelines-special-member-functions.AllowMissingMoveFunctions
+    value: 'true'
+
+
+# Additional configuration options
+WarningsAsErrors: ''
+FormatStyle: file  # Use .clang-format file for formatting suggestions
+#HeaderFilterRegex: '^(?!.*(?:^|\/)external\/).*(?:^|\/)XZZPCB-Layer-Viewer\/src\/*.*pp'
+HeaderFilterRegex: '(^|.*).*(\/XZZPCB-Layer-Viewer\/src).*'
+# HeaderFilterBlacklist: '^(.*(?:.*|^|\/)external\/|<"blend2d.h">|<sdl>|<SDL>|.*<ImguiFileDialog.h>.*).*'
+SystemHeaders: 'false'

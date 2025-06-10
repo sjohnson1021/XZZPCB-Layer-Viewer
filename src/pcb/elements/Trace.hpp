@@ -1,21 +1,66 @@
 #pragma once
 
-#include <cstdint>
+#include <cmath>  // For sqrt, atan2
+#include <string>
 
-class Trace {
+#include "Element.hpp"  // Include base class
+
+#include "utils/Vec2.hpp"  // For Vec2
+// #include <cstdint> // No longer strictly needed here if Element handles basic types
+
+class Trace : public Element
+{  // Inherit from Element
 public:
-    Trace(int layer_id, double start_x, double start_y, double end_x, double end_y, double width_val)
-        : layer(layer_id), x1(start_x), y1(start_y), x2(end_x), y2(end_y), width(width_val) {}
+    Trace(int layer_id, Vec2 start_point, Vec2 end_point, double width_val, int net_id_val = -1)
+        : Element(layer_id, ElementType::kTrace, net_id_val),  // Call base constructor
+          x1(start_point.x_ax),
+          y1(start_point.y_ax),
+          x2(end_point.x_ax),
+          y2(end_point.y_ax),
+          width(width_val)
+    {
+    }
 
-    // Member Data
-    int layer = 0;
-    double x1 = 0.0; // Start point X
-    double y1 = 0.0; // Start point Y
-    double x2 = 0.0; // End point X
-    double y2 = 0.0; // End point Y
-    double width = 0.1; // Trace width
-    int net_id = -1;  // Associated net ID
+    // Copy constructor
+    Trace(const Trace& other)
+        : Element(other.GetLayerId(), other.GetElementType(), other.GetNetId()),  // Initialize Element base
+          x1(other.x1),
+          y1(other.y1),
+          x2(other.x2),
+          y2(other.y2),
+          width(other.width)
+    {
+        SetVisible(other.IsVisible());  // Copy visibility state
+    }
 
-    // Add constructors, getters, setters, and helper methods as needed
-    // e.g., double getLength() const;
-}; 
+    // --- Overridden virtual methods ---
+    BLRect GetBoundingBox(const Component* parent_component = nullptr) const override;
+    bool IsHit(const Vec2& world_mouse_pos, float tolerance, const Component* parent_component = nullptr) const override;
+    std::string GetInfo(const Component* parent_component = nullptr, const Board* board = nullptr) const override;
+    void Translate(double dist_x, double dist_y) override;
+    void Mirror(double center_axis) override;
+
+    // --- Trace-specific Member Data --- (layer and net_id are now in Element)
+    double x1 = 0.0;
+    double y1 = 0.0;
+    double x2 = 0.0;
+    double y2 = 0.0;
+    double width = 0.1;
+
+    // --- Trace-specific Getters ---
+    [[nodiscard]] double GetStartX() const { return x1; }
+    [[nodiscard]] double GetStartY() const { return y1; }
+    [[nodiscard]] double GetEndX() const { return x2; }
+    [[nodiscard]] double GetEndY() const { return y2; }
+    [[nodiscard]] double GetWidth() const { return width; }
+    // GetLayerId() and GetNetId() are inherited from Element
+
+    // --- Trace-specific Helper Methods ---
+    [[nodiscard]] double GetLength() const { return sqrt(((x2 - x1) * (x2 - x1)) + ((y2 - y1) * (y2 - y1))); }
+    [[nodiscard]] double GetAngle() const { return atan2(y2 - y1, x2 - x1); }
+    [[nodiscard]] double GetCenterX() const { return (x1 + x2) / 2.0; }
+    [[nodiscard]] double GetCenterY() const { return (y1 + y2) / 2.0; }
+    [[nodiscard]] double GetMidpointX() const { return (x1 + x2) / 2.0; }
+    [[nodiscard]] double GetMidpointY() const { return (y1 + y2) / 2.0; }
+    [[nodiscard]] double GetAngleTo(double x, double y) const { return atan2(y - GetMidpointY(), x - GetMidpointX()); }
+};

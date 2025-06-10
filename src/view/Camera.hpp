@@ -5,62 +5,64 @@
 // #include <glm/glm.hpp>
 // #include <glm/gtc/matrix_transform.hpp>
 
-// For now, let's assume simple types or define them if needed.
-struct Vec2 {
-    float x = 0.0f;
-    float y = 0.0f;
+#include <blend2d.h>
 
-    Vec2() = default;
-    Vec2(float x, float y) : x(x), y(y) {}
+#include "utils/Vec2.hpp"
+// #include "Viewport.hpp" // Will be removed
 
-    Vec2 operator+(const Vec2& other) const { return Vec2(x + other.x, y + other.y); }
-    Vec2 operator-(const Vec2& other) const { return Vec2(x - other.x, y - other.y); }
-    Vec2 operator*(float scalar) const { return Vec2(x * scalar, y * scalar); }
-    Vec2 operator/(float scalar) const { return Vec2(x / scalar, y / scalar); }
-    Vec2& operator+=(const Vec2& other) { x += other.x; y += other.y; return *this; }
-    Vec2& operator-=(const Vec2& other) { x -= other.x; y -= other.y; return *this; }
-    Vec2& operator*=(float scalar) { x *= scalar; y *= scalar; return *this; }
-    Vec2& operator/=(float scalar) { x /= scalar; y /= scalar; return *this; }
-    Vec2 operator-() const { return Vec2(-x, -y); } // Unary minus
-};
+class Viewport;  // Forward declaration
 
 // A simple 2D transformation matrix (like a 3x2 matrix for affine transforms)
 // For simplicity, we might just store position, scale, rotation separately for a 2D camera.
 
-class Camera {
+class Camera
+{
 public:
     Camera();
 
     void SetPosition(const Vec2& position);
-    const Vec2& GetPosition() const;
+    [[nodiscard]] const Vec2& GetPosition() const;
 
-    void SetZoom(float zoom); // Zoom level (e.g., 1.0f = normal, >1.0f = zoomed in, <1.0f = zoomed out)
-    float GetZoom() const;
+    void SetZoom(float zoom);  // Zoom level (e.g., 1.0f = normal, >1.0f = zoomed in, <1.0f = zoomed out)
+    [[nodiscard]] float GetZoom() const;
 
-    void SetRotation(float angleDegrees); // Rotation in degrees
-    float GetRotation() const;
+    void SetRotation(float angle_degrees);  // Rotation in degrees
+    [[nodiscard]] float GetRotation() const;
+
+    // Cached rotation values (public getters)
+    [[nodiscard]] float GetCachedCosRotation() const { return m_cached_cos_rotation_; }
+    [[nodiscard]] float GetCachedSinRotation() const { return m_cached_sin_rotation_; }
 
     // Movement and Zooming
-    void Pan(const Vec2& delta); // Move the camera by a delta in world coordinates
-    void ZoomAt(const Vec2& screenPoint, float zoomFactor); // Zoom towards/away from a screen point
-    void AdjustZoom(float zoomDelta); // Simple zoom adjustment
+    void Pan(const Vec2& delta);                               // Move the camera by a delta in world coordinates
+    void ZoomAt(const Vec2& screen_point, float zoom_factor);  // Zoom towards/away from a screen point
+    void AdjustZoom(float zoom_delta);                         // Simple zoom adjustment
 
-    // View matrix (or equivalent transformation parameters)
-    // This would transform world coordinates to view/camera coordinates.
-    // For 2D, this might be simple: translate by -Position, scale by Zoom, rotate by -Rotation.
-    // glm::mat4 GetViewMatrix() const; // If using GLM and 3D-style matrices
-    // Or methods to get combined transform components
-    Vec2 GetWorldToViewOffset() const; 
-    float GetWorldToViewScale() const;
-    float GetWorldToViewRotation() const;
+    // View transformation helpers (can be useful for direct matrix construction or logic)
+    [[nodiscard]] Vec2 GetWorldToViewOffset() const;
+    [[nodiscard]] float GetWorldToViewScale() const;
+    [[nodiscard]] float GetWorldToViewRotation() const;
 
-    void Reset(); // Reset to default position, zoom, rotation
+    void Reset();  // Reset to default position, zoom, rotation
+
+    // Focuses the camera on a given world-space rectangle, adjusting pan and zoom.
+    void FocusOnRect(const BLRect& world_rect, const Viewport& viewport, float padding = 0.1F);
+
+    // Dirty flag management
+    [[nodiscard]] bool WasViewChangedThisFrame() const { return m_view_changed_this_frame_; }
+    void ClearViewChangedFlag() { m_view_changed_this_frame_ = false; }
 
 private:
-    Vec2 m_position;    // Camera position in world space (center of the view)
-    float m_zoom;       // Zoom level. 1.0f is no zoom.
-    float m_rotation;   // Rotation angle in degrees.
+    Vec2 m_position_;   // Camera position in world space (center of the view)
+    float m_zoom_;      // Zoom level. 1.0f is no zoom.
+    float m_rotation_;  // Rotation angle in degrees.
+
+    // Cached trigonometric values for rotation
+    float m_cached_cos_rotation_;  // cos(m_rotation in radians)
+    float m_cached_sin_rotation_;  // sin(m_rotation in radians)
+
+    bool m_view_changed_this_frame_ = true;  // Initialize to true for first frame render
 
     // Helper to update internal state or matrices if we had them
-    // void UpdateViewMatrix(); 
-}; 
+    // void UpdateViewMatrix();
+};

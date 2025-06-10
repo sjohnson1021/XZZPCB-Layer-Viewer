@@ -15,7 +15,7 @@ extern "C" {
 	 * key: 64 bit key for encryption/decryption
 	 * mode: 'e' = encryption; 'd' = decryption
 	 */
-	uint64_t des(uint64_t input, uint64_t key, char mode);
+uint64_t Des(uint64_t input, uint64_t key, char mode);
 
 #ifdef __cplusplus
 }

@@ -1,11 +1,11 @@
 #pragma once
 
-#include <functional>
 
 // Forward declaration
 class Application;
 
-class MainMenuBar {
+class MainMenuBar
+{
 public:
     MainMenuBar();
     ~MainMenuBar();
@@ -13,25 +13,40 @@ public:
     void RenderUI(Application& app);
 
     // Flags for menu actions to be checked by Application
-    bool WantsToOpenFile() { bool current = m_wantsToOpenFile; m_wantsToOpenFile = false; return current; }
-    bool WantsToExit() { bool current = m_wantsToExit; m_wantsToExit = false; return current; }
-    
+    bool WantsToOpenFile()
+    {
+        bool const kCurrent = m_wants_to_open_file_;
+        m_wants_to_open_file_ = false;
+        return kCurrent;
+    }
+    bool WantsToExit()
+    {
+        bool const kCurrent = m_wants_to_exit_;
+        m_wants_to_exit_ = false;
+        return kCurrent;
+    }
+
     // Toggle states for menu items
-    bool* GetShowDemoWindowFlag() { return &m_showDemoWindow; }
-    void SetSettingsWindowVisible(bool isVisible) { m_isSettingsWindowVisible = isVisible; }
-    bool WantsToToggleSettings() { bool current = m_wantsToToggleSettings; m_wantsToToggleSettings = false; return current; }
+    bool* GetShowDemoWindowFlag() { return &m_show_demo_window_; }
+    void SetSettingsWindowVisible(bool is_visible) { m_is_settings_window_visible_ = is_visible; }
+    bool WantsToToggleSettings()
+    {
+        bool const kCurrent = m_wants_to_toggle_settings_;
+        m_wants_to_toggle_settings_ = false;
+        return kCurrent;
+    }
 
 
 private:
-    bool m_showDemoWindow;
-    bool m_isSettingsWindowVisible; // Controlled by Application, set here for checkmark state
+    bool m_show_demo_window_ {};
+    bool m_is_settings_window_visible_ {};  // Controlled by Application, set here for checkmark state
 
     // Action flags, to be reset after check
-    bool m_wantsToOpenFile;
-    bool m_wantsToExit;
-    bool m_wantsToToggleSettings;
+    bool m_wants_to_open_file_ {};
+    bool m_wants_to_exit_ {};
+    bool m_wants_to_toggle_settings_ {};
 
     // State for ImGui helper windows, as Application.hpp indicated MainMenuBar would handle these
-    bool m_showImGuiDemoWindow = false;
-    bool m_showImGuiMetricsWindow = false; 
-}; 
+    bool m_show_im_gui_demo_window_ = false;
+    bool m_show_im_gui_metrics_window_ = false;
+};

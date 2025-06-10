@@ -1,0 +1,123 @@
+# .clang-format configuration for XZZPCB Layer Viewer
+# Based on the project style guide requirements
+
+# Use LLVM as base style and customize from there
+BasedOnStyle: LLVM
+
+# Language and standard
+Language: Cpp
+Standard: c++17
+
+# Basic formatting
+TabWidth: 4
+IndentWidth: 4
+UseTab: Never
+ColumnLimit: 200
+
+# Braces - K&R style (opening brace on same line)
+BreakBeforeBraces: Linux
+BraceWrapping:
+  AfterClass: false
+  AfterControlStatement: false
+  AfterEnum: false
+  AfterFunction: false
+  AfterNamespace: false
+  AfterStruct: false
+  AfterUnion: false
+  BeforeCatch: false
+  BeforeElse: false
+
+# Indentation
+IndentCaseLabels: true
+IndentPPDirectives: AfterHash
+AccessModifierOffset: -4
+
+# Spacing
+SpaceAfterCStyleCast: true
+SpaceAfterLogicalNot: false
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCpp11BracedList: true
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
+SpaceBeforeParens: ControlStatements
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceInEmptyParentheses: false
+SpacesBeforeTrailingComments: 2
+SpacesInAngles: false
+SpacesInCStyleCastParentheses: false
+SpacesInContainerLiterals: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+
+# Pointer and reference alignment (with type: int* ptr, const std::string& ref)
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# Line breaking
+AllowShortBlocksOnASingleLine: Empty
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakAfterReturnType: None
+AlwaysBreakBeforeMultilineStrings: false
+AlwaysBreakTemplateDeclarations: Yes
+
+# Function parameters and arguments
+BinPackArguments: false
+BinPackParameters: false
+BreakConstructorInitializers: BeforeColon
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+ConstructorInitializerIndentWidth: 4
+
+# Includes
+SortIncludes: true
+IncludeBlocks: Regroup
+IncludeCategories:
+  # Standard library headers
+  - Regex: '^<[a-z_]+>$'
+    Priority: 1
+  # C++ standard library
+  - Regex: '^<[a-z_]+\.h>$'
+    Priority: 1
+  # System headers
+  - Regex: '^<.*>$'
+    Priority: 2
+  # Third-party headers
+  - Regex: '^"[^/]*"$'
+    Priority: 3
+  # Project headers
+  - Regex: '^"xzzpcb/.*"$'
+    Priority: 4
+  # Local headers
+  - Regex: '.*'
+    Priority: 5
+
+# Alignment
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignEscapedNewlines: Left
+AlignOperands: true
+AlignTrailingComments: true
+
+# Penalties (fine-tuning for better formatting decisions)
+PenaltyBreakAssignment: 2
+PenaltyBreakBeforeFirstCallParameter: 19
+PenaltyBreakComment: 300
+PenaltyBreakFirstLessLess: 120
+PenaltyBreakString: 1000
+PenaltyExcessCharacter: 1000000
+PenaltyReturnTypeOnItsOwnLine: 60
+
+# Other formatting options
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 2
+ReflowComments: true
+SortUsingDeclarations: true
+
+# Experimental features (may need to be adjusted based on clang-format version)
+AllowShortEnumsOnASingleLine: false
+IndentRequires: true
+SpaceBeforeCaseColon: false

@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.21)
+
 set(LIBRARY_NAME ui_lib)
 
 # UI components
@@ -19,10 +21,10 @@ target_include_directories(${LIBRARY_NAME}
 
 target_link_libraries(${LIBRARY_NAME}
     PUBLIC
-    view_lib
-    render_lib
     SDL3::SDL3
     imgui
     PRIVATE
     core_lib
+    view_lib
+    render_lib
 )

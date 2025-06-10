@@ -1,8 +1,12 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
-#include "imgui.h" // For ImVec2, ImGuiWindowFlags etc.
+
+#include "imgui.h"  // For ImVec2, ImGuiWindowFlags etc.
+
+#include "core/BoardDataManager.hpp"
 #include "core/ControlSettings.hpp"
 // #include <blend2d.h> // Included in .cpp, forward declare if only types used here
 
@@ -13,21 +17,21 @@ class Grid;
 class GridSettings;
 class InteractionManager;
 class ControlSettings;
-class Board; // Added for OnBoardLoaded
-class PcbRenderer; // Forward declare PcbRenderer
+class Board;        // Added for OnBoardLoaded
+class PcbRenderer;  // Forward declare PcbRenderer
 struct SDL_Renderer;
-struct SDL_Texture; // For rendering the PCB view onto a texture
+struct SDL_Texture;  // For rendering the PCB view onto a texture
 // class InteractionManager; // Will be needed for pan/zoom etc.
 
-class PCBViewerWindow {
+class PCBViewerWindow
+{
 public:
-    PCBViewerWindow(
-        std::shared_ptr<Camera> camera,
-        std::shared_ptr<Viewport> viewport,
-        std::shared_ptr<Grid> grid,
-        std::shared_ptr<GridSettings> gridSettings,
-        std::shared_ptr<ControlSettings> controlSettings
-    );
+    PCBViewerWindow(std::shared_ptr<Camera> camera,
+                    std::shared_ptr<Viewport> viewport,
+                    std::shared_ptr<Grid> grid,
+                    std::shared_ptr<GridSettings> grid_settings,
+                    std::shared_ptr<ControlSettings> control_settings,
+                    std::shared_ptr<BoardDataManager> board_data_manager);
     ~PCBViewerWindow();
 
     PCBViewerWindow(const PCBViewerWindow&) = delete;
@@ -35,46 +39,51 @@ public:
     PCBViewerWindow(PCBViewerWindow&&) = delete;
     PCBViewerWindow& operator=(PCBViewerWindow&&) = delete;
 
-    // Renders the ImGui window and manages the content within.
-    // renderer is needed to create/update the SDL_Texture.
-    // pcbRenderer is needed to get the BLImage rendered by Blend2D.
-    void RenderUI(SDL_Renderer* renderer, PcbRenderer* pcbRenderer);
+    // // void RenderUI(SDL_Renderer* renderer, PcbRenderer* pcbRenderer); // OLD METHOD
 
-    void OnBoardLoaded(const std::shared_ptr<Board>& board); // New method
+    // Renders the ImGui window. Integrates a callback for PcbRenderer to render its content
+    // at the correct time (after viewport sizing, before texture update and ImGui::Image).
+    void RenderIntegrated(SDL_Renderer* sdl_renderer, PcbRenderer* pcb_renderer, const std::function<void()>& pcb_render_callback);
 
-    bool IsWindowFocused() const { return m_isFocused; }
-    bool IsWindowHovered() const { return m_isHovered; }
-    bool IsWindowVisible() const { return m_isOpen; }
-    void SetVisible(bool visible) { m_isOpen = visible; }
+    void OnBoardLoaded(const std::shared_ptr<Board>& board, PcbRenderer* pcb_renderer);  // Added PcbRenderer
+
+    [[nodiscard]] bool IsWindowFocused() const { return m_is_focused_; }
+    [[nodiscard]] bool IsWindowHovered() const { return m_is_hovered_; }
+    [[nodiscard]] bool IsWindowVisible() const { return m_is_open_; }
+    void SetVisible(bool visible) { m_is_open_ = visible; }
 
 private:
     // This method will handle getting data from PcbRenderer and updating m_renderTexture
-    void UpdateTextureFromPcbRenderer(SDL_Renderer* sdlRenderer, PcbRenderer* pcbRenderer);
+    void UpdateTextureFromPcbRenderer(SDL_Renderer* sdl_renderer, PcbRenderer* pcb_renderer);
 
-    std::string m_windowName = "PCB View";
-    std::shared_ptr<Camera> m_camera;
-    std::shared_ptr<Viewport> m_viewport; // This viewport will be updated by the ImGui window size
-    std::shared_ptr<Grid> m_grid;
-    std::shared_ptr<GridSettings> m_gridSettings;
-    std::unique_ptr<InteractionManager> m_interactionManager;
-    std::shared_ptr<ControlSettings> m_controlSettings;
+    // Render grid measurement overlay within the PCB viewer window
+    void RenderGridMeasurementOverlay();
 
-    SDL_Texture* m_renderTexture = nullptr;
-    int m_textureWidth = 0;
-    int m_textureHeight = 0;
+    std::string m_window_name_ = "PCB Viewer";
+    std::shared_ptr<Camera> m_camera_;
+    std::shared_ptr<Viewport> m_viewport_;  // This viewport will be updated by the ImGui window size
+    std::shared_ptr<Grid> m_grid_;
+    std::shared_ptr<GridSettings> m_grid_settings_;
+    std::unique_ptr<InteractionManager> m_interaction_manager_;
+    std::shared_ptr<ControlSettings> m_control_settings_;
+    std::shared_ptr<BoardDataManager> m_board_data_manager_;
 
-    bool m_isOpen = true; // Controls ImGui::Begin p_open argument
-    bool m_isFocused = false;
-    bool m_isHovered = false;
-    bool m_isContentRegionHovered = false; // Specifically if mouse is over the texture/render area
+    SDL_Texture* m_render_texture_ = nullptr;
+    int m_texture_width_ = 0;
+    int m_texture_height_ = 0;
 
-    ImVec2 m_contentRegionTopLeftScreen; // Renamed for clarity (screen coordinates)
-    ImVec2 m_contentRegionSize;     // Size of the renderable content area
+    bool m_is_open_ = true;  // Controls ImGui::Begin p_open argument
+    bool m_is_focused_ = false;
+    bool m_is_hovered_ = false;
+    bool m_is_content_region_hovered_ = false;  // Specifically if mouse is over the texture/render area
+
+    ImVec2 m_content_region_top_left_screen_;  // Renamed for clarity (screen coordinates)
+    ImVec2 m_content_region_size_;             // Size of the renderable content area
 
     // For delayed texture resizing
-    ImVec2 m_desiredTextureSize = {0, 0};
-    int m_resizeCooldownFrames = 0;
-    static const int RESIZE_COOLDOWN_MAX = 5; // Frames to wait
+    ImVec2 m_desired_texture_size_ = {0, 0};
+    int m_resize_cooldown_frames_ = 0;
+    static const int kResizeCooldownMax = 5;  // Frames to wait
 
     void InitializeTexture(SDL_Renderer* renderer, int width, int height);
     void ReleaseTexture();
@@ -82,4 +91,4 @@ private:
     // void UpdateAndRenderToTexture(SDL_Renderer* renderer); // This role is now split/handled differently
     // The old UpdateAndRenderToTexture was for when PCBViewerWindow *drew* to the texture itself.
     // Now it *copies* from PcbRenderer's image to the texture.
-}; 
+};

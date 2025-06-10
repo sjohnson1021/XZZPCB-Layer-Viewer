@@ -15,14 +15,18 @@ public:
     void Present() override;
 
     // SDL-specific accessors
-    SDL_Window* GetWindow() const { return m_window; }
-    SDL_Renderer* GetRenderer() const { return m_renderer; }
-    void* GetWindowHandle() const;
-    void* GetRendererHandle() const;
-    int GetWindowWidth() const;
-    int GetWindowHeight() const;
+    [[nodiscard]] SDL_Window* GetWindow() const { return m_window_; }
+    [[nodiscard]] SDL_Renderer* GetRenderer() const { return m_renderer_; }
+    [[nodiscard]] void* GetWindowHandle() const override;
+    [[nodiscard]] void* GetRendererHandle() const override;
+    [[nodiscard]] int GetWindowWidth() const override;
+    [[nodiscard]] int GetWindowHeight() const override;
+
+    // Window event handling methods
+    [[nodiscard]] bool IsValid() const;
+    bool Recreate();
 
 private:
-    SDL_Window* m_window;
-    SDL_Renderer* m_renderer;
-}; 
+    SDL_Window* m_window_;
+    SDL_Renderer* m_renderer_;
+};

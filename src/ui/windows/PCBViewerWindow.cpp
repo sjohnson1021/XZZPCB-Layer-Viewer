@@ -1,283 +1,363 @@
 #include "ui/windows/PCBViewerWindow.hpp"
+
+#include <algorithm>  // For std::max
+#include <cmath>      // For std::round
+#include <cstddef>
+#include <iomanip>   // For std::setprecision in grid measurement overlay
+#include <iostream>  // For logging in OnBoardLoaded
+#include <sstream>   // For std::stringstream in grid measurement overlay
+
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_blendmode.h>
+#include <blend2d.h>
+
+#include "core/BoardDataManager.hpp"
+#include "core/ControlSettings.hpp"
 #include "pcb/Board.hpp"
+#include "render/PcbRenderer.hpp"
+#include "ui/interaction/InteractionManager.hpp"
 #include "view/Camera.hpp"
-#include "view/Viewport.hpp"
 #include "view/Grid.hpp"
 #include "view/GridSettings.hpp"
-#include "ui/interaction/InteractionManager.hpp"
-#include "core/ControlSettings.hpp"
-#include "render/PcbRenderer.hpp"
-#include <SDL3/SDL.h>
-#include <blend2d.h>
-#include <algorithm> // For std::max
-#include <iostream> // For logging in OnBoardLoaded
-#include <cmath> // For std::round
+#include "view/Viewport.hpp"
 
 // Constructor
-PCBViewerWindow::PCBViewerWindow(
-    std::shared_ptr<Camera> camera,
-    std::shared_ptr<Viewport> viewport,
-    std::shared_ptr<Grid> grid,
-    std::shared_ptr<GridSettings> gridSettings,
-    std::shared_ptr<ControlSettings> controlSettings)
-    : m_camera(camera)
-    , m_viewport(viewport)
-    , m_grid(grid)
-    , m_gridSettings(gridSettings)
-    , m_controlSettings(controlSettings)
-    , m_isOpen(true)
-    , m_isFocused(false)
-    , m_isHovered(false)
-    , m_isContentRegionHovered(false)
-    , m_renderTexture(nullptr)
-    , m_textureWidth(100)
-    , m_textureHeight(100)
-    , m_contentRegionTopLeftScreen({0,0})
-    , m_contentRegionSize({100,100})
-    , m_desiredTextureSize({0,0})
-    , m_resizeCooldownFrames(-1) {
-    m_interactionManager = std::make_unique<InteractionManager>(m_camera, m_viewport, m_controlSettings);
+PCBViewerWindow::PCBViewerWindow(std::shared_ptr<Camera> camera,
+                                 std::shared_ptr<Viewport> viewport,
+                                 std::shared_ptr<Grid> grid,
+                                 std::shared_ptr<GridSettings> grid_settings,
+                                 std::shared_ptr<ControlSettings> control_settings,
+                                 std::shared_ptr<BoardDataManager> board_data_manager)
+    : m_camera_(camera),
+      m_viewport_(viewport),
+      m_grid_(grid),
+      m_grid_settings_(grid_settings),
+      m_control_settings_(control_settings),
+      m_board_data_manager_(board_data_manager),
+      m_is_open_(true),
+      m_is_focused_(false),
+      m_is_hovered_(false),
+      m_is_content_region_hovered_(false),
+      m_render_texture_(nullptr),
+      m_texture_width_(100),
+      m_texture_height_(100),
+      m_content_region_top_left_screen_(ImVec2(0.0f, 0.0f)),
+      m_content_region_size_(ImVec2(100.0f, 100.0f)),
+      m_desired_texture_size_(ImVec2(0.0f, 0.0f)),
+      m_resize_cooldown_frames_(-1)
+{
+    m_interaction_manager_ = std::make_unique<InteractionManager>(m_camera_, m_viewport_, m_control_settings_, m_board_data_manager_);
 }
 
 // Destructor
-PCBViewerWindow::~PCBViewerWindow() {
+PCBViewerWindow::~PCBViewerWindow()
+{
     ReleaseTexture();
 }
 
 // Initialize or resize the SDL_Texture for displaying Blend2D output
-void PCBViewerWindow::InitializeTexture(SDL_Renderer* renderer, int width, int height) {
+void PCBViewerWindow::InitializeTexture(SDL_Renderer* renderer, int width, int height)
+{
     // Release any existing texture first
-    if (m_renderTexture) {
-        SDL_DestroyTexture(m_renderTexture);
-        m_renderTexture = nullptr;
+    if (m_render_texture_) {
+        SDL_DestroyTexture(m_render_texture_);
+        m_render_texture_ = nullptr;
     }
-    m_textureWidth = std::max(1, width);   
-    m_textureHeight = std::max(1, height);
+    m_texture_width_ = std::max(1, width);
+    m_texture_height_ = std::max(1, height);
 
     // Attempt to create texture with ARGB8888 format first
-    m_renderTexture = SDL_CreateTexture(
-        renderer,
-        SDL_PIXELFORMAT_ARGB8888,  // This matches Blend2D's BL_FORMAT_PRGB32
-        SDL_TEXTUREACCESS_STREAMING,
-        m_textureWidth,
-        m_textureHeight
-    );
+    m_render_texture_ = SDL_CreateTexture(renderer,
+                                          SDL_PIXELFORMAT_ARGB8888,  // This matches Blend2D's BL_FORMAT_PRGB32
+                                          SDL_TEXTUREACCESS_STREAMING,
+                                          m_texture_width_,
+                                          m_texture_height_);
 
-    if (!m_renderTexture) {
+    if (!m_render_texture_) {
         SDL_Log("PCBViewerWindow: Failed to create texture with ARGB8888. Trying RGBA8888...");
-        
+
         // Try RGBA8888
-        m_renderTexture = SDL_CreateTexture(
-            renderer,
-            SDL_PIXELFORMAT_RGBA8888,
-            SDL_TEXTUREACCESS_STREAMING,
-            m_textureWidth,
-            m_textureHeight
-        );
-        
-        if (!m_renderTexture) {
+        m_render_texture_ = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, m_texture_width_, m_texture_height_);
+
+        if (!m_render_texture_) {
             SDL_Log("PCBViewerWindow: RGBA8888 attempt failed. Trying ABGR8888...");
-            
+
             // Try ABGR8888 as a last resort
-            m_renderTexture = SDL_CreateTexture(
-                renderer,
-                SDL_PIXELFORMAT_ABGR8888,
-                SDL_TEXTUREACCESS_STREAMING,
-                m_textureWidth,
-                m_textureHeight
-            );
-            
-            if (!m_renderTexture) {
+            m_render_texture_ = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, m_texture_width_, m_texture_height_);
+
+            if (!m_render_texture_) {
                 SDL_Log("PCBViewerWindow: All texture format attempts failed: %s", SDL_GetError());
                 return;
             }
         }
     }
-    
+
     // Set blend mode for transparency support
-    if (!SDL_SetTextureBlendMode(m_renderTexture, SDL_BLENDMODE_BLEND_PREMULTIPLIED)) {
+    if (!SDL_SetTextureBlendMode(m_render_texture_, SDL_BLENDMODE_BLEND_PREMULTIPLIED)) {
         SDL_Log("PCBViewerWindow: Failed to set blend mode: %s", SDL_GetError());
     }
 }
 
-void PCBViewerWindow::ReleaseTexture() {
-    if (m_renderTexture) {
-        SDL_DestroyTexture(m_renderTexture);
-        m_renderTexture = nullptr;
-        m_textureWidth = 0;
-        m_textureHeight = 0;
+void PCBViewerWindow::ReleaseTexture()
+{
+    if (m_render_texture_) {
+        SDL_DestroyTexture(m_render_texture_);
+        m_render_texture_ = nullptr;
+        m_texture_width_ = 0;
+        m_texture_height_ = 0;
     }
 }
 
 // New method to update our SDL_Texture from PcbRenderer's BLImage
-void PCBViewerWindow::UpdateTextureFromPcbRenderer(SDL_Renderer* sdlRenderer, PcbRenderer* pcbRenderer) {
-    if (!pcbRenderer || !sdlRenderer) return;
+void PCBViewerWindow::UpdateTextureFromPcbRenderer(SDL_Renderer* sdl_renderer, PcbRenderer* pcb_renderer)
+{
+    if (!pcb_renderer || !sdl_renderer)
+        return;
 
-    const BLImage& blImage = pcbRenderer->GetRenderedImage();
-    if (blImage.empty()) {
+    const BLImage& bl_image = pcb_renderer->GetRenderedImage();
+    if (bl_image.empty()) {
         SDL_Log("PCBViewerWindow: BLImage from PcbRenderer is empty.");
         return;
     }
 
-    int blImageWidth = blImage.width();
-    int blImageHeight = blImage.height();
-    
+    int bl_image_width = bl_image.width();
+    int bl_image_height = bl_image.height();
+
     // Get the BLImage data
-    BLImageData blImageData;
-    blImage.getData(&blImageData);
-    
+    BLImageData bl_image_data;
+    bl_image.getData(&bl_image_data);
+
     // Check for null pixel data
-    if (!blImageData.pixelData) {
+    if (!bl_image_data.pixelData) {
         SDL_Log("PCBViewerWindow::UpdateTextureFromPcbRenderer: BLImage pixel data is null");
         return;
     }
 
     // Check if texture needs to be recreated (doesn't exist or size changed)
-    bool createNewTexture = false;
-    if (!m_renderTexture) {
-        createNewTexture = true;
+    bool create_new_texture = false;
+    if (!m_render_texture_) {
+        create_new_texture = true;
     } else {
-        float currentWidth, currentHeight;
-        if (SDL_GetTextureSize(m_renderTexture, &currentWidth, &currentHeight) == 0) {
-            if (static_cast<int>(currentWidth) != blImageWidth || 
-                static_cast<int>(currentHeight) != blImageHeight) {
-                createNewTexture = true;
+        float current_width, current_height;
+        if (SDL_GetTextureSize(m_render_texture_, &current_width, &current_height) == 0) {
+            if (static_cast<int>(current_width) != bl_image_width || static_cast<int>(current_height) != bl_image_height) {
+                create_new_texture = true;
             }
         } else {
             // GetTextureSize failed, recreate to be safe
-            createNewTexture = true;
+            create_new_texture = true;
         }
     }
 
     // Create new texture if needed
-    if (createNewTexture) {
+    if (create_new_texture) {
         // Release any old texture
-        if (m_renderTexture) {
-            SDL_DestroyTexture(m_renderTexture);
-            m_renderTexture = nullptr;
+        if (m_render_texture_) {
+            SDL_DestroyTexture(m_render_texture_);
+            m_render_texture_ = nullptr;
         }
 
         // Create a new texture with the correct dimensions
-        m_renderTexture = SDL_CreateTexture(
-            sdlRenderer,
-            SDL_PIXELFORMAT_ARGB8888,  // Matches Blend2D's BL_FORMAT_PRGB32
-            SDL_TEXTUREACCESS_STREAMING, 
-            blImageWidth,
-            blImageHeight
-        );
+        m_render_texture_ = SDL_CreateTexture(sdl_renderer,
+                                              SDL_PIXELFORMAT_ARGB8888,  // Matches Blend2D's BL_FORMAT_PRGB32
+                                              SDL_TEXTUREACCESS_STREAMING,
+                                              bl_image_width,
+                                              bl_image_height);
 
-        if (!m_renderTexture) {
+        if (!m_render_texture_) {
             SDL_Log("PCBViewerWindow: Failed to create texture: %s", SDL_GetError());
             return;
         }
 
         // Set blend mode for transparency - use premultiplied for Blend2D compatibility
-        if (!SDL_SetTextureBlendMode(m_renderTexture, SDL_BLENDMODE_BLEND_PREMULTIPLIED)) {
+        if (!SDL_SetTextureBlendMode(m_render_texture_, SDL_BLENDMODE_BLEND_PREMULTIPLIED)) {
             SDL_Log("PCBViewerWindow: Failed to set premultiplied blend mode: %s", SDL_GetError());
         }
 
-        m_textureWidth = blImageWidth;
-        m_textureHeight = blImageHeight;
+        m_texture_width_ = bl_image_width;
+        m_texture_height_ = bl_image_height;
     }
 
     // Update the texture data directly from Blend2D's buffer
-    if (!SDL_UpdateTexture(m_renderTexture, NULL, blImageData.pixelData, blImageData.stride)) {
+    if (!SDL_UpdateTexture(m_render_texture_, NULL, bl_image_data.pixelData, bl_image_data.stride)) {
         SDL_Log("PCBViewerWindow: Failed to update texture: %s", SDL_GetError());
     }
 }
 
-// Main ImGui rendering function for this window
-void PCBViewerWindow::RenderUI(SDL_Renderer* sdlRenderer, PcbRenderer* pcbRenderer) {
-    if (!m_isOpen && m_renderTexture) {
-        ReleaseTexture(); 
-        m_resizeCooldownFrames = -1; 
-        m_desiredTextureSize = ImVec2(0,0); 
+// Main ImGui rendering function for this window, integrating PcbRenderer callback
+void PCBViewerWindow::RenderIntegrated(SDL_Renderer* sdl_renderer, PcbRenderer* pcb_renderer, const std::function<void()>& pcb_render_callback)
+{
+    if (!m_is_open_ && m_render_texture_) {
+        ReleaseTexture();
+        m_resize_cooldown_frames_ = -1;
+        m_desired_texture_size_ = ImVec2(0, 0);
     }
 
-    if (!m_isOpen) {
+    if (!m_is_open_) {
+        // Reset focus/hover states if the window is not even supposed to be open
+        m_is_focused_ = false;
+        m_is_hovered_ = false;
+        m_is_content_region_hovered_ = false;
         return;
     }
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoTitleBar;
-    bool window_open = ImGui::Begin(m_windowName.c_str(), &m_isOpen, window_flags);
+    ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+    bool window_open_this_frame = ImGui::Begin(m_window_name_.c_str(), &m_is_open_, window_flags);
 
-    if (window_open) {
-        ImGui::SetCursorPos(ImVec2(0.0f, 0.0f)); // Ensure cursor is at the top-left of the content area
+    if (window_open_this_frame) {
+        ImGui::SetCursorPos(ImVec2(0.0f, 0.0f));  // Ensure cursor is at the top-left of the content area
 
-        m_isFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-        m_isHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
+        m_is_focused_ = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+        m_is_hovered_ = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
 
-        m_contentRegionSize = ImGui::GetContentRegionAvail();
-        m_contentRegionTopLeftScreen = ImGui::GetCursorScreenPos(); 
-        bool newSizeIsValid = (m_contentRegionSize.x > 0 && m_contentRegionSize.y > 0);
+        m_content_region_size_ = ImGui::GetContentRegionAvail();
+        m_content_region_top_left_screen_ = ImGui::GetCursorScreenPos();
+        bool new_size_is_valid = (m_content_region_size_.x > 0 && m_content_region_size_.y > 0);
 
-        // Update the shared viewport object with the current content region's screen coordinates and size
-        // This viewport is used by PcbRenderer via Application to know where/how large to render.
-        if (m_viewport) {
-             m_viewport->SetDimensions(
-                0, 0, // Use 0,0 for top-left as viewport is relative to its own render target
-                static_cast<int>(std::round(m_contentRegionSize.x)), 
-                static_cast<int>(std::round(m_contentRegionSize.y))
-            );
+        // Update the shared viewport object
+        if (m_viewport_) {
+            m_viewport_->SetDimensions(0, 0, static_cast<int>(std::round(m_content_region_size_.x)), static_cast<int>(std::round(m_content_region_size_.y)));
             // Inform PcbRenderer if its target image size needs to change.
-            // PcbRenderer is initialized with window dimensions, but this content area might be different.
-            if (pcbRenderer && newSizeIsValid) {
-                const BLImage& currentPcbImage = pcbRenderer->GetRenderedImage();
-                int roundedWidth = static_cast<int>(std::round(m_contentRegionSize.x));
-                int roundedHeight = static_cast<int>(std::round(m_contentRegionSize.y));
+            if (pcb_renderer && new_size_is_valid) {
+                const BLImage& current_pcb_image = pcb_renderer->GetRenderedImage();
+                int roundedWidth = static_cast<int>(std::round(m_content_region_size_.x));
+                int roundedHeight = static_cast<int>(std::round(m_content_region_size_.y));
 
-                if (currentPcbImage.width() != roundedWidth || 
-                    currentPcbImage.height() != roundedHeight) {
-                    // This will trigger PcbRenderer to resize its internal BLImage.
-                    // Application::Render will then call PcbRenderer->Render() which will use the new size.
-                    pcbRenderer->OnViewportResized(roundedWidth, roundedHeight);
-                    // Note: This means PcbRenderer might re-render. The image we get later in UpdateTextureFromPcbRenderer
-                    // should ideally be the resized one. This implies a specific order of operations: 
-                    // 1. ImGui layout to find size. 
-                    // 2. Tell PcbRenderer to resize/re-render if needed.
-                    // 3. PcbRenderer renders (already done in App::Render() based on previous frame size or initial size).
-                    // This is a bit complex. The Application currently calls PcbRenderer->Render() *before* any ImGui UI is rendered.
-                    // So, OnViewportResized here will prepare PcbRenderer for the *next* frame.
-                    // For the *current* frame, we get whatever PcbRenderer has already drawn.
+                if (current_pcb_image.width() != roundedWidth || current_pcb_image.height() != roundedHeight) {
+                    pcb_renderer->OnViewportResized(roundedWidth, roundedHeight);
                 }
             }
         }
 
-        // The texture displayed (m_renderTexture) should match the PcbRenderer's output size.
-        // UpdateTextureFromPcbRenderer will handle resizing m_renderTexture if needed.
-        UpdateTextureFromPcbRenderer(sdlRenderer, pcbRenderer);
-
-        if (m_renderTexture) {
-            ImGui::Image(reinterpret_cast<ImTextureID>(m_renderTexture), ImVec2(m_textureWidth, m_textureHeight));
-        } else {
-            ImGui::Text("PcbRenderer output not available or texture creation failed. Desired: (%.0f, %.0f)", m_contentRegionSize.x, m_contentRegionSize.y);
+        // Execute the PcbRenderer::Render() call via the callback
+        if (pcb_render_callback) {
+            pcb_render_callback();
         }
 
-        if (m_interactionManager && (m_isFocused || m_isHovered)) {
-            m_isContentRegionHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_RectOnly); 
-            m_interactionManager->ProcessInput(ImGui::GetIO(), m_isFocused, m_isContentRegionHovered, m_contentRegionTopLeftScreen, m_contentRegionSize);
+        // Update our SDL_Texture from PcbRenderer's BLImage (which should now be current)
+        // Only update texture if the PcbRenderer actually drew something new.
+        if (pcb_renderer && pcb_renderer->WasFrameJustRendered()) {
+            UpdateTextureFromPcbRenderer(sdl_renderer, pcb_renderer);
+        }
+
+        if (m_render_texture_) {
+            ImGui::Image(reinterpret_cast<ImTextureID>(m_render_texture_), ImVec2(m_texture_width_, m_texture_height_));
+
+            // Render grid measurement overlay on top of the PCB image
+            RenderGridMeasurementOverlay();
+
+            // Handle interaction after the image is drawn, so ImGui::IsItemHovered() refers to the image
+            if (m_interaction_manager_ && (m_is_focused_ || m_is_hovered_)) {
+                m_is_content_region_hovered_ = ImGui::IsItemHovered(ImGuiHoveredFlags_RectOnly);
+                m_interaction_manager_->ProcessInput(ImGui::GetIO(), m_is_focused_, m_is_content_region_hovered_, m_content_region_top_left_screen_, m_content_region_size_, pcb_renderer);
+            } else {
+                m_is_content_region_hovered_ = false;
+            }
         } else {
-            m_isContentRegionHovered = false;
+            ImGui::Text("PcbRenderer output not available or texture creation failed. Desired: (%.0f, %.0f)", m_content_region_size_.x, m_content_region_size_.y);
         }
     } else {
-        m_isFocused = false;
-        m_isHovered = false;
-        m_isContentRegionHovered = false;
-        if (m_renderTexture) { // If window is closed, release texture
+        // ImGui::Begin returned false (e.g. window collapsed, or m_isOpen was set to false by ImGui::Begin itself)
+        m_is_focused_ = false;
+        m_is_hovered_ = false;
+        m_is_content_region_hovered_ = false;
+        if (m_render_texture_) {  // If window is effectively closed by ImGui, release texture
             ReleaseTexture();
         }
     }
-    
-    ImGui::PopStyleVar();
+
+    // This PopStyleVar and End must be called if ImGui::Begin was called,
+    // regardless of whether it returned true or false, to keep ImGui state balanced.
     ImGui::End();
+    ImGui::PopStyleVar();
 }
 
-void PCBViewerWindow::OnBoardLoaded(const std::shared_ptr<Board>& board) {
+void PCBViewerWindow::OnBoardLoaded(const std::shared_ptr<Board>& board, PcbRenderer* pcb_renderer)
+{
     if (board) {
         std::cout << "PCBViewerWindow: New board loaded: " << board->GetFilePath() << std::endl;
-    }
-    else {
+    } else {
         std::cout << "PCBViewerWindow: Board unloaded (or load failed)." << std::endl;
     }
-} 
+
+    if (pcb_renderer) {
+        pcb_renderer->MarkBoardDirty();
+        pcb_renderer->MarkGridDirty();  // Also mark grid dirty as board extents might change grid appearance
+    }
+}
+
+void PCBViewerWindow::RenderGridMeasurementOverlay()
+{
+    // Only render if we have the required components and grid settings show measurement readout
+    if (!m_grid_ || !m_camera_ || !m_viewport_ || !m_grid_settings_ || !m_grid_settings_->m_show_measurement_readout) {
+        return;
+    }
+
+    // Get grid measurement info
+    auto info = m_grid_->GetMeasurementInfo(*m_camera_, *m_viewport_);
+
+    // Create measurement text
+    std::stringstream ss;
+    ss << std::fixed << std::setprecision(3);  // Display up to 3 decimal places
+
+    // Convert world coordinates to proper display units based on current unit system
+    bool is_metric = (m_grid_settings_->m_unit_system == GridUnitSystem::kMetric);
+
+    // Format major spacing
+    if (info.major_lines_visible) {
+        float display_major_spacing;
+        if (is_metric) {
+            display_major_spacing = GridSettings::WorldUnitsToMm(info.major_spacing);
+        } else {
+            display_major_spacing = GridSettings::WorldUnitsToInches(info.major_spacing);
+        }
+        ss << "Major: " << display_major_spacing << info.unit_string;
+    } else {
+        ss << "Major: Hidden";
+    }
+
+    // Format minor spacing
+    ss << " | ";
+    if (info.minor_lines_visible) {
+        float display_minor_spacing;
+        if (is_metric) {
+            display_minor_spacing = GridSettings::WorldUnitsToMm(info.minor_spacing);
+        } else {
+            display_minor_spacing = GridSettings::WorldUnitsToInches(info.minor_spacing);
+        }
+        ss << "Minor: " << display_minor_spacing << info.unit_string;
+    } else {
+        ss << "Minor: Hidden";
+    }
+
+    std::string readout_text = ss.str();
+
+    // Use ImGui's foreground draw list to render directly on top of everything
+    // This ensures proper z-order regardless of docked/floating state
+    ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+    // Calculate text size for background rectangle
+    ImVec2 text_size = ImGui::CalcTextSize(readout_text.c_str());
+    const float kPadding = 8.0f;
+    const float kRounding = 4.0f;
+
+    // Position in bottom-left corner of the current window's content area
+    ImVec2 window_pos = ImGui::GetWindowPos();
+    ImVec2 content_min = ImGui::GetWindowContentRegionMin();
+    ImVec2 content_max = ImGui::GetWindowContentRegionMax();
+
+    const float kMargin = 10.0f;
+    ImVec2 text_pos = ImVec2(window_pos.x + content_min.x + kMargin,
+                            window_pos.y + content_max.y - kMargin - text_size.y - kPadding * 2);
+
+    // Background rectangle
+    ImVec2 bg_min = ImVec2(text_pos.x - kPadding, text_pos.y - kPadding);
+    ImVec2 bg_max = ImVec2(text_pos.x + text_size.x + kPadding, text_pos.y + text_size.y + kPadding);
+
+    // Draw semi-transparent black background with rounded corners
+    draw_list->AddRectFilled(bg_min, bg_max, IM_COL32(0, 0, 0, 192), kRounding);
+
+    // Draw white text on top
+    draw_list->AddText(text_pos, IM_COL32(255, 255, 255, 255), readout_text.c_str());
+}

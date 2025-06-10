@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.21)
+
 set(LIBRARY_NAME render_lib)
 
 # Source files
@@ -21,11 +23,13 @@ target_include_directories(${LIBRARY_NAME}
 
 # Link libraries
 target_link_libraries(${LIBRARY_NAME}
-    PUBLIC # Or INTERFACE if render_lib itself doesn't need to compile against blend2d but its headers do
+    PUBLIC
     blend2d # Link against the Blend2D library target
     SDL3::SDL3 # Link against the SDL3 library target
+    PRIVATE
     view_lib # Added dependency on view_lib
+    utils_lib # For utility functions
 )
 
 # Ensure PcbRenderer.hpp and other headers can be found by users of this library
-# The PUBLIC include directory above should handle this. 
+# The PUBLIC include directory above should handle this.
