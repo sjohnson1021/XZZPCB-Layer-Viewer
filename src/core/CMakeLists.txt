@@ -4,7 +4,7 @@ set(LIBRARY_NAME core_lib)
 
 # Source files
 set(SOURCE_FILES
-    Application.cpp
+    # Application.cpp moved to main executable to break circular dependency
     Config.cpp
     Events.cpp
     ControlSettings.cpp
@@ -20,6 +20,7 @@ set(SOURCE_FILES
     ../pcb/BoardLoaderFactory.cpp
     ../pcb/elements/Arc.cpp
     ../pcb/elements/Component.cpp
+    ../pcb/elements/Element.cpp
     ../pcb/elements/Pin.cpp
     ../pcb/elements/TextLabel.cpp
     ../pcb/elements/Trace.cpp
@@ -54,9 +55,9 @@ target_link_libraries(${LIBRARY_NAME}
     imgui
     SDL3::SDL3
     blend2d
+    utils_lib
+    PRIVATE
     render_lib
     view_lib
-    utils_lib
-    PUBLIC
-    # ui_lib # This creates a circular dependency
+    # ui_lib # This creates a circular dependency - removed
 )

@@ -5,7 +5,7 @@
             "name": "Debug PCB Viewer",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/XZZPCB-Layer-Viewer",
+            "program": "${workspaceFolder}/builds/ninja-multi-vcpkg/bin/Debug/XZZPCB-Layer-Viewer",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
@@ -28,16 +28,16 @@
             "osx": {
                 "MIMode": "lldb"
             },
-            "windows": {
-                "MIMode": "gdb",
-                "miDebuggerPath": "gdb.exe"
+           "windows": {
+                "program": "${workspaceFolder}/builds/ninja-multi-vcpkg/bin/Debug/XZZPCB-Layer-Viewer.exe",
+                "MIMode": "windows"
             }
         },
-        {
-            "name": "Debug Tests",
+		{
+            "name": "Run PCB Viewer (Release)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/pcb_viewer_tests",
+            "program": "${workspaceFolder}/builds/ninja-multi-vcpkg/bin/Release/XZZPCB-Layer-Viewer",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
@@ -60,10 +60,18 @@
             "osx": {
                 "MIMode": "lldb"
             },
-            "windows": {
-                "MIMode": "gdb",
-                "miDebuggerPath": "gdb.exe"
+           "windows": {
+                "program": "${workspaceFolder}/builds/ninja-multi-vcpkg/bin/Release/XZZPCB-Layer-Viewer.exe",
+                "MIMode": "windows"
             }
+        }	  ],
+        "inputs": [
+        {
+            "id": "buildType",
+            "type": "pickString",
+            "description": "Select build type",
+            "options": ["ninja-vcpkg-debug", "ninja-vcpkg-release"],
+            "default": "ninja-vcpkg-debug"
         }
     ]
 }

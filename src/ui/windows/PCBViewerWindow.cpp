@@ -3,7 +3,9 @@
 #include <algorithm>  // For std::max
 #include <cmath>      // For std::round
 #include <cstddef>
+#include <iomanip>   // For std::setprecision in grid measurement overlay
 #include <iostream>  // For logging in OnBoardLoaded
+#include <sstream>   // For std::stringstream in grid measurement overlay
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_blendmode.h>
@@ -242,6 +244,9 @@ void PCBViewerWindow::RenderIntegrated(SDL_Renderer* sdl_renderer, PcbRenderer* 
         if (m_render_texture_) {
             ImGui::Image(reinterpret_cast<ImTextureID>(m_render_texture_), ImVec2(m_texture_width_, m_texture_height_));
 
+            // Render grid measurement overlay on top of the PCB image
+            RenderGridMeasurementOverlay();
+
             // Handle interaction after the image is drawn, so ImGui::IsItemHovered() refers to the image
             if (m_interaction_manager_ && (m_is_focused_ || m_is_hovered_)) {
                 m_is_content_region_hovered_ = ImGui::IsItemHovered(ImGuiHoveredFlags_RectOnly);
@@ -280,4 +285,79 @@ void PCBViewerWindow::OnBoardLoaded(const std::shared_ptr<Board>& board, PcbRend
         pcb_renderer->MarkBoardDirty();
         pcb_renderer->MarkGridDirty();  // Also mark grid dirty as board extents might change grid appearance
     }
+}
+
+void PCBViewerWindow::RenderGridMeasurementOverlay()
+{
+    // Only render if we have the required components and grid settings show measurement readout
+    if (!m_grid_ || !m_camera_ || !m_viewport_ || !m_grid_settings_ || !m_grid_settings_->m_show_measurement_readout) {
+        return;
+    }
+
+    // Get grid measurement info
+    auto info = m_grid_->GetMeasurementInfo(*m_camera_, *m_viewport_);
+
+    // Create measurement text
+    std::stringstream ss;
+    ss << std::fixed << std::setprecision(3);  // Display up to 3 decimal places
+
+    // Convert world coordinates to proper display units based on current unit system
+    bool is_metric = (m_grid_settings_->m_unit_system == GridUnitSystem::kMetric);
+
+    // Format major spacing
+    if (info.major_lines_visible) {
+        float display_major_spacing;
+        if (is_metric) {
+            display_major_spacing = GridSettings::WorldUnitsToMm(info.major_spacing);
+        } else {
+            display_major_spacing = GridSettings::WorldUnitsToInches(info.major_spacing);
+        }
+        ss << "Major: " << display_major_spacing << info.unit_string;
+    } else {
+        ss << "Major: Hidden";
+    }
+
+    // Format minor spacing
+    ss << " | ";
+    if (info.minor_lines_visible) {
+        float display_minor_spacing;
+        if (is_metric) {
+            display_minor_spacing = GridSettings::WorldUnitsToMm(info.minor_spacing);
+        } else {
+            display_minor_spacing = GridSettings::WorldUnitsToInches(info.minor_spacing);
+        }
+        ss << "Minor: " << display_minor_spacing << info.unit_string;
+    } else {
+        ss << "Minor: Hidden";
+    }
+
+    std::string readout_text = ss.str();
+
+    // Use ImGui's foreground draw list to render directly on top of everything
+    // This ensures proper z-order regardless of docked/floating state
+    ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+
+    // Calculate text size for background rectangle
+    ImVec2 text_size = ImGui::CalcTextSize(readout_text.c_str());
+    const float kPadding = 8.0f;
+    const float kRounding = 4.0f;
+
+    // Position in bottom-left corner of the current window's content area
+    ImVec2 window_pos = ImGui::GetWindowPos();
+    ImVec2 content_min = ImGui::GetWindowContentRegionMin();
+    ImVec2 content_max = ImGui::GetWindowContentRegionMax();
+
+    const float kMargin = 10.0f;
+    ImVec2 text_pos = ImVec2(window_pos.x + content_min.x + kMargin,
+                            window_pos.y + content_max.y - kMargin - text_size.y - kPadding * 2);
+
+    // Background rectangle
+    ImVec2 bg_min = ImVec2(text_pos.x - kPadding, text_pos.y - kPadding);
+    ImVec2 bg_max = ImVec2(text_pos.x + text_size.x + kPadding, text_pos.y + text_size.y + kPadding);
+
+    // Draw semi-transparent black background with rounded corners
+    draw_list->AddRectFilled(bg_min, bg_max, IM_COL32(0, 0, 0, 192), kRounding);
+
+    // Draw white text on top
+    draw_list->AddText(text_pos, IM_COL32(255, 255, 255, 255), readout_text.c_str());
 }

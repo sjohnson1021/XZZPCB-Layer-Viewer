@@ -22,7 +22,11 @@ public:
     [[nodiscard]] int GetWindowWidth() const override;
     [[nodiscard]] int GetWindowHeight() const override;
 
+    // Window event handling methods
+    [[nodiscard]] bool IsValid() const;
+    bool Recreate();
+
 private:
     SDL_Window* m_window_;
     SDL_Renderer* m_renderer_;
-}; 
+};

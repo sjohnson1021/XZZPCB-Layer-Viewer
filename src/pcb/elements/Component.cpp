@@ -1,4 +1,4 @@
-#include "pcb/elements/Component.hpp"
+#include "Component.hpp"
 
 #include <algorithm>  // For std::min, std::max
 #include <cmath>      // For cos, sin, fmod

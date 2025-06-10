@@ -3,11 +3,21 @@
 #include <string>  // Added for std::string
 #include <unordered_map>
 #include <memory>
+#include <vector>
+#include <thread>
+#include <future>
+#include <atomic>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <functional>
+#include <map>  // Added for std::map usage
 
 #include <blend2d.h>  // Include for BLContext
 
 #include "core/BoardDataManager.hpp"
 #include "utils/Constants.hpp"  // For kPi
+#include "pcb/elements/Element.hpp"  // For ElementType enum
 
 // Forward declarations
 class RenderContext;  // The Blend2D-focused RenderContext
@@ -41,6 +51,185 @@ struct RenderingState {
     mutable const Element* cached_selected_element = nullptr;
 };
 
+// Performance optimization: Dirty region tracking for intelligent re-rendering
+struct DirtyRegionTracker {
+    bool full_redraw_needed = true;
+    bool layer_visibility_changed = false;
+    bool net_selection_changed = false;
+    bool element_selection_changed = false;
+    bool zoom_changed = false;
+    bool pan_changed = false;
+    bool theme_changed = false;
+
+    // Viewport tracking
+    BLRect last_viewport_rect = {0, 0, 0, 0};
+    double last_zoom_level = 1.0;
+    BLPoint last_pan_position = {0, 0};
+
+    void MarkFullRedraw() {
+        full_redraw_needed = true;
+        layer_visibility_changed = false;
+        net_selection_changed = false;
+        element_selection_changed = false;
+        zoom_changed = false;
+        pan_changed = false;
+        theme_changed = false;
+    }
+
+    void ClearFlags() {
+        full_redraw_needed = false;
+        layer_visibility_changed = false;
+        net_selection_changed = false;
+        element_selection_changed = false;
+        zoom_changed = false;
+        pan_changed = false;
+        theme_changed = false;
+    }
+
+    bool NeedsRedraw() const {
+        return full_redraw_needed || layer_visibility_changed || net_selection_changed ||
+               element_selection_changed || zoom_changed || pan_changed || theme_changed;
+    }
+};
+
+// Performance optimization: Cached board rendering
+struct CachedBoardRender {
+    BLImage cached_image;
+    bool is_valid = false;
+    BLRect cached_viewport;
+    double cached_zoom;
+    BLPoint cached_pan;
+    std::shared_ptr<const Board> cached_board;
+    int cached_selected_net_id = -1;
+    const Element* cached_selected_element = nullptr;
+    std::vector<bool> cached_layer_visibility;
+
+    void Invalidate() {
+        is_valid = false;
+        cached_image.reset();
+    }
+
+    bool IsValidFor(const BLRect& viewport, double zoom, const BLPoint& pan,
+                   std::shared_ptr<const Board> board, int selected_net_id,
+                   const Element* selected_element, const std::vector<bool>& layer_visibility) const {
+        return is_valid &&
+               cached_board == board &&
+               cached_selected_net_id == selected_net_id &&
+               cached_selected_element == selected_element &&
+               cached_layer_visibility == layer_visibility &&
+               std::abs(cached_zoom - zoom) < 0.001 &&
+               std::abs(cached_pan.x - pan.x) < 0.1 &&
+               std::abs(cached_pan.y - pan.y) < 0.1 &&
+               std::abs(cached_viewport.x - viewport.x) < 0.1 &&
+               std::abs(cached_viewport.y - viewport.y) < 0.1 &&
+               std::abs(cached_viewport.w - viewport.w) < 0.1 &&
+               std::abs(cached_viewport.h - viewport.h) < 0.1;
+    }
+};
+
+// Enhanced font caching structure
+struct FontCacheKey {
+    std::string font_family;
+    float size;
+
+    bool operator==(const FontCacheKey& other) const {
+        return font_family == other.font_family && std::abs(size - other.size) < 0.01f;
+    }
+};
+
+struct FontCacheKeyHash {
+    std::size_t operator()(const FontCacheKey& key) const {
+        return std::hash<std::string>{}(key.font_family) ^
+               (std::hash<float>{}(key.size) << 1);
+    }
+};
+
+// Work item for thread pool
+struct RenderWorkItem {
+    enum Type {
+        TRACE_BATCH,
+        COMPONENT_BATCH,
+        PIN_BATCH,
+        ARC_BATCH,
+        VIA_BATCH,
+        TEXT_BATCH
+    };
+
+    Type type;
+    std::function<void()> work_function;
+
+    RenderWorkItem(Type t, std::function<void()> func) : type(t), work_function(std::move(func)) {}
+};
+
+// Thread pool for persistent worker threads
+class ThreadPool {
+public:
+    ThreadPool(size_t num_threads);
+    ~ThreadPool();
+
+    template<typename F>
+    auto enqueue(F&& f) -> std::future<typename std::result_of<F()>::type> {
+        using return_type = typename std::result_of<F()>::type;
+
+        auto task = std::make_shared<std::packaged_task<return_type()>>(
+            std::forward<F>(f)
+        );
+
+        std::future<return_type> res = task->get_future();
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex_);
+
+            if (stop_) {
+                throw std::runtime_error("enqueue on stopped ThreadPool");
+            }
+
+            tasks_.emplace([task]() { (*task)(); });
+        }
+        condition_.notify_one();
+        return res;
+    }
+
+    void wait_for_all();
+    size_t get_thread_count() const { return workers_.size(); }
+
+private:
+    std::vector<std::thread> workers_;
+    std::queue<std::function<void()>> tasks_;
+    std::mutex queue_mutex_;
+    std::condition_variable condition_;
+    std::atomic<bool> stop_;
+    std::atomic<size_t> active_tasks_;
+    std::condition_variable completion_cv_;
+};
+
+// Multi-threading structures for parallel rendering
+struct TraceRenderBatch {
+    std::vector<const Trace*> traces;
+    BLRgba32 color;
+    double thickness;
+    BLStrokeCap start_cap;
+    BLStrokeCap end_cap;
+    BLRect world_view_rect;
+
+    TraceRenderBatch() = default;
+    TraceRenderBatch(const BLRgba32& c, double t, BLStrokeCap sc, BLStrokeCap ec, const BLRect& rect)
+        : color(c), thickness(t), start_cap(sc), end_cap(ec), world_view_rect(rect) {
+        traces.reserve(1000); // Pre-allocate for performance
+    }
+};
+
+struct ComponentRenderBatch {
+    std::vector<const Component*> components;
+    BLRect world_view_rect;
+    std::unordered_map<BoardDataManager::ColorType, BLRgba32> theme_colors;
+    int selected_net_id;
+    const Element* selected_element;
+
+    ComponentRenderBatch() : selected_net_id(-1), selected_element(nullptr) {
+        components.reserve(100);
+    }
+};
+
 class RenderPipeline
 {
 public:
@@ -71,15 +260,11 @@ public:
     );
 
     BLMatrix2D ViewMatrix(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport);
-    // Process a single renderable item (or this could be a list)
-    // void Process(RenderContext& context, IRenderable* renderable);
-    // Or, the pipeline might manage a list of renderables itself
-    // void AddRenderable(IRenderable* renderable);
-    // void RemoveRenderable(IRenderable* renderable);
-    // void Execute(RenderContext& context); // Executes all stages on all renderables
 
-    // If we have distinct stages:
-    // void AddStage(std::unique_ptr<RenderStage> stage);
+    // Cache invalidation for immediate color updates
+    void InvalidateRenderingStateCache() const;
+
+
 
     // To keep PcbRenderer simple, RenderPipeline will be responsible for calling Grid::Render().
     void RenderGrid(BLContext& bl_ctx,
@@ -107,15 +292,11 @@ public:
     void RenderPin(BLContext& ctx, const Pin& pin, const Component* parent_component, const BLRgba32& fill_color, const BLRgba32& stroke_color, const Board& board);
 
 private:
-    // Helper to get a cached font face or load it if not found
-    BLResult GetOrCreateFontFace(const std::string& font_family_path, BLFontFace& out_face);
-
     // Helper function to get the visible area in world coordinates
     [[nodiscard]] BLRect GetVisibleWorldBounds(const Camera& camera, const Viewport& viewport) const;
 
     // Performance optimization: Cached rendering state management
     const RenderingState& GetCachedRenderingState(const Board& board) const;
-    void InvalidateRenderingStateCache() const;
 
     // Performance optimization: Batch rendering methods to reduce state changes
     void SetFillColorOptimized(BLContext& ctx, const BLRgba32& color) const;
@@ -137,6 +318,46 @@ private:
         return total > 0 ? static_cast<double>(m_elements_culled_) / total : 0.0;
     }
 
+    // Enhanced multi-threading methods for parallel rendering
+    void InitializeThreadPool();
+    void ShutdownThreadPool();
+
+
+
+    void RenderComponentsOptimized(const std::vector<const Component*>& components,
+                                  const Board& board,
+                                  const BLRect& world_view_rect,
+                                  const std::unordered_map<BoardDataManager::ColorType, BLRgba32>& theme_colors,
+                                  int selected_net_id,
+                                  const Element* selected_element);
+
+
+
+    // Enhanced trace rendering with individual highlighting support
+    void RenderTracesWithHighlighting(const std::vector<const Trace*>& traces,
+                                     const BLRgba32& base_color,
+                                     const BLRect& world_view_rect,
+                                     BLStrokeCap start_cap,
+                                     BLStrokeCap end_cap,
+                                     double thickness_override,
+                                     int selected_net_id,
+                                     const Element* selected_element,
+                                     const BLRgba32& highlight_color,
+                                     const BLRgba32& selected_element_highlight_color);
+
+    void RenderComponentsParallel(const std::vector<const Component*>& components,
+                                 const Board& board,
+                                 const BLRect& world_view_rect,
+                                 const std::unordered_map<BoardDataManager::ColorType, BLRgba32>& theme_colors,
+                                 int selected_net_id,
+                                 const Element* selected_element);
+
+
+
+    // Enhanced font management
+    BLFont& GetCachedFont(const std::string& font_family, float size);
+    void PreloadCommonFonts();
+
     // std::vector<std::unique_ptr<RenderStage>> m_stages;
     // Or a more direct approach if stages are fixed:
     // void GeometryPass(RenderContext& context);
@@ -150,8 +371,10 @@ private:
     RenderContext* m_render_context_ = nullptr;  // Store a pointer to the context if needed by multiple methods
     bool m_initialized_ = false;
 
-    // Cache for loaded font faces
+    // Enhanced font caching system
     std::map<std::string, BLFontFace> m_font_face_cache_;
+    std::unordered_map<FontCacheKey, BLFont, FontCacheKeyHash> m_font_cache_;
+    mutable std::mutex m_font_cache_mutex_;
 
     // Performance optimization: Cached rendering state
     mutable RenderingState m_cached_rendering_state_;
@@ -166,6 +389,8 @@ private:
     mutable size_t m_elements_rendered_;
     mutable size_t m_elements_culled_;
 
+
+
     // Performance optimization: Object pools for frequently allocated objects
     mutable std::vector<BLPath> m_path_pool_;
     mutable size_t m_path_pool_index_;
@@ -173,6 +398,18 @@ private:
     // Performance optimization: Reusable containers to avoid allocations
     mutable std::vector<int> m_temp_layer_ids_;
     mutable std::vector<ElementType> m_temp_element_types_;
+
+    // Enhanced multi-threading system with persistent thread pool
+    mutable std::unique_ptr<ThreadPool> m_thread_pool_;
+    mutable std::atomic<bool> m_threading_enabled_;
+    mutable std::mutex m_thread_mutex_;
+    mutable unsigned int m_thread_count_;
+
+    // Performance tuning parameters
+    mutable size_t m_min_traces_for_threading_;
+    mutable size_t m_traces_per_thread_min_;
+    mutable size_t m_min_components_for_threading_;
+    mutable size_t m_components_per_thread_min_;
 
     // Add any other members needed for managing rendering state or resources for the pipeline
 };

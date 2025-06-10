@@ -89,3 +89,47 @@ void ImGuiManager::PresentImGuiDrawData()
         std::cerr << "ImGuiManager::PresentImGuiDrawData: SDLRenderer or SDL_Renderer handle is null." << std::endl;
     }
 }
+
+void ImGuiManager::OnRendererRecreated()
+{
+    if (!m_initialized_) {
+        std::cout << "ImGuiManager::OnRendererRecreated: Not initialized, skipping" << std::endl;
+        return;
+    }
+
+    std::cout << "ImGuiManager: Recreating ImGui renderer backend after window restoration..." << std::endl;
+
+    // Shutdown the old renderer backend (but keep the SDL3 platform backend)
+    ImGui_ImplSDLRenderer3_Shutdown();
+
+    // Reinitialize the renderer backend with the new SDL renderer
+    SDLRenderer* sdl_renderer = dynamic_cast<SDLRenderer*>(m_renderer_);
+    if (sdl_renderer != nullptr && sdl_renderer->GetRenderer() != nullptr) {
+        if (ImGui_ImplSDLRenderer3_Init(sdl_renderer->GetRenderer())) {
+            std::cout << "ImGuiManager: Successfully recreated ImGui renderer backend" << std::endl;
+        } else {
+            std::cerr << "ImGuiManager: Failed to recreate ImGui renderer backend!" << std::endl;
+        }
+    } else {
+        std::cerr << "ImGuiManager::OnRendererRecreated: SDLRenderer or SDL_Renderer is null!" << std::endl;
+    }
+}
+
+bool ImGuiManager::IsValid() const
+{
+    if (!m_initialized_ || !m_renderer_) {
+        return false;
+    }
+
+    SDLRenderer* sdl_renderer = dynamic_cast<SDLRenderer*>(m_renderer_);
+    if (!sdl_renderer || !sdl_renderer->GetRenderer()) {
+        return false;
+    }
+
+    // Check if ImGui context is still valid
+    if (!ImGui::GetCurrentContext()) {
+        return false;
+    }
+
+    return true;
+}

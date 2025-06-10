@@ -6,24 +6,28 @@
 #include "imgui_internal.h"  // For ImGui::GetCurrentWindow(); (can be avoided if not strictly needed)
 
 #include "core/BoardDataManager.hpp"  // Added
+#include "core/Config.hpp"            // For font settings persistence
 #include "core/ControlSettings.hpp"   // Added include
 #include "core/InputActions.hpp"      // For InputAction enum and strings
 #include "pcb/Board.hpp"              // Include Board.hpp
 #include "utils/ColorUtils.hpp"       // Added
+#include "view/Grid.hpp"              // For Grid font invalidation
 #include "view/GridSettings.hpp"      // For GridColor, GridStyle, etc.
 
 SettingsWindow::SettingsWindow(std::shared_ptr<GridSettings> grid_settings,
                                std::shared_ptr<ControlSettings> control_settings,
                                std::shared_ptr<BoardDataManager> board_data_manager,
-                               float* application_clear_color)  // Added applicationClearColor
+                               float* application_clear_color,  // Added applicationClearColor
+                               std::shared_ptr<Grid> grid)  // Added Grid for font invalidation
     : m_grid_settings_(grid_settings),
       m_control_settings_(control_settings),
       m_board_data_manager_(board_data_manager),
-      m_app_clear_color_(application_clear_color)  // Store the pointer
-      ,
-      m_is_open_(false)  // Default to closed
-      ,
-      m_window_name("Settings")
+      m_app_clear_color_(application_clear_color),  // Store the pointer
+      m_grid_(grid),  // Store the Grid instance
+      m_is_open_(false),  // Default to closed
+      m_window_name("Settings"),
+      m_font_scale_multiplier_(1.0f),
+      m_font_settings_changed_(false)
 {  // Added constructor
 }
 
@@ -222,6 +226,7 @@ void SettingsWindow::ShowGridSettings()
                 majorColor.setG(static_cast<uint32_t>(colorArr_Major[1] * 255));
                 majorColor.setB(static_cast<uint32_t>(colorArr_Major[2] * 255));
                 majorColor.setA(static_cast<uint32_t>(colorArr_Major[3] * 255));
+                TriggerGridRedraw();
             }
 
             BLRgba32& minorColor = m_grid_settings_->m_minor_line_color;
@@ -231,6 +236,7 @@ void SettingsWindow::ShowGridSettings()
                 minorColor.setG(static_cast<uint32_t>(colorArr_Minor[1] * 255));
                 minorColor.setB(static_cast<uint32_t>(colorArr_Minor[2] * 255));
                 minorColor.setA(static_cast<uint32_t>(colorArr_Minor[3] * 255));
+                TriggerGridRedraw();
             }
 
             BLRgba32& bgColor = m_grid_settings_->m_background_color;
@@ -240,6 +246,7 @@ void SettingsWindow::ShowGridSettings()
                 bgColor.setG(static_cast<uint32_t>(colorArr_BG[1] * 255));
                 bgColor.setB(static_cast<uint32_t>(colorArr_BG[2] * 255));
                 bgColor.setA(static_cast<uint32_t>(colorArr_BG[3] * 255));
+                TriggerGridRedraw();
             }
 
             ImGui::Checkbox("Show Axis Lines", &m_grid_settings_->m_show_axis_lines);
@@ -252,6 +259,7 @@ void SettingsWindow::ShowGridSettings()
                     xAxisColor.setG(static_cast<uint32_t>(colorArr_X[1] * 255));
                     xAxisColor.setB(static_cast<uint32_t>(colorArr_X[2] * 255));
                     xAxisColor.setA(static_cast<uint32_t>(colorArr_X[3] * 255));
+                    TriggerGridRedraw();
                 }
                 BLRgba32& yAxisColor = m_grid_settings_->m_y_axis_color;
                 float colorArr_Y[4] = {yAxisColor.r() / 255.0f, yAxisColor.g() / 255.0f, yAxisColor.b() / 255.0f, yAxisColor.a() / 255.0f};
@@ -260,6 +268,7 @@ void SettingsWindow::ShowGridSettings()
                     yAxisColor.setG(static_cast<uint32_t>(colorArr_Y[1] * 255));
                     yAxisColor.setB(static_cast<uint32_t>(colorArr_Y[2] * 255));
                     yAxisColor.setA(static_cast<uint32_t>(colorArr_Y[3] * 255));
+                    TriggerGridRedraw();
                 }
                 ImGui::Unindent();
             }
@@ -928,21 +937,10 @@ void SettingsWindow::ShowAppearanceSettings(const std::shared_ptr<Board>& curren
         ImGui::SeparatorText("Layers");
 
         // Base Layer Color
-        BLRgba32 baseColor = m_board_data_manager_->GetColor(BoardDataManager::ColorType::kBaseLayer);
-        float colorArr_BaseColor[4] = {baseColor.r() / 255.0f, baseColor.g() / 255.0f, baseColor.b() / 255.0f, baseColor.a() / 255.0f};
-        if (ImGui::ColorEdit4("Base Layer Color", colorArr_BaseColor, ImGuiColorEditFlags_Float)) {
-            m_board_data_manager_->SetColor(BoardDataManager::ColorType::kBaseLayer,
-                                            BLRgba32(static_cast<uint32_t>(colorArr_BaseColor[0] * 255),
-                                                    static_cast<uint32_t>(colorArr_BaseColor[1] * 255),
-                                                    static_cast<uint32_t>(colorArr_BaseColor[2] * 255),
-                                                    static_cast<uint32_t>(colorArr_BaseColor[3] * 255)));
-            m_board_data_manager_->RegenerateLayerColors(currentBoard);
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("The starting color for the first layer. Subsequent layers will have their hue shifted from this color.");
-        }
-
-        // Hue Step per Layer
+        RenderColorControl("Base Layer Color", BoardDataManager::ColorType::kBaseLayer,
+                          "The starting color for the first layer. Subsequent layers will have their hue shifted from this color.");
+       
+        ImGui::Spacing();  // Hue Step per Layer
         float hueStep = m_board_data_manager_->GetLayerHueStep();
         if (ImGui::DragFloat("Hue Shift per Layer", &hueStep, 1.0f, 0.0f, 180.0f, "%.1f degrees")) {
             m_board_data_manager_->SetLayerHueStep(hueStep);
@@ -972,41 +970,16 @@ void SettingsWindow::ShowAppearanceSettings(const std::shared_ptr<Board>& curren
         ImGui::SameLine();
         float outlineThickness = m_board_data_manager_->GetBoardOutlineThickness();
         ImGui::SetNextItemWidth(80);
-        if (ImGui::SliderFloat("##BoardOutlineThickness", &outlineThickness, 0.01f, 2.0f, "%.2f")) {
+        if (ImGui::SliderFloat("##BoardOutlineThickness", &outlineThickness, 0.01f, 5.0f, "%.2f")) {
             m_board_data_manager_->SetBoardOutlineThickness(outlineThickness);
         }
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Thickness of the board outline/edges rendering.");
         }
-		ImGui::Spacing();
-		ImGui::SeparatorText("Rendering Settings");
-		ImGui::Spacing();
-
-		// Target Framerate
-		int targetFps = m_board_data_manager_->GetTargetFramerate();
-		if (ImGui::SliderInt("Target Framerate", &targetFps, 15, 120, "%d FPS")) {
-			m_board_data_manager_->SetTargetFramerate(targetFps);
-		}
-		if (ImGui::IsItemHovered()) {
-			ImGui::SetTooltip("Target framerate for rendering. Lower values reduce CPU/GPU usage.");
-		}
-
-		// Quick framerate presets
-		ImGui::SameLine();
-		if (ImGui::Button("30")) {
-			m_board_data_manager_->SetTargetFramerate(30);
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("60")) {
-			m_board_data_manager_->SetTargetFramerate(60);
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("120")) {
-			m_board_data_manager_->SetTargetFramerate(120);
-		}
 		ImGui::Unindent();
 	}
     ImGui::Spacing();
+
 
     ShowLayerControls(currentBoard);  // Pass currentBoard
 }
@@ -1041,6 +1014,10 @@ void SettingsWindow::RenderUI(const std::shared_ptr<Board>& currentBoard)
             ShowControlSettings();
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Accessibility")) {
+            ShowAccessibilitySettings();
+            ImGui::EndTabItem();
+        }
         ImGui::EndTabBar();
     }
     ImGui::End();  // This End matches the successful Begin
@@ -1067,4 +1044,96 @@ void SettingsWindow::RenderColorControl(const char* label, BoardDataManager::Col
     if (ImGui::IsItemHovered() && tooltip) {
         ImGui::SetTooltip("%s", tooltip);
     }
+}
+
+void SettingsWindow::TriggerGridRedraw()
+{
+    // Use the same callback mechanism as board color controls for consistency
+    // This ensures grid color changes trigger the same redraw path as other settings
+    if (m_board_data_manager_) {
+        // Trigger the settings change callback by calling a BoardDataManager method
+        // This is the same mechanism used by RenderColorControl for board colors
+        m_board_data_manager_->SetLayerHueStep(m_board_data_manager_->GetLayerHueStep());
+    }
+}
+
+void SettingsWindow::ShowAccessibilitySettings()
+{
+    if (ImGui::CollapsingHeader("Font Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Indent();
+
+        // Font Scale Multiplier
+        ImGui::Text("Font Scale Multiplier");
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Adjusts the base font size for better readability.\nChanges take effect immediately.");
+        }
+
+        float previous_scale = m_font_scale_multiplier_;
+        if (ImGui::SliderFloat("##FontScale", &m_font_scale_multiplier_, 0.5f, 3.0f, "%.1fx")) {
+            // Clamp to reasonable bounds
+            if (m_font_scale_multiplier_ < 0.5f) m_font_scale_multiplier_ = 0.5f;
+            if (m_font_scale_multiplier_ > 3.0f) m_font_scale_multiplier_ = 3.0f;
+
+            // Apply font scaling immediately
+            ImGuiIO& io = ImGui::GetIO();
+            io.FontGlobalScale = m_font_scale_multiplier_;
+            m_font_settings_changed_ = true;
+
+            // Grid measurement overlay now uses ImGui and scales automatically
+        }
+
+        // Reset button
+        ImGui::SameLine();
+        if (ImGui::Button("Reset##FontScale")) {
+            m_font_scale_multiplier_ = 1.0f;
+            ImGuiIO& io = ImGui::GetIO();
+            io.FontGlobalScale = m_font_scale_multiplier_;
+            m_font_settings_changed_ = true;
+
+            // Grid measurement overlay now uses ImGui and scales automatically
+        }
+
+        // Show current scale info
+        ImGui::Text("Current scale: %.1fx", m_font_scale_multiplier_);
+
+        ImGui::Spacing();
+        ImGui::TextWrapped("Note: Font scaling affects all UI elements. Very large scales may cause layout issues.");
+
+        ImGui::Unindent();
+    }
+}
+
+void SettingsWindow::LoadFontSettingsFromConfig(const Config& config)
+{
+    // Load font scale multiplier
+    m_font_scale_multiplier_ = config.GetFloat("accessibility.font_scale_multiplier", 1.0f);
+
+    // Clamp to safe bounds
+    if (m_font_scale_multiplier_ < 0.5f) m_font_scale_multiplier_ = 0.5f;
+    if (m_font_scale_multiplier_ > 3.0f) m_font_scale_multiplier_ = 3.0f;
+
+    // Apply the loaded font scale immediately
+    ImGuiIO& io = ImGui::GetIO();
+    io.FontGlobalScale = m_font_scale_multiplier_;
+
+    // Grid measurement overlay now uses ImGui and scales automatically
+}
+
+void SettingsWindow::SaveFontSettingsToConfig(Config& config) const
+{
+    // Save font scale multiplier
+    config.SetFloat("accessibility.font_scale_multiplier", m_font_scale_multiplier_);
+}
+
+// Factory function implementation
+std::unique_ptr<SettingsWindow> CreateSettingsWindow(
+    std::shared_ptr<GridSettings> grid_settings,
+    std::shared_ptr<ControlSettings> control_settings,
+    std::shared_ptr<BoardDataManager> board_data_manager,
+    float* application_clear_color,
+    std::shared_ptr<Grid> grid
+) {
+    return std::unique_ptr<SettingsWindow>(new SettingsWindow(grid_settings, control_settings, board_data_manager, application_clear_color, grid));
 }

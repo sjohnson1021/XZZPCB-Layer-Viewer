@@ -56,6 +56,9 @@ private:
     // This method will handle getting data from PcbRenderer and updating m_renderTexture
     void UpdateTextureFromPcbRenderer(SDL_Renderer* sdl_renderer, PcbRenderer* pcb_renderer);
 
+    // Render grid measurement overlay within the PCB viewer window
+    void RenderGridMeasurementOverlay();
+
     std::string m_window_name_ = "PCB Viewer";
     std::shared_ptr<Camera> m_camera_;
     std::shared_ptr<Viewport> m_viewport_;  // This viewport will be updated by the ImGui window size

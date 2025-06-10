@@ -4,6 +4,8 @@
 #include <mutex>
 
 #include "core/Config.hpp"
+#include "pcb/Board.hpp"
+#include "pcb/XZZPCBLoader.hpp"
 #include "utils/ColorUtils.hpp"
 
 BoardDataManager::BoardDataManager() : layer_hue_step_(30.0f)  // Default hue step in degrees
@@ -51,10 +53,14 @@ void BoardDataManager::SetBoard(std::shared_ptr<Board> board)
 
         // CRITICAL: Apply pending folding settings when a new board is loaded
         // This ensures the board geometry matches the user's intended setting
-        lock.~lock_guard(); // Temporarily release lock to call ApplyPendingFoldingSettings
-        ApplyPendingFoldingSettings();
+        // Note: ApplyPendingFoldingSettings will be called after the lock is released
     } else {
         layer_visibility_.clear();
+    }
+
+    // Apply pending folding settings after releasing the lock
+    if (board) {
+        ApplyPendingFoldingSettings();
     }
 }
 
@@ -66,10 +72,12 @@ void BoardDataManager::ClearBoard()
 
 void BoardDataManager::SetLayerHueStep(float hueStep)
 {
-    std::lock_guard<std::mutex> lock(net_mutex_);
-    layer_hue_step_ = hueStep;
-    auto cb = settings_change_callback_;
-    lock.~lock_guard();
+    SettingsChangeCallback cb;
+    {
+        std::lock_guard<std::mutex> lock(net_mutex_);
+        layer_hue_step_ = hueStep;
+        cb = settings_change_callback_;
+    }
     if (cb) {
         cb();
     }
@@ -92,25 +100,25 @@ BLRgba32 BoardDataManager::GetColorUnlocked(ColorType type) const
         case ColorType::kNetHighlight:
             return BLRgba32(0xFFFFFFFF);  // Default to white
         case ColorType::kSelectedElementHighlight:
-            return BLRgba32(0xFFFFFF00);  // Default to yellow
+            return BLRgba32(0xFFCDDFFF);  // Default to light de-saturated blue
         case ColorType::kSilkscreen:
             return BLRgba32(0xC0DDDDDD);  // Default to translucent light gray
         case ColorType::kComponentFill:
-            return BLRgba32(0xAA0000FF);  // Default to translucent blue
+            return BLRgba32(0xAA323232);  // Default to translucent blue
         case ColorType::kComponentStroke:
             return BLRgba32(0xFF000000);  // Default to black
         case ColorType::kPinStroke:
             return BLRgba32(0xC0000000);  // Default to translucent black
         case ColorType::kPinFill:
-            return BLRgba32(0xC0999999);  // Default to medium grey
+            return BLRgba32(0xBBF0F0F0);  // Default to light gray/translucent white
         case ColorType::kBaseLayer:
-            return BLRgba32(0xC0007BFF);  // Default to translucent blue
+            return BLRgba32(0xA71E68C3);  // Default to translucent blue
         case ColorType::kBoardEdges:
             return BLRgba32(0xFF00FF00);  // Default to green
         case ColorType::kGND:
-            return BLRgba32(0xFF008000);  // Default to dark green for GND
+            return BLRgba32(0xC84D4D4D);  // Default to translucent black green for GND
         case ColorType::kNC:
-            return BLRgba32(0xFF808080);  // Default to gray for NC (No Connect)
+            return BLRgba32(0xFF386776);  // Default to dark teal for NC (No Connect)
         default:
             return BLRgba32(0xFFFFFFFF);  // Default to white
     }
@@ -175,20 +183,17 @@ void BoardDataManager::LoadSettingsFromConfig(const Config& config)
     has_pending_folding_change_ = false; // No pending changes on load
 
     // Load rendering settings
-    board_outline_thickness_ = config.GetFloat("rendering.board_outline_thickness", 0.1f);
-    component_stroke_thickness_ = config.GetFloat("rendering.component_stroke_thickness", 0.05f);
-    pin_stroke_thickness_ = config.GetFloat("rendering.pin_stroke_thickness", 0.03f);
-    target_framerate_ = config.GetInt("rendering.target_framerate", 60);
+    board_outline_thickness_ = config.GetFloat("rendering.board_outline_thickness", 2.0f);
+    component_stroke_thickness_ = config.GetFloat("rendering.component_stroke_thickness", 0.33f);
+    pin_stroke_thickness_ = config.GetFloat("rendering.pin_stroke_thickness", 0.33f);
 
     // Clamp values to reasonable ranges
     if (board_outline_thickness_ < 0.01f) board_outline_thickness_ = 0.01f;
-    if (board_outline_thickness_ > 10.0f) board_outline_thickness_ = 10.0f;
+    if (board_outline_thickness_ > 5.0f) board_outline_thickness_ = 5.0f;
     if (component_stroke_thickness_ < 0.01f) component_stroke_thickness_ = 0.01f;
     if (component_stroke_thickness_ > 2.0f) component_stroke_thickness_ = 2.0f;
     if (pin_stroke_thickness_ < 0.01f) pin_stroke_thickness_ = 0.01f;
     if (pin_stroke_thickness_ > 1.0f) pin_stroke_thickness_ = 1.0f;
-    if (target_framerate_ < 1) target_framerate_ = 1;
-    if (target_framerate_ > 240) target_framerate_ = 240;
 
     // Load board view side setting
     int view_side_int = config.GetInt("board.view_side", static_cast<int>(BoardSide::kTop));
@@ -244,7 +249,6 @@ void BoardDataManager::SaveSettingsToConfig(Config& config) const
     config.SetFloat("rendering.board_outline_thickness", board_outline_thickness_);
     config.SetFloat("rendering.component_stroke_thickness", component_stroke_thickness_);
     config.SetFloat("rendering.pin_stroke_thickness", pin_stroke_thickness_);
-    config.SetInt("rendering.target_framerate", target_framerate_);
 
     // Save layer hue step
     config.SetFloat("board.layer_hue_step", layer_hue_step_);
@@ -252,23 +256,25 @@ void BoardDataManager::SaveSettingsToConfig(Config& config) const
 
 void BoardDataManager::RegenerateLayerColors(const std::shared_ptr<Board>& board)
 {
-    std::lock_guard<std::mutex> lock(net_mutex_);
-    if (!board)
-        return;
+    SettingsChangeCallback cb;
+    {
+        std::lock_guard<std::mutex> lock(net_mutex_);
+        if (!board)
+            return;
 
-    int layerCount = board->GetLayerCount();
-    layer_colors_.resize(layerCount);
+        int layerCount = board->GetLayerCount();
+        layer_colors_.resize(layerCount);
 
-    BLRgba32 baseColor = color_map.count(ColorType::kBaseLayer) ? color_map.at(ColorType::kBaseLayer) : GetColorUnlocked(ColorType::kBaseLayer);
-    float hueStep = layer_hue_step_;
+        BLRgba32 baseColor = color_map.count(ColorType::kBaseLayer) ? color_map.at(ColorType::kBaseLayer) : GetColorUnlocked(ColorType::kBaseLayer);
+        float hueStep = layer_hue_step_;
 
-    for (int i = 0; i < layerCount; ++i) {
-        BLRgba32 layerColor = color_utils::GenerateLayerColor(i, layerCount, baseColor, hueStep);
-        layer_colors_[i] = layerColor;
-        board->SetLayerColor(i, layerColor);
+        for (int i = 0; i < layerCount; ++i) {
+            BLRgba32 layerColor = color_utils::GenerateLayerColor(i, layerCount, baseColor, hueStep);
+            layer_colors_[i] = layerColor;
+            board->SetLayerColor(i, layerColor);
+        }
+        cb = settings_change_callback_;
     }
-    auto cb = settings_change_callback_;
-    lock.~lock_guard();
     if (cb) {
         cb();
     }
@@ -276,14 +282,16 @@ void BoardDataManager::RegenerateLayerColors(const std::shared_ptr<Board>& board
 
 void BoardDataManager::SetSelectedNetId(int netId)
 {
-    std::lock_guard<std::mutex> lock(net_mutex_);
-    if (selected_net_id_ != netId) {
-        selected_net_id_ = netId;
-        auto cb = net_id_change_callback_;
-        lock.~lock_guard();
-        if (cb) {
-            cb(netId);
+    NetIdChangeCallback cb;
+    {
+        std::lock_guard<std::mutex> lock(net_mutex_);
+        if (selected_net_id_ != netId) {
+            selected_net_id_ = netId;
+            cb = net_id_change_callback_;
         }
+    }
+    if (cb) {
+        cb(netId);
     }
 }
 
@@ -295,23 +303,22 @@ int BoardDataManager::GetSelectedNetId() const
 
 void BoardDataManager::SetBoardFoldingEnabled(bool enabled)
 {
+    SettingsChangeCallback cb;
+    {
+        std::lock_guard<std::mutex> lock(net_mutex_);
 
-    std::lock_guard<std::mutex> lock(net_mutex_);
+        // Store as pending setting instead of applying immediately
+        if (pending_board_folding_enabled_ != enabled) {
+            pending_board_folding_enabled_ = enabled;
+            has_pending_folding_change_ = (pending_board_folding_enabled_ != board_folding_enabled_);
 
-    // Store as pending setting instead of applying immediately
-    if (pending_board_folding_enabled_ != enabled) {
-
-        pending_board_folding_enabled_ = enabled;
-        has_pending_folding_change_ = (pending_board_folding_enabled_ != board_folding_enabled_);
-
-        // Only trigger UI update callback to refresh the settings display
-        // Do NOT change current board state or view side here
-        auto cb = settings_change_callback_;
-        lock.~lock_guard();
-        if (cb) {
-            cb();
+            // Only trigger UI update callback to refresh the settings display
+            // Do NOT change current board state or view side here
+            cb = settings_change_callback_;
         }
-    } else {
+    }
+    if (cb) {
+        cb();
     }
 }
 
@@ -354,14 +361,16 @@ void BoardDataManager::ApplyPendingFoldingSettings()
 
 void BoardDataManager::SetCurrentViewSide(BoardSide side)
 {
-    std::lock_guard<std::mutex> lock(net_mutex_);
-    if (current_view_side_ != side) {
-        current_view_side_ = side;
-        auto cb = settings_change_callback_;
-        lock.~lock_guard();
-        if (cb) {
-            cb();
+    SettingsChangeCallback cb;
+    {
+        std::lock_guard<std::mutex> lock(net_mutex_);
+        if (current_view_side_ != side) {
+            current_view_side_ = side;
+            cb = settings_change_callback_;
         }
+    }
+    if (cb) {
+        cb();
     }
 }
 
@@ -373,44 +382,47 @@ BoardDataManager::BoardSide BoardDataManager::GetCurrentViewSide() const
 
 void BoardDataManager::ToggleViewSide()
 {
-    std::lock_guard<std::mutex> lock(net_mutex_);
+    SettingsChangeCallback cb;
+    std::shared_ptr<Board> board;
+    {
+        std::lock_guard<std::mutex> lock(net_mutex_);
 
-    // CRITICAL FIX: Board flipping should only work when folding is enabled
-    if (!board_folding_enabled_) {
-        return;
+        // CRITICAL FIX: Board flipping should only work when folding is enabled
+        if (!board_folding_enabled_) {
+            return;
+        }
+
+        // CRITICAL FIX: Board flipping should only work when viewing Top or Bottom, not Both
+        if (current_view_side_ == BoardSide::kBoth) {
+            return;
+        }
+
+        BoardSide next_side;
+        switch (current_view_side_) {
+            case BoardSide::kTop:
+                next_side = BoardSide::kBottom;
+                break;
+            case BoardSide::kBottom:
+                next_side = BoardSide::kTop;
+                break;
+            case BoardSide::kBoth:
+            default:
+                // This case should not be reached due to the check above
+                next_side = BoardSide::kTop;
+                break;
+        }
+
+        current_view_side_ = next_side;
+        board = current_board_;
+        cb = settings_change_callback_;
     }
-
-    // CRITICAL FIX: Board flipping should only work when viewing Top or Bottom, not Both
-    if (current_view_side_ == BoardSide::kBoth) {
-        return;
-    }
-
-    BoardSide next_side;
-    switch (current_view_side_) {
-        case BoardSide::kTop:
-            next_side = BoardSide::kBottom;
-            break;
-        case BoardSide::kBottom:
-            next_side = BoardSide::kTop;
-            break;
-        case BoardSide::kBoth:
-        default:
-            // This case should not be reached due to the check above
-            next_side = BoardSide::kTop;
-            break;
-    }
-
-    current_view_side_ = next_side;
 
     // Apply actual coordinate transformation to board elements instead of visual-only mirroring
-    if (current_board_) {
+    if (board) {
         // Apply global transformation (mirroring) to all board elements
-        current_board_->ApplyGlobalTransformation(true);
-    } else {
+        board->ApplyGlobalTransformation(true);
     }
 
-    auto cb = settings_change_callback_;
-    lock.~lock_guard();
     if (cb) {
         cb();
     }
@@ -468,50 +480,45 @@ void BoardDataManager::UnregisterLayerVisibilityChangeCallback()
 
 void BoardDataManager::SetLayerVisible(int layerId, bool visible)
 {
-    std::lock_guard<std::mutex> lock(net_mutex_);
-    if (layerId >= 0 && layerId < static_cast<int>(layer_visibility_.size())) {
-        layer_visibility_[layerId] = visible;
+    LayerVisibilityChangeCallback layer_cb;
+    SettingsChangeCallback settings_cb;
+    std::shared_ptr<Board> board;
 
-        // Also update the board's layer visibility to keep them in sync
-        if (current_board_ && layerId < current_board_->GetLayerCount()) {
-            // Temporarily unlock to avoid deadlock when calling board methods
-            auto board = current_board_;
-            lock.~lock_guard();
-
-            // Update board layer visibility directly (avoid calling SetLayerVisible to prevent recursion)
-            if (layerId >= 0 && layerId < static_cast<int>(board->layers.size())) {
-                board->layers[layerId].is_visible = visible;
-            }
-
-            // Re-acquire lock for callbacks
-            std::lock_guard<std::mutex> lock2(net_mutex_);
-            auto cb = layer_visibility_change_callback_;
-            lock2.~lock_guard();
-            if (cb) {
-                cb(layerId, visible);
-            }
-            if (settings_change_callback_) {
-                settings_change_callback_();
-            }
-        } else {
-            auto cb = layer_visibility_change_callback_;
-            lock.~lock_guard();
-            if (cb) {
-                cb(layerId, visible);
-            }
-            if (settings_change_callback_) {
-                settings_change_callback_();
-            }
+    {
+        std::lock_guard<std::mutex> lock(net_mutex_);
+        if (layerId >= 0 && layerId < static_cast<int>(layer_visibility_.size())) {
+            layer_visibility_[layerId] = visible;
+            board = current_board_;
+            layer_cb = layer_visibility_change_callback_;
+            settings_cb = settings_change_callback_;
         }
+    }
+
+    // Update board layer visibility outside of lock to avoid deadlock
+    if (board && layerId < board->GetLayerCount()) {
+        // Update board layer visibility directly (avoid calling SetLayerVisible to prevent recursion)
+        if (layerId >= 0 && layerId < static_cast<int>(board->layers.size())) {
+            board->layers[layerId].is_visible = visible;
+        }
+    }
+
+    // Call callbacks outside of lock
+    if (layer_cb) {
+        layer_cb(layerId, visible);
+    }
+    if (settings_cb) {
+        settings_cb();
     }
 }
 
 void BoardDataManager::SetColor(ColorType type, BLRgba32 color)
 {
-    std::lock_guard<std::mutex> lock(net_mutex_);
-    color_map[type] = color;
-    auto cb = settings_change_callback_;
-    lock.~lock_guard();
+    SettingsChangeCallback cb;
+    {
+        std::lock_guard<std::mutex> lock(net_mutex_);
+        color_map[type] = color;
+        cb = settings_change_callback_;
+    }
     if (cb) {
         cb();
     }
@@ -554,18 +561,25 @@ bool BoardDataManager::IsLayerVisible(int layer_id) const
 
 void BoardDataManager::ToggleLayerVisibility(int layer_id)
 {
-    std::lock_guard<std::mutex> lock(net_mutex_);
-    if (layer_id >= 0 && layer_id < static_cast<int>(layer_visibility_.size())) {
-        layer_visibility_[layer_id] = !layer_visibility_[layer_id];
-        bool visible = layer_visibility_[layer_id];
-        auto cb = layer_visibility_change_callback_;
-        lock.~lock_guard();
-        if (cb) {
-            cb(layer_id, visible);
+    LayerVisibilityChangeCallback layer_cb;
+    SettingsChangeCallback settings_cb;
+    bool visible = false;
+
+    {
+        std::lock_guard<std::mutex> lock(net_mutex_);
+        if (layer_id >= 0 && layer_id < static_cast<int>(layer_visibility_.size())) {
+            layer_visibility_[layer_id] = !layer_visibility_[layer_id];
+            visible = layer_visibility_[layer_id];
+            layer_cb = layer_visibility_change_callback_;
+            settings_cb = settings_change_callback_;
         }
-        if (settings_change_callback_) {
-            settings_change_callback_();
-        }
+    }
+
+    if (layer_cb) {
+        layer_cb(layer_id, visible);
+    }
+    if (settings_cb) {
+        settings_cb();
     }
 }
 
@@ -583,14 +597,16 @@ std::vector<int> BoardDataManager::GetVisibleLayers() const
 
 void BoardDataManager::SetLayerColor(int layer_id, BLRgba32 color)
 {
-    std::lock_guard<std::mutex> lock(net_mutex_);
-    if (layer_id >= 0 && layer_id < static_cast<int>(layer_colors_.size())) {
-        layer_colors_[layer_id] = color;
-        auto cb = settings_change_callback_;
-        lock.~lock_guard();
-        if (cb) {
-            cb();
+    SettingsChangeCallback cb;
+    {
+        std::lock_guard<std::mutex> lock(net_mutex_);
+        if (layer_id >= 0 && layer_id < static_cast<int>(layer_colors_.size())) {
+            layer_colors_[layer_id] = color;
+            cb = settings_change_callback_;
         }
+    }
+    if (cb) {
+        cb();
     }
 }
 
@@ -598,18 +614,20 @@ void BoardDataManager::SetLayerColor(int layer_id, BLRgba32 color)
 
 void BoardDataManager::SetBoardOutlineThickness(float thickness)
 {
-    std::lock_guard<std::mutex> lock(net_mutex_);
-    // Clamp to reasonable range
-    if (thickness < 0.01f) thickness = 0.01f;
-    if (thickness > 10.0f) thickness = 10.0f;
+    SettingsChangeCallback cb;
+    {
+        std::lock_guard<std::mutex> lock(net_mutex_);
+        // Clamp to reasonable range
+        if (thickness < 0.01f) thickness = 0.01f;
+        if (thickness > 5.0f) thickness = 5.0f;
 
-    if (board_outline_thickness_ != thickness) {
-        board_outline_thickness_ = thickness;
-        auto cb = settings_change_callback_;
-        lock.~lock_guard();
-        if (cb) {
-            cb();
+        if (board_outline_thickness_ != thickness) {
+            board_outline_thickness_ = thickness;
+            cb = settings_change_callback_;
         }
+    }
+    if (cb) {
+        cb();
     }
 }
 
@@ -621,18 +639,20 @@ float BoardDataManager::GetBoardOutlineThickness() const
 
 void BoardDataManager::SetComponentStrokeThickness(float thickness)
 {
-    std::lock_guard<std::mutex> lock(net_mutex_);
-    // Clamp to reasonable range
-    if (thickness < 0.01f) thickness = 0.01f;
-    if (thickness > 2.0f) thickness = 2.0f;
+    SettingsChangeCallback cb;
+    {
+        std::lock_guard<std::mutex> lock(net_mutex_);
+        // Clamp to reasonable range
+        if (thickness < 0.01f) thickness = 0.01f;
+        if (thickness > 2.0f) thickness = 2.0f;
 
-    if (component_stroke_thickness_ != thickness) {
-        component_stroke_thickness_ = thickness;
-        auto cb = settings_change_callback_;
-        lock.~lock_guard();
-        if (cb) {
-            cb();
+        if (component_stroke_thickness_ != thickness) {
+            component_stroke_thickness_ = thickness;
+            cb = settings_change_callback_;
         }
+    }
+    if (cb) {
+        cb();
     }
 }
 
@@ -644,18 +664,20 @@ float BoardDataManager::GetComponentStrokeThickness() const
 
 void BoardDataManager::SetPinStrokeThickness(float thickness)
 {
-    std::lock_guard<std::mutex> lock(net_mutex_);
-    // Clamp to reasonable range
-    if (thickness < 0.01f) thickness = 0.01f;
-    if (thickness > 1.0f) thickness = 1.0f;
+    SettingsChangeCallback cb;
+    {
+        std::lock_guard<std::mutex> lock(net_mutex_);
+        // Clamp to reasonable range
+        if (thickness < 0.01f) thickness = 0.01f;
+        if (thickness > 1.0f) thickness = 1.0f;
 
-    if (pin_stroke_thickness_ != thickness) {
-        pin_stroke_thickness_ = thickness;
-        auto cb = settings_change_callback_;
-        lock.~lock_guard();
-        if (cb) {
-            cb();
+        if (pin_stroke_thickness_ != thickness) {
+            pin_stroke_thickness_ = thickness;
+            cb = settings_change_callback_;
         }
+    }
+    if (cb) {
+        cb();
     }
 }
 
@@ -665,39 +687,20 @@ float BoardDataManager::GetPinStrokeThickness() const
     return pin_stroke_thickness_;
 }
 
-void BoardDataManager::SetTargetFramerate(int fps)
-{
-    std::lock_guard<std::mutex> lock(net_mutex_);
-    // Clamp to reasonable range
-    if (fps < 1) fps = 1;
-    if (fps > 240) fps = 240;
 
-    if (target_framerate_ != fps) {
-        target_framerate_ = fps;
-        auto cb = settings_change_callback_;
-        lock.~lock_guard();
-        if (cb) {
-            cb();
-        }
-    }
-}
-
-int BoardDataManager::GetTargetFramerate() const
-{
-    std::lock_guard<std::mutex> lock(net_mutex_);
-    return target_framerate_;
-}
 
 void BoardDataManager::SetSelectedElement(const Element* element)
 {
-    std::lock_guard<std::mutex> lock(net_mutex_);
-    if (selected_element_ != element) {
-        selected_element_ = element;
-        auto cb = settings_change_callback_;
-        lock.~lock_guard();
-        if (cb) {
-            cb();
+    SettingsChangeCallback cb;
+    {
+        std::lock_guard<std::mutex> lock(net_mutex_);
+        if (selected_element_ != element) {
+            selected_element_ = element;
+            cb = settings_change_callback_;
         }
+    }
+    if (cb) {
+        cb();
     }
 }
 

@@ -61,6 +61,11 @@ bool PcbRenderer::Initialize(int initial_width, int initial_height, std::shared_
         m_board_data_manager_->RegisterSettingsChangeCallback([this]() {
             this->MarkBoardDirty();
             this->MarkGridDirty();
+            // Invalidate the RenderPipeline's cached rendering state when settings change
+            // This ensures color changes are immediately visible
+            if (m_render_pipeline_) {
+                m_render_pipeline_->InvalidateRenderingStateCache();
+            }
         });
         m_board_data_manager_->RegisterLayerVisibilityChangeCallback([this](int layer_id, bool visible) {
             this->MarkBoardDirty();  // Layer visibility changes require board redraw

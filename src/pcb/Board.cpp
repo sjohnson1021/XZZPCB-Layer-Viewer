@@ -9,11 +9,11 @@
 
 // Include concrete element types for make_unique and type checking
 #include "pcb/elements/Arc.hpp"
+#include "pcb/elements/Component.hpp"
 #include "pcb/elements/Pin.hpp"
 #include "pcb/elements/TextLabel.hpp"
 #include "pcb/elements/Trace.hpp"
 #include "pcb/elements/Via.hpp"
-// Component.hpp and Net.hpp are already included via Board.hpp (as they are not just Element types)
 
 // Default constructor
 Board::Board() : m_is_loaded_(false)
@@ -450,7 +450,23 @@ std::vector<ElementInteractionInfo> Board::GetAllVisibleElementsForInteraction()
                     if (comp) {
                         continue;  // Skip components here
                     }
-                    all_elements.push_back({element_ptr.get(), nullptr});
+
+                    // Apply board side filtering for silkscreen elements when board folding is enabled
+                    bool should_include_element = true;
+                    if (layer_pair.first == Board::kSilkscreenLayer && current_view_side != BoardDataManager::BoardSide::kBoth) {
+                        // Only apply side filtering to silkscreen elements that have board side assigned
+                        if (element_ptr->HasBoardSideAssigned()) {
+                            MountingSide element_side = element_ptr->GetBoardSide();
+                            if ((current_view_side == BoardDataManager::BoardSide::kTop && element_side != MountingSide::kTop) ||
+                                (current_view_side == BoardDataManager::BoardSide::kBottom && element_side != MountingSide::kBottom)) {
+                                should_include_element = false;
+                            }
+                        }
+                    }
+
+                    if (should_include_element) {
+                        all_elements.push_back({element_ptr.get(), nullptr});
+                    }
                 }
             }
         } else {
@@ -653,6 +669,30 @@ void Board::CleanDuplicateOutlineSegments()
     it->second = std::move(top_side_elements);
 }
 
+void Board::AssignSilkscreenElementSides(double center_x)
+{
+    // Process silkscreen layer elements and assign board sides
+    auto silkscreen_layer_it = m_elements_by_layer.find(Board::kSilkscreenLayer);
+    if (silkscreen_layer_it == m_elements_by_layer.end()) return;
+
+    for (auto& element_ptr : silkscreen_layer_it->second) {
+        if (!element_ptr) continue;
+
+        // Get element's bounding box to determine its position
+        BLRect bounds = element_ptr->GetBoundingBox(nullptr);
+        double element_center_x = bounds.x + bounds.w / 2.0;
+
+        // Assign board side based on position relative to center axis
+        if (element_center_x < center_x) {
+            // Element is on the left side (top side after folding)
+            element_ptr->SetBoardSide(MountingSide::kTop);
+        } else {
+            // Element is on the right side (bottom side after folding)
+            element_ptr->SetBoardSide(MountingSide::kBottom);
+        }
+    }
+}
+
 void Board::AssignComponentSidesAndFold(double center_x)
 {
     // Process components and determine their mounting side
@@ -704,6 +744,9 @@ void Board::ApplyBoardFolding()
 
     // Detect the center axis
     m_board_center_x_ = DetectBoardCenterAxis();
+
+    // First pass: Assign board sides to silkscreen elements based on their position
+    AssignSilkscreenElementSides(m_board_center_x_);
 
     // Mirror traces and other elements from right side to left side
     for (auto& layer_pair : m_elements_by_layer) {

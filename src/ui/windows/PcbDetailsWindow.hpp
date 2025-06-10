@@ -6,6 +6,7 @@
 
 #include "pcb/Board.hpp"  // Path to our Board data model
 #include "pcb/elements/Pin.hpp"
+#include "pcb/elements/Component.hpp"  // For LineSegment definition
 
 class PcbDetailsWindow
 {

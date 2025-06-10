@@ -44,6 +44,16 @@ std::string UnescapeNewlines(const std::string& input)
     return ReplaceAll(input, "\\n", "\n");
 }
 
+std::string EscapeHashes(const std::string& input)
+{
+    return ReplaceAll(input, "#", "\\#");
+}
+
+std::string UnescapeHashes(const std::string& input)
+{
+    return ReplaceAll(input, "\\#", "#");
+}
+
 
 // Function to trim both leading and trailing whitespace
 std::string Trim(std::string str)

@@ -19,15 +19,19 @@
 #include "view/Grid.hpp"  // For Grid class definition for RenderGrid
 #include "view/Viewport.hpp"
 
+// For logging or error reporting:
+// #include <iostream>
+// #include <SDL3/SDL_log.h>
+
 // Default values for rendering elements
 static constexpr double kDefaultTraceWidth = 0.05;
 static constexpr double kMinViaExtent = 0.01;  // Used for AABB culling if radii are zero/negative
 static constexpr double kDefaultArcThickness = 0.05;
 static constexpr double kDefaultComponentMinDimension = 0.1;
 
-// Layer ID constants
+// Placeholder layer IDs - move to a proper constants header or Board.hpp
 static constexpr int kSilkscreenLayerId = 17;
-static constexpr int kBoardOutlineLayerId = 28;
+static constexpr int kBoardOutlineLayerId = 28;  // Example, adjust as needed
 
 // Forward declaration for use in RenderPin's lambda
 static void RenderCapsule(BLContext& ctx, double width, double height, double x_coord, double y_coord, const BLRgba32& fill_color, const BLRgba32& stroke_color);
@@ -155,17 +159,9 @@ void RenderPipeline::Execute(BLContext& bl_ctx,
         BLRect world_view_rect = GetVisibleWorldBounds(camera, viewport);  // Calculate once
         RenderBoard(bl_ctx, *board, camera, viewport, world_view_rect);    // Pass to RenderBoard
     }
-
-    // Grid measurement overlay is now rendered by Application layer using ImGui
 }
 
-/**
- * @brief Creates a view transformation matrix for rendering.
- * @param bl_ctx The Blend2D context
- * @param camera The camera containing position, zoom, and rotation
- * @param viewport The viewport containing screen dimensions
- * @return The transformation matrix for world-to-screen conversion
- */
+// Move Camera/Viewport adjustments to their own functions
 BLMatrix2D RenderPipeline::ViewMatrix(BLContext& bl_ctx, const Camera& camera, const Viewport& viewport)
 {
     BLMatrix2D view_matrix = bl_ctx.metaTransform();
@@ -176,12 +172,7 @@ BLMatrix2D RenderPipeline::ViewMatrix(BLContext& bl_ctx, const Camera& camera, c
     return view_matrix;
 }
 
-/**
- * @brief Checks if two axis-aligned bounding boxes intersect.
- * @param r1 First rectangle
- * @param r2 Second rectangle
- * @return true if rectangles intersect, false otherwise
- */
+// Helper function to check if two AABB rectangles intersect
 static bool AreRectsIntersecting(const BLRect& r1, const BLRect& r2)
 {
     double r1_w = std::max(0.0, r1.w);
@@ -199,12 +190,7 @@ static bool ArePointsClose(const BLPoint& p1, const BLPoint& p2, double epsilon 
     return std::abs(p1.x - p2.x) < epsilon && std::abs(p1.y - p2.y) < epsilon;
 }
 
-/**
- * @brief Transforms an axis-aligned bounding box by a transformation matrix.
- * @param local_aabb The local bounding box to transform
- * @param transform The transformation matrix to apply
- * @return The transformed bounding box
- */
+// Helper function to transform an AABB by a matrix
 BLRect TransformAABB(const BLRect& local_aabb, const BLMatrix2D& transform)
 {
     BLPoint p1 = {local_aabb.x, local_aabb.y};
@@ -308,16 +294,26 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
         for (int layer_id : target_layer_ids) {
             auto layer_elements_it = board.m_elements_by_layer.find(layer_id);
             if (layer_elements_it == board.m_elements_by_layer.end()) {
+                if (is_silkscreen_pass) {
+                    std::cout << "DEBUG: No elements found for silkscreen layer " << layer_id << std::endl;
+                }
                 continue;
             }
 
             // Performance optimization: Check layer visibility once per layer
             const Board::LayerInfo* layer_info = board.GetLayerById(layer_id);
             if (!layer_info || !layer_info->IsVisible()) {
+                if (is_silkscreen_pass) {
+                    std::cout << "DEBUG: Silkscreen layer " << layer_id << " is not visible or not found" << std::endl;
+                }
                 continue;
             }
 
             const auto& elements_on_layer = layer_elements_it->second;
+
+            if (is_silkscreen_pass) {
+                std::cout << "DEBUG: Processing " << elements_on_layer.size() << " elements on silkscreen layer " << layer_id << std::endl;
+            }
 
             // Performance optimization: Reserve space for element processing if needed
             // and batch similar operations together
@@ -326,6 +322,26 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                     continue;
 
                 const ElementType current_type = element_ptr->GetElementType();
+
+                // Debug: Log element types on silkscreen layer
+                if (is_silkscreen_pass) {
+                    static int silkscreen_element_count = 0;
+                    if (++silkscreen_element_count <= 10) {
+                        const char* type_name = "Unknown";
+                        switch (current_type) {
+                            case ElementType::kNone: type_name = "None"; break;
+                            case ElementType::kTrace: type_name = "Trace"; break;
+                            case ElementType::kVia: type_name = "Via"; break;
+                            case ElementType::kArc: type_name = "Arc"; break;
+                            case ElementType::kPin: type_name = "Pin"; break;
+                            case ElementType::kTextLabel: type_name = "TextLabel"; break;
+                            case ElementType::kComponentGraphic: type_name = "ComponentGraphic"; break;
+                            case ElementType::kComponent: type_name = "Component"; break;
+                        }
+                        std::cout << "DEBUG: Silkscreen element #" << silkscreen_element_count
+                                  << " type: " << type_name << " (" << static_cast<int>(current_type) << ")" << std::endl;
+                    }
+                }
 
                 // Performance optimization: Use early exit for type matching
                 if (!target_element_types.empty()) {
@@ -337,19 +353,11 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
                         }
                     }
                     if (!type_matches) {
-                        continue;
-                    }
-                }
-
-                // Board side filtering for silkscreen elements when board folding is enabled
-                if (is_silkscreen_pass && current_view_side != BoardDataManager::BoardSide::kBoth) {
-                    // Only apply side filtering to silkscreen elements that have board side assigned
-                    if (element_ptr->HasBoardSideAssigned()) {
-                        MountingSide element_side = element_ptr->GetBoardSide();
-                        if ((current_view_side == BoardDataManager::BoardSide::kTop && element_side != MountingSide::kTop) ||
-                            (current_view_side == BoardDataManager::BoardSide::kBottom && element_side != MountingSide::kBottom)) {
-                            continue; // Skip this element as it's on the wrong side
+                        if (is_silkscreen_pass) {
+                            std::cout << "DEBUG: Silkscreen element type " << static_cast<int>(current_type)
+                                      << " does not match target types" << std::endl;
                         }
+                        continue;
                     }
                 }
 
@@ -573,6 +581,15 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
 
     // Render other layers (silkscreen, unknown layers, board outline) after main layers
     std::map<int, std::pair<BLPoint, BLPoint>> trace_cap_manager_silkscreen;
+
+    // Debug: Check if silkscreen layer has elements
+    auto silkscreen_elements_it = board.m_elements_by_layer.find(kSilkscreenLayerId);
+    if (silkscreen_elements_it != board.m_elements_by_layer.end() && !silkscreen_elements_it->second.empty()) {
+        std::cout << "DEBUG: Found " << silkscreen_elements_it->second.size() << " elements on silkscreen layer " << kSilkscreenLayerId << std::endl;
+    } else {
+        std::cout << "DEBUG: No elements found on silkscreen layer " << kSilkscreenLayerId << std::endl;
+    }
+
     executeRenderPass({kSilkscreenLayerId}, {} /* all types */, trace_cap_manager_silkscreen, true /*is_silkscreen_pass*/);
 
     std::vector<int> other_trace_layer_ids;
@@ -637,7 +654,7 @@ void RenderPipeline::RenderBoard(BLContext& bl_ctx, const Board& board, const Ca
 
     // Render all components using parallel processing
     if (!all_components.empty()) {
-        RenderComponentsOptimized(all_components, board, adjusted_world_view_rect, theme_color_cache, selected_net_id, selected_element);
+        RenderComponentsParallel(all_components, board, adjusted_world_view_rect, theme_color_cache, selected_net_id, selected_element);
     }
     bl_ctx.restore();
 }
@@ -1210,7 +1227,144 @@ void RenderPipeline::RenderTextLabel(BLContext& bl_ctx, const TextLabel& text_la
     }
 }
 
+// Implementation for Process, AddRenderable, Execute, AddStage, etc., if used:
+// void RenderPipeline::Process(RenderContext& context, IRenderable* renderable) {
+//     if (!m_initialized || !renderable) return;
+//     // Simplistic: just call render on the object.
+//     // A more complex pipeline would iterate through its stages.
+//     // renderable->Render(context, *this);
+//     // Or, for each stage:
+//     // for (const auto& stage : m_stages) {
+//     //     if (stage) stage->Execute(context, *renderable);
+//     // }
+// }
 
+// void RenderPipeline::Execute(RenderContext& context) {
+//     if (!m_initialized) return;
+//     BeginPipeline(context);
+//     // for (IRenderable* renderable : m_managedRenderables) { // If pipeline manages them
+//     //     Process(context, renderable);
+//     // }
+//     EndPipeline(context);
+// }
+
+// ***** Reworking Pin rendering *****
+// void RenderPipeline::RenderPin(BLContext &bl_ctx, const Pin &pin, const Component &component, const Board &board, const BLRgba32 &highlightColor)
+// {
+//     const LayerInfo *layer_info = board.GetLayerById(pin.getLayerId()); // Ensure getLayerId() is used
+//     if (!layer_info || !layer_info->IsVisible())
+//     {
+//         return;
+//     }
+//     // We use a ternary operator in Component::Render to determine if the pin is on the selected net, and use highlight color if it is, otherwise use layer_info->GetColor
+//     bl_ctx.setFillStyle(highlightColor);
+//     // DEBUG: If pin.debug_color is set, use it instead of layer_info->GetColor
+//     // if (pin.debug_color != BLRgba32(0, 0, 0, 0))
+//     // {
+//     //     bl_ctx.setFillStyle(pin.debug_color);
+//     //     printf("[RenderPin]: Pin %s: Using debug color %d\n", pin.pin_name.c_str(), pin.debug_color);
+//     // }
+//     // NOTE: The component's main transformation (center_x, center_y, rotation)
+//     // is ALREADY APPLIED to bl_ctx by the calling RenderComponent method.
+//     // So, pin.x_coord, pin.y_coord, and shape.x_offset/y_offset are treated as local
+//     // to the component's origin.
+
+//     std::visit([&](auto &&shape) // Note: auto&& shape is important here for perfect forwarding
+//                {
+//         using T = std::decay_t<decltype(shape)>;
+//         // Pin coordinates are now global, no need for offsets
+//         double pin_center_x = pin.x_coord;
+//         double pin_center_y = pin.y_coord;
+
+//         if constexpr (std::is_same_v<T, CirclePad>) {
+//             bl_ctx.fillCircle(pin_center_x, pin_center_y, shape.radius);
+//         } else if constexpr (std::is_same_v<T, RectanglePad>) {
+//             double width = pin.width;
+//             double height = pin.height;
+
+//             if (pin.orientation == PinOrientation::Vertical) {
+//                 // width = pin.initial_width; // Already set
+//                 // height = pin.initial_height; // Already set
+//             } else if (pin.orientation == PinOrientation::Horizontal) {
+//                 width = pin.height; // Swap for horizontal
+//                 height = pin.width;
+//             } // Else, natural orientation uses initial_width and initial_height as is
+
+//             // Adjust if interior and component aspect ratio suggests a swap
+//             if (pin.local_edge == LocalEdge::INTERIOR) {
+//                 bool component_taller = component.height > component.width;
+//                 bool pin_wider_than_tall = pin.width > pin.height; // Based on initial dimensions
+
+//                 if (component_taller && pin_wider_than_tall) {
+//                     // Tall component, but pin is initially wide. Make pin tall.
+//                     width = pin.height;
+//                     height = pin.width;
+//                 } else if (!component_taller && !pin_wider_than_tall) {
+//                     // Wide component, but pin is initially tall. Make pin wide.
+//                     // This case might be tricky: if pin is initially square, it remains square.
+//                     // If pin is (10w, 20h) and component is (100w, 50h), should it become (20w,10h)?
+//                     // The original logic implies this swap.
+//                     width = pin.height;
+//                     height = pin.width;
+//                 }
+//                 // If component_taller && !pin_wider_than_tall (tall comp, tall pin) -> no change from initial
+//                 // If !component_taller && pin_wider_than_tall (wide comp, wide pin) -> no change from initial
+//             }
+
+//             // Draw centered rectangle at pin_center_x, pin_center_y
+//             bl_ctx.fillRect(BLRect(pin_center_x - width / 2.0, pin_center_y - height / 2.0, width, height));
+
+//         } else if constexpr (std::is_same_v<T, CapsulePad>) {
+//             // Effective pad center is pin_center_x, pin_center_y
+
+//             double cap_axis_len; // Length along the capsule's main axis (e.g., height if vertical)
+//             double cap_cross_len; // Length across the capsule's main axis (e.g., width if vertical)
+//             bool is_vertical;
+
+//             if (pin.orientation == PinOrientation::Natural) {
+//                 is_vertical = shape.height > shape.width;
+//                 cap_axis_len = is_vertical ? shape.height : shape.width;
+//                 cap_cross_len = is_vertical ? shape.width : shape.height;
+//             } else if (pin.orientation == PinOrientation::Vertical) {
+//                 is_vertical = true;
+//                 // If pin is meant to be vertical, its 'height' is shape.height, 'width' is shape.width
+//                 // unless shape itself is wider than tall, then we use shape.width as effective height.
+//                 cap_axis_len = shape.height >= shape.width ? shape.height : shape.width;
+//                 cap_cross_len = shape.height >= shape.width ? shape.width : shape.height;
+//             } else { // PinOrientation::Horizontal
+//                 is_vertical = false;
+//                 // If pin is meant to be horizontal, its 'width' is shape.width, 'height' is shape.height
+//                 // unless shape itself is taller than wide, then we use shape.height as effective width.
+//                 cap_axis_len = shape.width >= shape.height ? shape.width : shape.height;
+//                 cap_cross_len = shape.width >= shape.height ? shape.height : shape.width;
+//             }
+
+//             BLPath path;
+//             if (is_vertical) {
+//                 double radius = cap_cross_len / 2.0;
+//                 double rect_height = cap_axis_len - cap_cross_len; // cap_axis_len is total height
+//                 if (rect_height < 0) rect_height = 0;
+
+//                 path.moveTo(pin_center_x - radius, pin_center_y - rect_height / 2.0);
+//                 path.arcTo(pin_center_x, pin_center_y - rect_height / 2.0, radius, radius, kPi, kPi); // Top cap
+//                 path.lineTo(pin_center_x + radius, pin_center_y + rect_height / 2.0);
+//                 path.arcTo(pin_center_x, pin_center_y + rect_height / 2.0, radius, radius, 0.0, kPi); // Bottom cap
+//                 path.close();
+//             } else { // Horizontal Capsule
+//                 double radius = cap_cross_len / 2.0;
+//                 double rect_width = cap_axis_len - cap_cross_len; // cap_axis_len is total width
+//                 if (rect_width < 0) rect_width = 0;
+
+//                 path.moveTo(pin_center_x - rect_width / 2.0, pin_center_y - radius);
+//                 path.lineTo(pin_center_x + rect_width / 2.0, pin_center_y - radius);
+//                 path.arcTo(pin_center_x + rect_width / 2.0, pin_center_y, radius, radius, -kPi / 2.0, kPi); // Right cap
+//                 path.lineTo(pin_center_x - rect_width / 2.0, pin_center_y + radius);
+//                 path.arcTo(pin_center_x - rect_width / 2.0, pin_center_y, radius, radius, kPi / 2.0, kPi); // Left cap
+//                 path.close();
+//             }
+//             bl_ctx.fillPath(path);
+//         } }, pin.pad_shape);
+// }
 // Render a pin using Blend2D, automatically handling all shape types
 void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* parent_component, const BLRgba32& fill_color, const BLRgba32& stroke_color, const Board& board)
 {
@@ -1220,7 +1374,14 @@ void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* 
     double y_coord = pin.coords.y_ax;
     double rotation = pin.rotation;
 
-
+    // Performance optimization: Remove debug logging in production builds
+    #ifdef DEBUG_PIN_ROTATION
+    static int debug_count = 0;
+    if (debug_count < 5) {  // Reduced debug output
+        std::cout << "Pin rotation debug: " << rotation << "° (W=" << pin_width << ", H=" << pin_height << ")" << std::endl;
+        debug_count++;
+    }
+    #endif
 
     // Alternative approach: Consider pin's natural orientation
     // Some PCB formats might store rotation relative to the pin's natural orientation
@@ -1247,7 +1408,14 @@ void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* 
     if (needs_rotation) {
         ctx.save();  // Save current transformation state
 
-
+        // Performance optimization: Remove debug logging in production builds
+        #ifdef DEBUG_PIN_ROTATION
+        static int transform_debug_count = 0;
+        if (transform_debug_count < 5) {
+            std::cout << "  Applying rotation: " << rotation << "° at (" << x_coord << ", " << y_coord << ")" << std::endl;
+            transform_debug_count++;
+        }
+        #endif
 
         // Translate to pin center, rotate, then translate back
         ctx.translate(x_coord, y_coord);
@@ -1286,7 +1454,7 @@ void RenderPipeline::RenderPin(BLContext& ctx, const Pin& pin, const Component* 
 }
 
 
-
+// ctx.restore(); // DO NOT RESTORE HERE. THIS BREAKS THE RENDERING OF PINS. LEAVE IT COMMENTED, SO WE KNOW NOT TO RESTORE HERE.
 
 static void RenderCapsule(BLContext& ctx, double width, double height, double x_coord, double y_coord, const BLRgba32& fill_color, const BLRgba32& stroke_color)
 {
@@ -1375,7 +1543,16 @@ void RenderPipeline::ShutdownThreadPool()
     m_threading_enabled_ = false;
 }
 
-
+void RenderPipeline::RenderTracesParallel(const std::vector<const Trace*>& traces,
+                                         const BLRgba32& color,
+                                         const BLRect& world_view_rect,
+                                         BLStrokeCap start_cap,
+                                         BLStrokeCap end_cap,
+                                         double thickness_override)
+{
+    // Redirect to optimized implementation for compatibility
+    RenderTracesOptimized(traces, color, world_view_rect, start_cap, end_cap, thickness_override);
+}
 
 void RenderPipeline::RenderTracesWithHighlighting(const std::vector<const Trace*>& traces,
                                                   const BLRgba32& base_color,
@@ -1479,13 +1656,106 @@ void RenderPipeline::RenderTracesWithHighlighting(const std::vector<const Trace*
         }
     };
 
+    // Debug: Log trace highlighting information
+    static int debug_highlight_count = 0;
+    if (++debug_highlight_count <= 5) {
+        std::cout << "DEBUG: RenderTracesWithHighlighting - Normal: " << normal_traces.size()
+                  << ", Highlighted: " << highlighted_traces.size()
+                  << ", Selected: " << selected_traces.size() << std::endl;
+        std::cout << "DEBUG: Colors - Base: 0x" << std::hex << base_color.value
+                  << ", Highlight: 0x" << highlight_color.value
+                  << ", Selected: 0x" << selected_element_highlight_color.value << std::dec << std::endl;
+        std::cout << "DEBUG: Selection state - Net ID: " << selected_net_id
+                  << ", Selected element: " << (selected_element ? "Yes" : "No") << std::endl;
+    }
+
     // Render traces in order: normal, highlighted, selected (so selected appears on top)
     render_trace_group(normal_traces, base_color);
     render_trace_group(highlighted_traces, highlight_color);
     render_trace_group(selected_traces, selected_element_highlight_color);
 }
 
+// Enhanced parallel component rendering
+void RenderPipeline::RenderComponentsParallel(const std::vector<const Component*>& components,
+                                              const Board& board,
+                                              const BLRect& world_view_rect,
+                                              const std::unordered_map<BoardDataManager::ColorType, BLRgba32>& theme_colors,
+                                              int selected_net_id,
+                                              const Element* selected_element)
+{
+    // Redirect to optimized implementation for compatibility
+    RenderComponentsOptimized(components, board, world_view_rect, theme_colors, selected_net_id, selected_element);
+}
 
+// ============================================================================
+// PERFORMANCE OPTIMIZATION IMPLEMENTATIONS
+// ============================================================================
+
+void RenderPipeline::RenderTracesOptimized(const std::vector<const Trace*>& traces,
+                                          const BLRgba32& color,
+                                          const BLRect& world_view_rect,
+                                          BLStrokeCap start_cap,
+                                          BLStrokeCap end_cap,
+                                          double thickness_override)
+{
+    if (traces.empty()) return;
+
+    auto& ctx = m_render_context_->GetBlend2DContext();
+
+    // Performance optimization: Use batched rendering for large trace counts
+    if (traces.size() > kBATCH_SIZE_THRESHOLD) {
+        RenderTracesBatched(ctx, traces, color, world_view_rect, start_cap, end_cap, thickness_override);
+        return;
+    }
+
+    // Performance optimization: Group traces by thickness to minimize state changes
+    m_thickness_groups_.clear();
+    for (const Trace* trace : traces) {
+        if (!trace) continue;
+        double final_thickness = (thickness_override > 0.0) ? thickness_override :
+                                (trace->GetWidth() > 0 ? trace->GetWidth() : kDefaultTraceWidth);
+        m_thickness_groups_[final_thickness].push_back(trace);
+    }
+
+    // Render each thickness group with optimized state management
+    for (const auto& [thickness, group_traces] : m_thickness_groups_) {
+        if (group_traces.empty()) continue;
+
+        // Set rendering state once for this thickness group
+        ctx.setStrokeStyle(color);
+        ctx.setStrokeWidth(thickness);
+        ctx.setStrokeStartCap(start_cap);
+        ctx.setStrokeEndCap(end_cap);
+        ctx.setStrokeJoin(BL_STROKE_JOIN_ROUND);
+
+        // Performance optimization: Batch viewport culling and rendering
+        size_t rendered_count = 0;
+        for (const Trace* trace : group_traces) {
+            // Optimized culling check
+            const double min_x = std::min(trace->GetStartX(), trace->GetEndX());
+            const double max_x = std::max(trace->GetStartX(), trace->GetEndX());
+            const double min_y = std::min(trace->GetStartY(), trace->GetEndY());
+            const double max_y = std::max(trace->GetStartY(), trace->GetEndY());
+
+            if (max_x < world_view_rect.x || min_x > world_view_rect.x + world_view_rect.w ||
+                max_y < world_view_rect.y || min_y > world_view_rect.y + world_view_rect.h) {
+                m_elements_culled_++;
+                continue; // Cull this trace
+            }
+
+            ctx.strokeLine(trace->GetStartX(), trace->GetStartY(), trace->GetEndX(), trace->GetEndY());
+            rendered_count++;
+            m_elements_rendered_++;
+        }
+
+        // Debug output for performance monitoring
+        static int debug_call_count = 0;
+        if (++debug_call_count <= 3) {
+            std::cout << "RenderTracesOptimized: Rendered " << rendered_count << "/" << group_traces.size()
+                      << " traces (thickness: " << thickness << ")" << std::endl;
+        }
+    }
+}
 
 void RenderPipeline::RenderComponentsOptimized(const std::vector<const Component*>& components,
                                               const Board& board,
@@ -1579,5 +1849,248 @@ void RenderPipeline::RenderComponentsOptimized(const std::vector<const Component
     BLRgba32 element_color = (element_it != theme_colors.end()) ? element_it->second : BLRgba32(0xFFFFFF00);
     render_component_batch(selected_element_components, element_color, element_color);
 
+    // Debug output for performance monitoring
+    static int debug_call_count = 0;
+    if (++debug_call_count <= 3) {
+        size_t total_rendered = normal_components.size() + selected_net_components.size() + selected_element_components.size();
+        std::cout << "RenderComponentsOptimized: Rendered " << total_rendered << "/" << components.size()
+                  << " components (culled: " << culled_count << ")" << std::endl;
+    }
+}
 
+void RenderPipeline::RenderTracesBatched(BLContext& bl_ctx, const std::vector<const Trace*>& traces,
+                                        const BLRgba32& color, const BLRect& world_view_rect,
+                                        BLStrokeCap start_cap, BLStrokeCap end_cap, double thickness_override)
+{
+    if (traces.empty()) return;
+
+    // Performance optimization: Use BLPath for batched line rendering
+    // This is much more efficient than individual strokeLine calls for large trace counts
+
+    // Group traces by thickness to minimize state changes
+    m_thickness_groups_.clear();
+    for (const Trace* trace : traces) {
+        if (!trace) continue;
+        double final_thickness = (thickness_override > 0.0) ? thickness_override :
+                                (trace->GetWidth() > 0 ? trace->GetWidth() : kDefaultTraceWidth);
+        m_thickness_groups_[final_thickness].push_back(trace);
+    }
+
+    // Render each thickness group using batched paths
+    for (const auto& [thickness, group_traces] : m_thickness_groups_) {
+        if (group_traces.empty()) continue;
+
+        // Set rendering state once for this thickness group
+        bl_ctx.setStrokeStyle(color);
+        bl_ctx.setStrokeWidth(thickness);
+        bl_ctx.setStrokeStartCap(start_cap);
+        bl_ctx.setStrokeEndCap(end_cap);
+        bl_ctx.setStrokeJoin(BL_STROKE_JOIN_ROUND);
+
+        // Performance optimization: Build a single path with all visible traces
+        BLPath batch_path;
+        batch_path.reserve(group_traces.size() * 2); // 2 points per line
+
+        size_t visible_count = 0;
+        for (const Trace* trace : group_traces) {
+            // Optimized culling check
+            const double min_x = std::min(trace->GetStartX(), trace->GetEndX());
+            const double max_x = std::max(trace->GetStartX(), trace->GetEndX());
+            const double min_y = std::min(trace->GetStartY(), trace->GetEndY());
+            const double max_y = std::max(trace->GetStartY(), trace->GetEndY());
+
+            if (max_x < world_view_rect.x || min_x > world_view_rect.x + world_view_rect.w ||
+                max_y < world_view_rect.y || min_y > world_view_rect.y + world_view_rect.h) {
+                m_elements_culled_++;
+                continue; // Cull this trace
+            }
+
+            // Add line to batch path
+            batch_path.moveTo(trace->GetStartX(), trace->GetStartY());
+            batch_path.lineTo(trace->GetEndX(), trace->GetEndY());
+            visible_count++;
+            m_elements_rendered_++;
+        }
+
+        // Render entire batch with single stroke call - MASSIVE performance improvement!
+        if (visible_count > 0) {
+            bl_ctx.strokePath(batch_path);
+        }
+
+        // Debug output for performance monitoring
+        static int debug_call_count = 0;
+        if (++debug_call_count <= 3) {
+            std::cout << "RenderTracesBatched: Rendered " << visible_count << "/" << group_traces.size()
+                      << " traces in single batch (thickness: " << thickness << ")" << std::endl;
+        }
+    }
+}
+
+void RenderPipeline::RenderTracesLOD(BLContext& bl_ctx, const std::vector<const Trace*>& traces,
+                                    const BLRgba32& color, const BLRect& world_view_rect,
+                                    double zoom_level, BLStrokeCap start_cap, BLStrokeCap end_cap,
+                                    double thickness_override)
+{
+    if (traces.empty()) return;
+
+    // Performance optimization: Level-of-Detail rendering based on zoom level
+    if (zoom_level >= kLOD_HIGH_ZOOM_THRESHOLD) {
+        // High zoom: Full detail rendering
+        RenderTracesBatched(bl_ctx, traces, color, world_view_rect, start_cap, end_cap, thickness_override);
+        return;
+    }
+
+    // Medium/Low zoom: Simplified rendering for performance
+    size_t skip_factor = 1;
+    double min_trace_width = 0.5; // Minimum visible trace width in screen pixels
+
+    if (zoom_level < kLOD_LOW_ZOOM_THRESHOLD) {
+        // Very low zoom: Skip many traces, use thicker lines
+        skip_factor = 4;
+        min_trace_width = 2.0;
+    } else if (zoom_level < kLOD_MEDIUM_ZOOM_THRESHOLD) {
+        // Medium zoom: Skip some traces
+        skip_factor = 2;
+        min_trace_width = 1.0;
+    }
+
+    // Performance optimization: Filter traces for LOD rendering
+    std::vector<const Trace*> lod_traces;
+    lod_traces.reserve(traces.size() / skip_factor);
+
+    for (size_t i = 0; i < traces.size(); i += skip_factor) {
+        const Trace* trace = traces[i];
+        if (!trace) continue;
+
+        // Skip very thin traces at low zoom levels
+        double trace_width = trace->GetWidth();
+        if (trace_width > 0 && trace_width * zoom_level < min_trace_width) {
+            continue;
+        }
+
+        lod_traces.push_back(trace);
+    }
+
+    // Use batched rendering for the filtered traces
+    RenderTracesBatched(bl_ctx, lod_traces, color, world_view_rect, start_cap, end_cap,
+                       std::max(thickness_override, min_trace_width / zoom_level));
+
+    // Debug output for performance monitoring
+    static int debug_call_count = 0;
+    if (++debug_call_count <= 3) {
+        std::cout << "RenderTracesLOD: Zoom=" << zoom_level << ", rendered " << lod_traces.size()
+                  << "/" << traces.size() << " traces (skip_factor=" << skip_factor << ")" << std::endl;
+    }
+}
+
+bool RenderPipeline::ShouldUseCache(const Camera& camera, const Viewport& viewport, const Board& board) const
+{
+    // Check if we have a valid cached render that matches current state
+    BLRect current_viewport(0, 0, viewport.GetWidth(), viewport.GetHeight());
+    BLPoint current_pan(camera.GetPosition().x_ax, camera.GetPosition().y_ax);
+    double current_zoom = camera.GetZoom();
+
+    // Get current board state
+    auto bdm = m_render_context_->GetBoardDataManager();
+    if (!bdm) return false;
+
+    std::shared_ptr<const Board> current_board = bdm->GetBoard();
+    int current_selected_net = bdm->GetSelectedNetId();
+    const Element* current_selected_element = bdm->GetSelectedElement();
+
+    // Build layer visibility vector (simplified - would need actual layer manager)
+    std::vector<bool> current_layer_visibility; // TODO: Get from layer manager
+
+    return m_cached_board_render_.IsValidFor(current_viewport, current_zoom, current_pan,
+                                           current_board, current_selected_net,
+                                           current_selected_element, current_layer_visibility);
+}
+
+void RenderPipeline::UpdateDirtyRegions(const Camera& camera, const Viewport& viewport, const Board& board)
+{
+    BLRect current_viewport(0, 0, viewport.GetWidth(), viewport.GetHeight());
+    BLPoint current_pan(camera.GetPosition().x_ax, camera.GetPosition().y_ax);
+    double current_zoom = camera.GetZoom();
+
+    // Check what changed since last frame
+    bool viewport_changed = (std::abs(m_dirty_tracker_.last_viewport_rect.w - current_viewport.w) > 0.1 ||
+                           std::abs(m_dirty_tracker_.last_viewport_rect.h - current_viewport.h) > 0.1);
+
+    bool zoom_changed = std::abs(m_dirty_tracker_.last_zoom_level - current_zoom) > 0.001;
+
+    bool pan_changed = (std::abs(m_dirty_tracker_.last_pan_position.x - current_pan.x) > 0.1 ||
+                       std::abs(m_dirty_tracker_.last_pan_position.y - current_pan.y) > 0.1);
+
+    // Update dirty flags
+    if (viewport_changed || zoom_changed || pan_changed) {
+        m_dirty_tracker_.zoom_changed = zoom_changed;
+        m_dirty_tracker_.pan_changed = pan_changed;
+
+        // Invalidate cache if significant changes
+        if (viewport_changed || zoom_changed) {
+            m_cached_board_render_.Invalidate();
+        }
+    }
+
+    // Update tracking state
+    m_dirty_tracker_.last_viewport_rect = current_viewport;
+    m_dirty_tracker_.last_zoom_level = current_zoom;
+    m_dirty_tracker_.last_pan_position = current_pan;
+}
+
+void RenderPipeline::RenderWithCaching(BLContext& bl_ctx, const Board& board, const Camera& camera,
+                                      const Viewport& viewport, const BLRect& world_view_rect)
+{
+    // Update dirty region tracking
+    UpdateDirtyRegions(camera, viewport, board);
+
+    // Check if we can use cached rendering
+    if (ShouldUseCache(camera, viewport, board) && !m_dirty_tracker_.NeedsRedraw()) {
+        // Use cached image - massive performance improvement!
+        if (!m_cached_board_render_.cached_image.empty()) {
+            bl_ctx.blitImage(BLPoint(0, 0), m_cached_board_render_.cached_image);
+
+            static int cache_hit_count = 0;
+            if (++cache_hit_count <= 5) {
+                std::cout << "RenderWithCaching: Using cached render (cache hit #" << cache_hit_count << ")" << std::endl;
+            }
+            return;
+        }
+    }
+
+    // Cache miss - need to render fresh
+    // Create new cached image
+    int width = static_cast<int>(viewport.GetWidth());
+    int height = static_cast<int>(viewport.GetHeight());
+
+    m_cached_board_render_.cached_image.create(width, height, BL_FORMAT_PRGB32);
+    BLContext cache_ctx(m_cached_board_render_.cached_image);
+
+    // Clear cache image
+    cache_ctx.setCompOp(BL_COMP_OP_SRC_COPY);
+    cache_ctx.fillAll(BLRgba32(0, 0, 0, 0)); // Transparent
+    cache_ctx.setCompOp(BL_COMP_OP_SRC_OVER);
+
+    // Apply same transform as main context
+    cache_ctx.applyTransform(ViewMatrix(cache_ctx, camera, viewport));
+
+    // Render to cache using the original RenderBoard method
+    RenderBoard(cache_ctx, board, camera, viewport, world_view_rect);
+
+    // Update cache metadata
+    m_cached_board_render_.cached_viewport = BLRect(0, 0, width, height);
+    m_cached_board_render_.cached_zoom = camera.GetZoom();
+    m_cached_board_render_.cached_pan = BLPoint(camera.GetPosition().x_ax, camera.GetPosition().y_ax);
+    m_cached_board_render_.is_valid = true;
+
+    // Copy cached image to main context
+    bl_ctx.blitImage(BLPoint(0, 0), m_cached_board_render_.cached_image);
+
+    // Clear dirty flags
+    m_dirty_tracker_.ClearFlags();
+
+    static int cache_miss_count = 0;
+    if (++cache_miss_count <= 5) {
+        std::cout << "RenderWithCaching: Created new cached render (cache miss #" << cache_miss_count << ")" << std::endl;
+    }
 }

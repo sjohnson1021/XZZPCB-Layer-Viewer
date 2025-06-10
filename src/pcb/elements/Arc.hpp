@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "pcb/elements/Element.hpp"  // Include base class
+#include "Element.hpp"  // Include base class
 #include "utils/Vec2.hpp"            // For Vec2
 // #include <cstdint> // No longer strictly needed
 

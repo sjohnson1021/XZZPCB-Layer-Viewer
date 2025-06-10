@@ -1,4 +1,4 @@
-#include "pcb/elements/Arc.hpp"
+#include "Arc.hpp"
 
 #include <algorithm>  // For std::min/max if needed for tighter bbox
 #include <cmath>      // For M_PI, cos, sin, etc.
@@ -7,7 +7,7 @@
 #include <blend2d.h>
 
 #include "pcb/Board.hpp"               // For Board class and Net access
-#include "pcb/elements/Component.hpp"  // For parentComponent, though not used by Arc
+#include "Component.hpp"  // For parentComponent, though not used by Arc
 #include "utils/Constants.hpp"         // For kPi
 #include "utils/GeometryUtils.hpp"     // For geometric calculations
 

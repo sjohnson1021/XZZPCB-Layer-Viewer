@@ -8,7 +8,7 @@
 #include <variant>
 #include <vector>
 
-#include "pcb/elements/Element.hpp"  // Include base class
+#include "Element.hpp"  // Include base class
 #include "utils/Vec2.hpp"            // For Vec2
 
 // Forward declare Component because Pin needs to know about it for context in virtual methods

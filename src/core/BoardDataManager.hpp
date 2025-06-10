@@ -4,14 +4,15 @@
 #include <memory>
 #include <mutex>     // For thread-safe access to the board
 #include <blend2d.h> // For BLRgba32
-#include "../pcb/Board.hpp"
-#include "../pcb/XZZPCBLoader.hpp"
 #include <vector>
 #include <functional>
 #include <unordered_map>
 
-// Forward declare Board if Board.hpp isn't fully needed here, but it is for shared_ptr<Board>
-// class Board;
+// Forward declarations
+class Board;
+
+// Include the PcbLoader header instead of forward declaration to avoid undefined class error
+#include "pcb/XZZPCBLoader.hpp"
 
 class BoardDataManager
 {
@@ -130,8 +131,7 @@ public:
     void SetPinStrokeThickness(float thickness);
     float GetPinStrokeThickness() const;
 
-    void SetTargetFramerate(int fps);
-    int GetTargetFramerate() const;
+
 
     // Configuration persistence for all settings
     void LoadSettingsFromConfig(const class Config &config);
@@ -164,7 +164,6 @@ private:
     float board_outline_thickness_ = 0.1f;  // Default board outline thickness
     float component_stroke_thickness_ = 0.05f;  // Default component stroke thickness
     float pin_stroke_thickness_ = 0.03f;    // Default pin stroke thickness
-    int target_framerate_ = 60;             // Default target framerate
 
     BLRgba32 GetColorUnlocked(ColorType type) const;
 };

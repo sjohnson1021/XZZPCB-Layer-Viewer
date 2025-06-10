@@ -14,6 +14,12 @@ std::string EscapeNewlines(const std::string& input);
 // Unescapes literal \\n back to newline characters (\n).
 std::string UnescapeNewlines(const std::string& input);
 
+// Escapes hash characters (#) with literal \\#.
+std::string EscapeHashes(const std::string& input);
+
+// Unescapes literal \\# back to hash characters (#).
+std::string UnescapeHashes(const std::string& input);
+
 // Trims trailing whitespace from a string.
 std::string Rtrim(std::string str);
 

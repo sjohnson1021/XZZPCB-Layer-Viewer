@@ -146,12 +146,7 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
                 // Always set the selected element (even if nullptr for empty space)
                 m_board_data_manager_->SetSelectedElement(clicked_element);
 
-                if (m_board_data_manager_->GetSelectedNetId() == clicked_net_id && clicked_net_id != -1) {  // Clicking an already selected net deselects it
-                    m_board_data_manager_->SetSelectedNetId(-1);
-                    #ifdef DEBUG_NAVIGATION
-                    std::cout << "NavigationTool: Deselected Net ID: " << clicked_net_id << std::endl;
-                    #endif
-                } else if (clicked_net_id != -1) {
+				if (clicked_net_id != -1) {
                     m_board_data_manager_->SetSelectedNetId(clicked_net_id);
                     #ifdef DEBUG_NAVIGATION
                     std::cout << "NavigationTool: Selected Net ID: " << clicked_net_id << std::endl;

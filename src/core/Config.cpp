@@ -138,14 +138,17 @@ bool Config::SaveToFile(const std::string& filename) const
     }
 
     const std::string IMGUI_INI_DATA_KEY_CONST = "imgui.ini_data";
+    const std::string FILE_DIALOG_BOOKMARKS_KEY_CONST = "file_dialog.bookmarks";
 
     for (const auto& pair : m_values) {
         configFile << pair.first << "=";
         std::visit(
-            [&configFile, &key = pair.first, &IMGUI_INI_DATA_KEY_CONST](const auto& value) {
+            [&configFile, &key = pair.first, &IMGUI_INI_DATA_KEY_CONST, &FILE_DIALOG_BOOKMARKS_KEY_CONST](const auto& value) {
                 if constexpr (std::is_same_v<std::decay_t<decltype(value)>, std::string>) {
                     if (key == IMGUI_INI_DATA_KEY_CONST) {
                         configFile << string_utils::EscapeNewlines(value);
+                    } else if (key == FILE_DIALOG_BOOKMARKS_KEY_CONST) {
+                        configFile << string_utils::EscapeHashes(value);
                     } else {
                         configFile << value;
                     }
@@ -170,6 +173,7 @@ bool Config::LoadFromFile(const std::string& filename)
         return false;
     }
     const std::string IMGUI_INI_DATA_KEY_CONST = "imgui.ini_data";
+    const std::string FILE_DIALOG_BOOKMARKS_KEY_CONST = "file_dialog.bookmarks";
     std::string line;
     while (std::getline(configFile, line)) {
         std::string key, valueStr;
@@ -184,6 +188,11 @@ bool Config::LoadFromFile(const std::string& filename)
 
             if (key == IMGUI_INI_DATA_KEY_CONST) {
                 SetString(key, valueStr);
+                continue;
+            }
+
+            if (key == FILE_DIALOG_BOOKMARKS_KEY_CONST) {
+                SetString(key, string_utils::UnescapeHashes(valueStr));
                 continue;
             }
 

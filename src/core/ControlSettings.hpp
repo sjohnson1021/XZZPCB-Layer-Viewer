@@ -20,7 +20,8 @@ const char* ElementInteractionTypeToString(ElementInteractionType type);
 // Forward declaration for potential key types if we make it more complex
 // enum class InputAction { OpenFile, ResetView, ... };
 
-struct ControlSettings {
+class ControlSettings {
+public:
     // Navigation settings
     bool m_free_rotation = false;         // false = snap to 90 degrees, true = free continuous rotation
     float m_snap_rotation_angle = 90.0F;  // Angle to snap to in degrees

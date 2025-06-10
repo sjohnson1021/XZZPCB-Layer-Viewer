@@ -50,6 +50,11 @@ public:
     // Gets measurement info based on current camera/viewport state
     GridMeasurementInfo GetMeasurementInfo(const Camera& camera, const Viewport& viewport) const;
 
+    // Note: Measurement overlay is now rendered by Application layer using ImGui
+
+    // Note: Font scaling is now handled automatically by ImGui's FontGlobalScale
+    // No need for manual font management for the measurement overlay
+
     // Update settings if needed (e.g., if settings are not owned via shared_ptr)
     // void SetSettings(const GridSettings& settings);
 
@@ -61,7 +66,7 @@ public:
     ) const;
 
 private:
-    // Font related members
+    // Settings and old Blend2D font members (kept for backward compatibility with old readout method)
     std::shared_ptr<GridSettings> m_settings_;
     mutable BLFontFace m_font_face_ {};
     mutable BLFont m_font_ {};

@@ -1,4 +1,4 @@
-#include "pcb/elements/Via.hpp"
+#include "Via.hpp"
 
 #include <algorithm>  // For std::max
 #include <cmath>      // For sqrt in proper hit detection (not used in current simple version)
@@ -7,7 +7,7 @@
 #include <blend2d.h>
 
 #include "pcb/Board.hpp"               // For Board class and Net access
-#include "pcb/elements/Component.hpp"  // For parentComponent, though not used by Via
+#include "Component.hpp"  // For parentComponent, though not used by Via
 #include "utils/GeometryUtils.hpp"     // For geometric calculations
 
 BLRect Via::GetBoundingBox(const Component* /*parentComponent*/) const

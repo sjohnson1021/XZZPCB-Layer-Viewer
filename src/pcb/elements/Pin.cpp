@@ -1,4 +1,4 @@
-#include "pcb/elements/Pin.hpp"
+#include "Pin.hpp"
 
 #include <algorithm>  // For std::max, std::min if needed for specific shape calcs
 #include <cmath>      // For M_PI, cos, sin, abs, sqrt
@@ -8,7 +8,7 @@
 #include <blend2d.h>
 
 #include "pcb/Board.hpp"               // For Board class and Net access
-#include "pcb/elements/Component.hpp"  // For parentComponent context
+#include "Component.hpp"  // For parentComponent context
 #include "utils/Constants.hpp"         // For kPi
 #include "utils/GeometryUtils.hpp"     // For geometry_utils:: functions
 
@@ -159,9 +159,7 @@ std::string Pin::GetInfo(const Component* parentComponent, const Board* board) c
 
     if (parentComponent) {
         oss << "Component: " << parentComponent->reference_designator << "\n";
-        oss << "Local Pin Anchor: (" << coords.x_ax << ", " << coords.y_ax << ") Rot: " << rotation << " deg\n";
     }
-    oss << "World Pin Center: (" << world_pos.x_ax << ", " << world_pos.y_ax << ") World Rot: " << world_rot << " deg\n";
     oss << "Layer: " << GetLayerId() << ", Side: " << side << "\n";
 
     // Enhanced net information display

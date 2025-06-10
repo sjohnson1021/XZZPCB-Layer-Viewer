@@ -21,7 +21,7 @@ void MainMenuBar::RenderUI(Application& app)
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Open PCB File...", "Ctrl+O")) {
-                app.SetOpenFileRequested(true);  // Uses new public setter
+                app.SetShowFileDialogWindow(true);  // Show dockable file dialog
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Exit")) {

@@ -15,7 +15,7 @@ find_package(OpenGL REQUIRED)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # # Use clang-tidy only if available and desired
 # find_program(CLANG_TIDY_EXE NAMES "clang-tidy")
 
@@ -74,8 +74,10 @@ endif()
 
 if(MSVC)
     # Windows specific settings
+    add_compile_options(/utf-8)  # Enable UTF-8 support
 else()
     # GCC/Clang specific settings
+    add_compile_options(-finput-charset=UTF-8 -fexec-charset=UTF-8)  # Enable UTF-8 support
 endif()
 
 # Tests - commented out until we have a tests CMakeLists.txt

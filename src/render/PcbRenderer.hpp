@@ -47,6 +47,13 @@ public:
         m_board_dirty_ = true;
         m_needs_redraw_signal_ = true;
     }
+    void MarkFullRedrawNeeded()
+    {
+        m_full_redraw_needed_ = true;
+        m_grid_dirty_ = true;
+        m_board_dirty_ = true;
+        m_needs_redraw_signal_ = true;
+    }
     void NotifyViewportResizedEvent()
     {
         m_viewport_resized_signal_ = true;

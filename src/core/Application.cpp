@@ -4,7 +4,16 @@
 #include <iostream>
 #include <thread>
 
+#include "Events.hpp" // For WindowEventType
+
 #include <SDL3/SDL_filesystem.h>
+
+#if defined(__WIN32__) || defined(WIN32) || defined(_WIN32) || defined(__WIN64__) || defined(WIN64) || defined(_WIN64) || defined(_MSC_VER)
+#define NOMINMAX
+#include <windows.h>
+#include <shlobj.h>
+#include <knownfolders.h>
+#endif
 
 #include "Config.hpp"
 #include "Events.hpp"
@@ -114,6 +123,11 @@ bool Application::InitializeCoreSubsystems()
 
     m_events->SetImGuiManager(m_imguiManager.get());
 
+    // Set up window event handling for minimization/restoration
+    m_events->SetWindowEventCallback([this](WindowEventType event_type) {
+        HandleWindowEvent(event_type);
+    });
+
     // Initialize PcbRenderer for Blend2D rendering
 
     return true;
@@ -153,22 +167,187 @@ bool Application::InitializeUISubsystems()
 
     m_mainMenuBar = std::make_unique<MainMenuBar>();
     m_pcbViewerWindow = std::make_unique<PCBViewerWindow>(m_camera, m_viewport, m_grid, m_gridSettings, m_controlSettings, m_boardDataManager);
-    m_settingsWindow = std::make_unique<SettingsWindow>(m_gridSettings, m_controlSettings, m_boardDataManager, m_clearColor);
-    m_pcbDetailsWindow = std::make_unique<PcbDetailsWindow>();
 
-    // Initialize PcbRenderer with BoardDataManager
+    // Initialize PcbRenderer with BoardDataManager first
     m_pcbRenderer = std::make_unique<PcbRenderer>();
     if (!m_pcbRenderer->Initialize(m_windowWidth, m_windowHeight, m_boardDataManager)) {
         std::cerr << "Failed to initialize PcbRenderer!" << std::endl;
         return false;
     }
 
+    // Create SettingsWindow with Grid for font invalidation
+    m_settingsWindow = CreateSettingsWindow(m_gridSettings, m_controlSettings, m_boardDataManager, m_clearColor, m_grid);
+    m_pcbDetailsWindow = std::make_unique<PcbDetailsWindow>();
+
+    // Load font settings after SettingsWindow is created
+    if (m_config && m_settingsWindow) {
+        m_settingsWindow->LoadFontSettingsFromConfig(*m_config);
+    }
+
     m_fileDialogInstance = std::make_unique<ImGuiFileDialog>();
+
+    // Initialize file dialog with side-panel features
+    InitializeFileDialogPlaces();
 
     m_settingsWindow->SetVisible(true);
     m_pcbDetailsWindow->SetVisible(false);
 
     return true;
+}
+
+void Application::InitializeFileDialogPlaces()
+{
+#ifdef USE_PLACES_FEATURE
+    // Add common places group for the file dialog
+    const char* commonPlacesGroup = "Common Places";
+    m_fileDialogInstance->AddPlacesGroup(commonPlacesGroup, 0, false, true);
+
+    auto commonPlaces = m_fileDialogInstance->GetPlacesGroupPtr(commonPlacesGroup);
+    if (commonPlaces != nullptr) {
+        // Add common system locations //Had started to implement a system to use nerd font icons, but some of the extended glyph sets are not working well with ImGui, so it's disabled for now
+#if defined(__WIN32__) || defined(WIN32) || defined(_WIN32) || defined(__WIN64__) || defined(WIN64) || defined(_WIN64) || defined(_MSC_VER)
+        // Windows-specific places
+        PWSTR path = NULL;
+        HRESULT hr;
+
+        // Desktop
+        hr = SHGetKnownFolderPath(FOLDERID_Desktop, 0, NULL, &path);
+        if (SUCCEEDED(hr)) {
+            IGFD::FileStyle style;
+            // style.icon = "";  // Desktop icon
+            auto place_path = IGFD::Utils::UTF8Encode(path);
+            commonPlaces->AddPlace("Desktop", place_path, false, style);
+            CoTaskMemFree(path);
+        }
+
+        // Documents
+        hr = SHGetKnownFolderPath(FOLDERID_Documents, 0, NULL, &path);
+        if (SUCCEEDED(hr)) {
+            IGFD::FileStyle style;
+            style.icon = "";  // Folder icon
+            auto place_path = IGFD::Utils::UTF8Encode(path);
+            commonPlaces->AddPlace("Documents", place_path, false, style);
+            CoTaskMemFree(path);
+        }
+
+        // Downloads
+        hr = SHGetKnownFolderPath(FOLDERID_Downloads, 0, NULL, &path);
+        if (SUCCEEDED(hr)) {
+            IGFD::FileStyle style;
+            style.icon = "";  // Download icon
+            auto place_path = IGFD::Utils::UTF8Encode(path);
+            commonPlaces->AddPlace("Downloads", place_path, false, style);
+            CoTaskMemFree(path);
+        }
+#else
+        // Unix/Linux/macOS places
+        const char* homeDir = getenv("HOME");
+        if (homeDir) {
+            IGFD::FileStyle style;
+
+            // Home directory
+            // style.icon = "";  // Home icon
+            commonPlaces->AddPlace("Home", homeDir, false, style);
+
+            // Desktop (if exists)
+            std::string desktopPath = std::string(homeDir) + "/Desktop";
+            if (std::filesystem::exists(desktopPath)) {
+                // style.icon = "";  // Desktop icon
+                commonPlaces->AddPlace("Desktop", desktopPath, false, style);
+            }
+
+            // Documents (if exists)
+            std::string documentsPath = std::string(homeDir) + "/Documents";
+            if (std::filesystem::exists(documentsPath)) {
+                // style.icon = "";  // Folder icon
+                commonPlaces->AddPlace("Documents", documentsPath, false, style);
+            }
+
+            // Downloads (if exists)
+            std::string downloadsPath = std::string(homeDir) + "/Downloads";
+            if (std::filesystem::exists(downloadsPath)) {
+                // style.icon = "";  // Download icon
+                commonPlaces->AddPlace("Downloads", downloadsPath, false, style);
+            }
+        }
+#endif
+
+        // Add current directory
+        IGFD::FileStyle style;
+        // style.icon = "";  // Current folder icon
+        commonPlaces->AddPlace("Current Directory", ".", false, style);
+    }
+
+    // Add user bookmarks group (editable)
+    const char* bookmarksGroup = "Bookmarks";
+    m_fileDialogInstance->AddPlacesGroup(bookmarksGroup, 1, true, true);
+
+    // Load existing bookmarks from config (must be done after creating the bookmarks group)
+    LoadFileDialogBookmarks();
+
+#ifdef USE_PLACES_DEVICES
+    // Devices will be automatically added by ImGuiFileDialog if USE_PLACES_DEVICES is defined
+#endif
+
+#endif // USE_PLACES_FEATURE
+}
+
+void Application::LoadFileDialogBookmarks()
+{
+#ifdef USE_PLACES_FEATURE
+    if (m_config && m_fileDialogInstance) {
+        std::string bookmarksData = m_config->GetString("file_dialog.bookmarks", "");
+
+        // Debug output to understand what's being loaded
+        std::cout << "LoadFileDialogBookmarks: Raw loaded data: '" << bookmarksData << "'" << std::endl;
+
+        if (!bookmarksData.empty()) {
+            m_fileDialogInstance->DeserializePlaces(bookmarksData);
+
+            // Check what was actually loaded
+            auto bookmarksGroup = m_fileDialogInstance->GetPlacesGroupPtr("Bookmarks");
+            if (bookmarksGroup) {
+                std::cout << "LoadFileDialogBookmarks: After loading, Bookmarks group has " << bookmarksGroup->places.size() << " places" << std::endl;
+                for (size_t i = 0; i < bookmarksGroup->places.size(); ++i) {
+                    const auto& place = bookmarksGroup->places[i];
+                    std::cout << "  Loaded Place " << i << ": name='" << place.name << "', path='" << place.path << "'" << std::endl;
+                }
+            } else {
+                std::cout << "LoadFileDialogBookmarks: No Bookmarks group found after loading!" << std::endl;
+            }
+        } else {
+            std::cout << "LoadFileDialogBookmarks: No bookmark data to load" << std::endl;
+        }
+    }
+#endif // USE_PLACES_FEATURE
+}
+
+void Application::SaveFileDialogBookmarks()
+{
+#ifdef USE_PLACES_FEATURE
+    if (m_config && m_fileDialogInstance) {
+        // Save bookmarks from the main file dialog instance (both should have the same bookmarks)
+        std::string bookmarksData = m_fileDialogInstance->SerializePlaces(false); // Don't serialize code-based places
+
+        // Debug output to understand what's being serialized
+        std::cout << "SaveFileDialogBookmarks: Raw serialized data: '" << bookmarksData << "'" << std::endl;
+
+        // Check if we have any bookmarks groups and their contents
+        auto bookmarksGroup = m_fileDialogInstance->GetPlacesGroupPtr("Bookmarks");
+        if (bookmarksGroup) {
+            std::cout << "SaveFileDialogBookmarks: Bookmarks group found with " << bookmarksGroup->places.size() << " places" << std::endl;
+            std::cout << "SaveFileDialogBookmarks: Group canBeSaved=" << (bookmarksGroup->canBeSaved ? "true" : "false") << std::endl;
+            for (size_t i = 0; i < bookmarksGroup->places.size(); ++i) {
+                const auto& place = bookmarksGroup->places[i];
+                std::cout << "  Place " << i << ": name='" << place.name << "', path='" << place.path << "', canBeSaved=" << (place.canBeSaved ? "true" : "false") << std::endl;
+            }
+        } else {
+            std::cout << "SaveFileDialogBookmarks: No Bookmarks group found!" << std::endl;
+        }
+
+        m_config->SetString("file_dialog.bookmarks", bookmarksData);
+    }
+#endif // USE_PLACES_FEATURE
 }
 
 bool Application::Initialize()
@@ -196,7 +375,6 @@ int Application::Run()
     std::cout << "Running application..." << std::endl;
 
     auto lastTime = std::chrono::high_resolution_clock::now();
-    auto lastFrameTime = lastTime;
 
     while (IsRunning()) {
         auto currentTime = std::chrono::high_resolution_clock::now();
@@ -208,20 +386,9 @@ int Application::Run()
         Update(deltaTime);
         Render();
 
-        // Framerate limiting
-        if (m_boardDataManager) {
-            int targetFps = m_boardDataManager->GetTargetFramerate();
-            if (targetFps > 0) {
-                auto targetFrameDuration = std::chrono::microseconds(1000000 / targetFps);
-                auto frameTime = std::chrono::high_resolution_clock::now() - lastFrameTime;
-
-                if (frameTime < targetFrameDuration) {
-                    auto sleepTime = targetFrameDuration - frameTime;
-                    std::this_thread::sleep_for(sleepTime);
-                }
-                lastFrameTime = std::chrono::high_resolution_clock::now();
-            }
-        }
+        // Note: Framerate limiting removed - VSync in SDL renderer handles frame timing
+        // This eliminates the performance bottleneck from std::this_thread::sleep_for()
+        // Target framerate setting is now used only for display/configuration purposes
     }
 
     Shutdown();
@@ -256,6 +423,13 @@ void Application::Shutdown()
     if (m_boardDataManager && m_config) {
         m_boardDataManager->SaveSettingsToConfig(*m_config);
     }
+
+    if (m_settingsWindow && m_config) {
+        m_settingsWindow->SaveFontSettingsToConfig(*m_config);
+    }
+
+    // Save file dialog bookmarks
+    SaveFileDialogBookmarks();
 
     if (m_config) {
         if (!m_config->SaveToFile(configFilePath)) {
@@ -405,7 +579,7 @@ void Application::ProcessGlobalKeyboardShortcuts()
     }
 
     if (IsKeybindActive(openFileKeybind, io)) {
-        m_openFileRequested = true;  // Set the flag directly to trigger file dialog opening
+        m_showFileDialogWindow = true;  // Set the flag to trigger dockable file dialog opening
         std::cout << "Global shortcut: Open file dialog triggered" << std::endl;
     }
 }
@@ -454,35 +628,7 @@ void Application::RenderUI()
 
     ImGui::End();  // End of RootDockspaceWindow
 
-    // Handle file dialog opening (m_openFileRequested is set by MainMenuBar or global shortcuts)
-    if (m_openFileRequested && m_fileDialogInstance && m_boardLoaderFactory) {
-        std::cout << "Opening file dialog..." << std::endl;
-        std::string supportedExtensions = m_boardLoaderFactory->GetSupportedExtensionsFilterString();
-        std::vector<std::string> extensionsList = m_boardLoaderFactory->GetSupportedExtensions();
 
-        // Dynamically apply file styling for registered extensions
-        // This is a basic example; you might want more sophisticated color/icon choices
-        ImVec4 defaultColor1 = ImVec4(0.2f, 0.8f, 0.2f, 1.0f);  // Greenish
-        ImVec4 defaultColor2 = ImVec4(0.2f, 0.5f, 0.8f, 1.0f);  // Bluish
-        for (size_t i = 0; i < extensionsList.size(); ++i) {
-            const auto& ext = extensionsList[i];
-            // Simple alternating color for example
-            ImVec4 color = (i % 2 == 0) ? defaultColor1 : defaultColor2;
-            if (ext == ".kicad_pcb")
-                color = ImVec4(0.2f, 0.8f, 0.2f, 1.0f);  // Keep specific for kicad if wanted
-            else if (ext == ".pcb")
-                color = ImVec4(0.2f, 0.5f, 0.8f, 1.0f);  // Keep specific for .pcb if wanted
-
-            m_fileDialogInstance->SetFileStyle(IGFD_FileStyleByExtention, ext.c_str(), color, "", nullptr);
-        }
-
-        IGFD::FileDialogConfig config;
-        config.path = ".";  // Default path
-        m_fileDialogInstance->OpenDialog("ChooseFileDlgKey", "Choose PCB File", supportedExtensions.empty() ? nullptr : supportedExtensions.c_str(), config);
-
-        m_openFileRequested = false;  // Reset flag after initiating dialog opening
-        std::cout << "File dialog opened successfully" << std::endl;
-    }
 
     // Handle visibility requests for other windows, potentially set by MainMenuBar
     if (m_showSettingsRequested) {
@@ -497,15 +643,7 @@ void Application::RenderUI()
         m_showPcbDetailsRequested = false;  // Reset flag
     }
 
-    // Handle file dialog display and selection
-    if (m_fileDialogInstance && m_fileDialogInstance->Display("ChooseFileDlgKey")) {
-        if (m_fileDialogInstance->IsOk()) {
-            std::string filePathName = m_fileDialogInstance->GetFilePathName();
-            // std::string filePath = m_fileDialogInstance->GetCurrentPath();
-            OpenPcbFile(filePathName);
-        }
-        m_fileDialogInstance->Close();
-    }
+
 
     // --- PCBViewerWindow Rendering ---
     if (m_pcbViewerWindow && m_renderer && m_pcbRenderer) {
@@ -553,6 +691,11 @@ void Application::RenderUI()
         if (m_pcbDetailsWindow->IsWindowVisible()) {
             m_pcbDetailsWindow->Render();
         }
+    }
+
+    // --- File Dialog Window ---
+    if (m_showFileDialogWindow && m_fileDialogInstance) {
+        RenderFileDialog();
     }
 
     if (m_showPcbLoadErrorModal) {
@@ -671,5 +814,151 @@ void Application::OpenPcbFile(const std::string& filePath)
             m_boardDataManager->SetBoard(nullptr);
         }
         // TODO: Inform UI or user about the failure
+    }
+}
+
+void Application::RenderFileDialog()
+{
+    if (!m_fileDialogInstance || !m_boardLoaderFactory) {
+        return;
+    }
+
+    // Create a dockable window for the file dialog
+    ImGui::Begin("File Browser", &m_showFileDialogWindow, ImGuiWindowFlags_None);
+
+    // Get the current window size for clamping
+    ImVec2 windowSize = ImGui::GetWindowSize();
+    ImVec2 minSize = ImVec2(400.0f, 300.0f);
+    ImVec2 maxSize = ImGui::GetMainViewport()->WorkSize;
+    maxSize.x *= 0.8f; // Limit to 80% of screen width
+    maxSize.y *= 0.8f; // Limit to 80% of screen height
+
+    // Clamp the window size
+    if (windowSize.x < minSize.x || windowSize.y < minSize.y ||
+        windowSize.x > maxSize.x || windowSize.y > maxSize.y) {
+        windowSize.x = std::max(minSize.x, std::min(windowSize.x, maxSize.x));
+        windowSize.y = std::max(minSize.y, std::min(windowSize.y, maxSize.y));
+        ImGui::SetWindowSize(windowSize);
+    }
+
+    // Set up the embedded file dialog if not already open
+    static bool dialog_initialized = false;
+    if (!dialog_initialized) {
+        std::string supported_extensions = m_boardLoaderFactory->GetSupportedExtensionsFilterString();
+        std::vector<std::string> extensions_list = m_boardLoaderFactory->GetSupportedExtensions();
+
+        // Apply file styling for registered extensions (migrated from modal dialog)
+        ImVec4 default_color_1 = ImVec4(0.2f, 0.8f, 0.2f, 1.0f);  // Greenish
+        ImVec4 default_color_2 = ImVec4(0.2f, 0.5f, 0.8f, 1.0f);  // Bluish
+        for (size_t i = 0; i < extensions_list.size(); ++i) {
+            const auto& ext = extensions_list[i];
+            // Simple alternating color for example
+            ImVec4 color = (i % 2 == 0) ? default_color_1 : default_color_2;
+            if (ext == ".kicad_pcb")
+                color = ImVec4(0.2f, 0.8f, 0.2f, 1.0f);  // Keep specific for kicad if wanted
+            else if (ext == ".pcb")
+                color = ImVec4(0.2f, 0.5f, 0.8f, 1.0f);  // Keep specific for .pcb if wanted
+
+            m_fileDialogInstance->SetFileStyle(IGFD_FileStyleByExtention, ext.c_str(), color, "", nullptr);
+        }
+
+        IGFD::FileDialogConfig config;
+        config.path = ".";
+        config.countSelectionMax = 1;
+        config.flags = ImGuiFileDialogFlags_NoDialog | ImGuiFileDialogFlags_ShowDevicesButton;
+
+        m_fileDialogInstance->OpenDialog("EmbeddedFileDialog", "Select PCB File",
+                                        supported_extensions.empty() ? nullptr : supported_extensions.c_str(),
+                                        config);
+        dialog_initialized = true;
+    }
+
+    // Display the embedded file dialog
+    ImVec2 content_size = ImGui::GetContentRegionAvail();
+    if (m_fileDialogInstance->Display("EmbeddedFileDialog", ImGuiWindowFlags_None, content_size)) {
+        if (m_fileDialogInstance->IsOk()) {
+            // User selected a file
+            std::string file_path_name = m_fileDialogInstance->GetFilePathName();
+            OpenPcbFile(file_path_name);
+            m_showFileDialogWindow = false; // Close the window after file selection
+            dialog_initialized = false; // Reset for next time
+        } else {
+            // User cancelled the dialog
+            m_showFileDialogWindow = false; // Close the window after cancellation
+            dialog_initialized = false; // Reset for next time
+        }
+        // Note: Don't close the dialog here as it's embedded
+    }
+
+    ImGui::End();
+
+    // Reset dialog initialization if window was closed
+    if (!m_showFileDialogWindow) {
+        dialog_initialized = false;
+        m_fileDialogInstance->Close();
+    }
+}
+
+void Application::ClampFileDialogSize()
+{
+    // This method can be used to clamp modal file dialog sizes
+    // For now, we handle clamping in the modal dialog display call
+    // by using ImGui's size constraints in the Display() call
+}
+
+void Application::HandleWindowEvent(WindowEventType event_type)
+{
+    switch (event_type) {
+        case WindowEventType::kMinimized:
+            std::cout << "Application: Window minimized - renderer context may become invalid" << std::endl;
+            // Mark renderer as needing recreation when window is restored
+            if (m_pcbRenderer) {
+                // Force a full redraw when window is restored
+                m_pcbRenderer->MarkFullRedrawNeeded();
+            }
+            break;
+
+        case WindowEventType::kRestored:
+            std::cout << "Application: Window restored - recreating renderer context if needed" << std::endl;
+            // Recreate renderer context if it became invalid during minimization
+            if (m_renderer && m_pcbRenderer) {
+                bool renderer_recreated = false;
+
+                // Check if SDL renderer is still valid
+                auto sdlRenderer = dynamic_cast<SDLRenderer*>(m_renderer.get());
+                if (sdlRenderer && !sdlRenderer->IsValid()) {
+                    std::cout << "Application: SDL renderer invalid, attempting to recreate..." << std::endl;
+                    // Attempt to recreate the SDL renderer
+                    if (sdlRenderer->Recreate()) {
+                        renderer_recreated = true;
+                        std::cout << "Application: Successfully recreated SDL renderer" << std::endl;
+                    } else {
+                        std::cerr << "Application: Failed to recreate SDL renderer after window restoration!" << std::endl;
+                    }
+                }
+
+                // If renderer was recreated, also recreate ImGui backend
+                if (renderer_recreated && m_imguiManager) {
+                    std::cout << "Application: Recreating ImGui backend after renderer recreation..." << std::endl;
+                    m_imguiManager->OnRendererRecreated();
+                }
+
+                // Force a full redraw to refresh the display
+                m_pcbRenderer->MarkFullRedrawNeeded();
+                m_pcbRenderer->MarkBoardDirty();
+                m_pcbRenderer->MarkGridDirty();
+            }
+            break;
+
+        case WindowEventType::kShown:
+            std::cout << "Application: Window shown" << std::endl;
+            if (m_pcbRenderer) {
+                m_pcbRenderer->MarkFullRedrawNeeded();
+            }
+            break;
+
+        case WindowEventType::kHidden:
+            std::cout << "Application: Window hidden" << std::endl;
+            break;
     }
 }

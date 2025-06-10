@@ -9,17 +9,16 @@
 
 #include <blend2d.h>  // Added for BLRgba32
 
-#include "elements/Component.hpp"  // Components are containers, not Elements themselves directly
 #include "elements/Element.hpp"    // Base class for all elements
 #include "elements/Net.hpp"        // Nets are metadata
 
 // Forward declarations
 class BoardDataManager;
 class Arc;
-class Via;
-class Trace;
+class Component;
 class TextLabel;
-// Component is already included
+class Trace;
+class Via;
 
 struct BoardPoint2D {
     double x = 0.0;
@@ -121,20 +120,21 @@ public:
 
     // --- Performance Optimized Methods to add elements ---
     // These will now emplace std::unique_ptr<Element> into m_elementsByLayer
-    void AddArc(const Arc& arc);
-    void AddVia(const Via& via);
-    void AddTrace(const Trace& trace);
-    void AddStandaloneTextLabel(const TextLabel& label);  // For text not part of a component
-    void AddComponent(Component& component);        // Will store in m_components
+    // Note: These methods are implemented in Board.cpp where full type definitions are available
+    void AddArc(const class Arc& arc);
+    void AddVia(const class Via& via);
+    void AddTrace(const class Trace& trace);
+    void AddStandaloneTextLabel(const class TextLabel& label);  // For text not part of a component
+    void AddComponent(class Component& component);        // Will store in m_components
     void AddNet(const Net& net);                          // Will store in m_nets
     void AddLayer(const LayerInfo& layer);                // Will store in layers
 
     // Performance optimization: Move-based element addition methods
-    void AddArc(Arc&& arc);
-    void AddVia(Via&& via);
-    void AddTrace(Trace&& trace);
-    void AddStandaloneTextLabel(TextLabel&& label);
-    void AddComponent(Component&& component);
+    void AddArc(class Arc&& arc);
+    void AddVia(class Via&& via);
+    void AddTrace(class Trace&& trace);
+    void AddStandaloneTextLabel(class TextLabel&& label);
+    void AddComponent(class Component&& component);
     void AddNet(Net&& net);
     void AddLayer(LayerInfo&& layer);
 
@@ -189,6 +189,9 @@ public:
 
     // Determines component side and applies folding transformation
     void AssignComponentSidesAndFold(double center_x);
+
+    // Assigns board sides to silkscreen elements based on their position relative to center axis
+    void AssignSilkscreenElementSides(double center_x);
 
     // Updates folding state based on BoardDataManager setting
     void UpdateFoldingState();

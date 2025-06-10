@@ -1,5 +1,6 @@
 #include "Events.hpp"
 
+#include <functional>
 #include <imgui.h>
 #include <iostream>
 
@@ -50,6 +51,30 @@ void Events::ProcessEvents()
                 case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
                     m_should_quit_ = true;
                     break;
+                case SDL_EVENT_WINDOW_MINIMIZED:
+                    // Handle window minimization - renderer context may become invalid
+                    if (m_window_event_callback_) {
+                        m_window_event_callback_(WindowEventType::kMinimized);
+                    }
+                    break;
+                case SDL_EVENT_WINDOW_RESTORED:
+                    // Handle window restoration - may need to recreate renderer context
+                    if (m_window_event_callback_) {
+                        m_window_event_callback_(WindowEventType::kRestored);
+                    }
+                    break;
+                case SDL_EVENT_WINDOW_SHOWN:
+                    // Handle window being shown again
+                    if (m_window_event_callback_) {
+                        m_window_event_callback_(WindowEventType::kShown);
+                    }
+                    break;
+                case SDL_EVENT_WINDOW_HIDDEN:
+                    // Handle window being hidden
+                    if (m_window_event_callback_) {
+                        m_window_event_callback_(WindowEventType::kHidden);
+                    }
+                    break;
             }
         }
     }
@@ -63,4 +88,9 @@ bool Events::ShouldQuit() const
 void Events::SetImGuiManager(ImGuiManager* imgui_manager)
 {
     m_imgui_manager_ = imgui_manager;
+}
+
+void Events::SetWindowEventCallback(std::function<void(WindowEventType)> callback)
+{
+    m_window_event_callback_ = callback;
 }

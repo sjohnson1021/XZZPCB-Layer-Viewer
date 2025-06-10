@@ -299,10 +299,10 @@ void Grid::RenderMeasurementReadout(BLContext& bl_ctx, const Viewport& viewport,
     const auto kPntY = static_cast<float>(viewport.GetY() + viewport.GetHeight() - kPadding - 20);
 
     // Estimate text dimensions based on character count (rough approximation)
-    // Average character width is about 8 pixels in a standard font at ~11px size
-    float const kCharWidth = 8.0F;
+    // Note: This old Blend2D method is kept for backward compatibility but not used
+    float const kCharWidth = 8.0F;   // Character width
     float text_width = static_cast<float>(readout_text.length()) * kCharWidth;
-    float const kTextHeight = 16.0F;  // Typical text height with some padding
+    float const kTextHeight = 16.0F; // Text height
 
     // Draw background with semi-transparent black
     const float kBoxX = kPntX - 5.0F;
@@ -679,8 +679,8 @@ void Grid::Render(BLContext& bl_ctx, const Camera& camera, const Viewport& viewp
         info.minor_lines_visible = actually_draw_minor_elements;
         info.unit_string = m_settings_->UnitToString();
 
-        // Draw measurement readout
-        RenderMeasurementReadout(bl_ctx, viewport, info);
+        // Measurement readout is now rendered as overlay in RenderPipeline::Execute()
+        // to ensure it appears on top of all other elements
 
         bl_ctx.restore();
     } catch (const std::exception& e) {
@@ -721,9 +721,14 @@ void Grid::InitializeFont() const
         }
     }
 
-    BLResult font_result = m_font_.createFromFace(m_font_face_, 11.0F);
+    // Use base font size (font scaling now handled by ImGui)
+    float base_font_size = 11.0F;
+
+    BLResult font_result = m_font_.createFromFace(m_font_face_, base_font_size);
     if (font_result != BL_SUCCESS) {
         m_font_load_failed_ = true;
         std::cerr << "Failed to create font from face for grid measurement readout. Error code: " << font_result << std::endl;
     }
 }
+
+// Measurement overlay moved to Application layer for better architecture
