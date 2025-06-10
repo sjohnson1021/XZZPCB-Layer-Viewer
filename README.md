@@ -11,7 +11,7 @@ This project would not have been possible without the following people, projects
 
 - [@slimeinacloak](https://github.com/slimeinacloak), Paul Daniels ([@inflex](https://github.com/inflex/)), Muerto ([@MuertoGB](https://github.com/MuertoGB)), and others for the initial reverse engineering of the XZZ PCB file format. Major thanks to this team for their work, and for sharing their findings and code with the community.
 
-- [XZZPCB-ImHex] (https://github.com/slimeinacloak/XZZPCB-ImHex) for the initial reverse engineering of the XZZ PCB file format and example implementation in OBV
+- [XZZPCB-ImHex](https://github.com/slimeinacloak/XZZPCB-ImHex) for the initial reverse engineering of the XZZ PCB file format and example implementation in OBV
 - [Blend2D](https://github.com/blend2d/blend2d) for 2D rendering
 - [ImGui](https://github.com/ocornut/imgui) for the user interface
 - [ImGui-FileBrowser](https://github.com/AirGuanZ/imgui-filebrowser) for file browsing
