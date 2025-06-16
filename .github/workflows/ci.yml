@@ -5,7 +5,7 @@ on:
     branches:
       - main
     tags:
-      - "v*.*.*" # Trigger on tags like v0.1.0, v1.2.3
+      - 'v*.*.*' # Trigger on tags like v0.1.0, v1.2.3
   pull_request:
     branches:
       - main
@@ -18,32 +18,47 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - {name: "Windows MSVC",os: windows-latest,build_type: "release",package_os_suffix: "windows-x64.zip",package_cmd_os_specific: "7z a",exe_name: "XZZPCB-Layer-Viewer.exe",package_content: "XZZPCB-Layer-Viewer.exe",}
-          - {name: "Ubuntu GCC",os: ubuntu-latest,build_type: "release",package_os_suffix: "linux-x64.tar.gz",package_cmd_os_specific: "tar czvf",exe_name: "XZZPCB-Layer-Viewer",package_content: "XZZPCB-Layer-Viewer",}
-          - {name: "macOS Clang (13)",os: macos-13,build_type: "release",package_os_suffix: "macos-13-x64.tar.gz",package_cmd_os_specific: "tar czvf",exe_name: "XZZPCB-Layer-Viewer",package_content: "XZZPCB-Layer-Viewer",}
-          - {name: "macOS Clang (latest)",os: macos-latest,build_type: "release",package_os_suffix: "macos-latest-x64.tar.gz",package_cmd_os_specific: "tar czvf",exe_name: "XZZPCB-Layer-Viewer",package_content: "XZZPCB-Layer-Viewer",}
-    
+          - { name: "Windows MSVC", os: windows-latest, build_type: "release", package_os_suffix: "windows-x64.zip", package_cmd_os_specific: "7z a", exe_name: "XZZPCB-Layer-Viewer.exe", package_content: "XZZPCB-Layer-Viewer.exe" }
+          - { name: "Ubuntu GCC", os: ubuntu-latest, build_type: "release", package_os_suffix: "linux-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-Viewer", package_content: "XZZPCB-Layer-Viewer" }
+          - { name: "macOS Clang (13)", os: macos-13, build_type: "release", package_os_suffix: "macos-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-Viewer", package_content: "XZZPCB-Layer-Viewer" }
+          - { name: "macOS Clang (latest)", os: macos-latest, build_type: "release", package_os_suffix: "macos-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-Viewer", package_content: "XZZPCB-Layer-Viewer" }
+
     env:
       VCPKG_ROOT_DIR: ${{ github.workspace }}/vcpkg_installation # Path where lukka/run-vcpkg will install vcpkg
-      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-binary-cache
-      VCPKG_BINARY_SOURCES: "files,${{ github.workspace }}/vcpkg-binary-cache,readwrite"
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg_bincache
+      VCPKG_BINARY_SOURCES: 'clear;x-gha,readwrite'
       ARTIFACT_NAME_PREFIX: "XZZPCB-Layer-Viewer"
       # Using vcpkg commit from the example, consider updating to a more recent one.
-      VCPKG_COMMIT_ID: "f9d77ef46dfe708b51db358acdea2b97615d5193"
+      VCPKG_COMMIT_ID: '2c7705e70dcfb70e5f726459c3e399bd780bc1fc'
     steps:
-      # Cache submodules based on .gitmodules content
-      - name: Cache Git submodules
+      - name: Cache SDL submodule
         uses: actions/cache@v4
         with:
-          path: |
-            external/SDL
-            external/imgui
-            external/ImGuiFileDialog
-            external/blend2d
-          key: ${{ runner.os }}-submodules-${{ hashFiles('.gitmodules') }}
+          path: external/SDL
+          key: ${{ runner.os }}-sdl-submodule-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-submodules-
-
+            ${{ runner.os }}-sdl-submodule-
+      - name: Cache ImGui submodule
+        uses: actions/cache@v4
+        with:
+          path: external/ImGui
+          key: ${{ runner.os }}-imgui-submodule-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-imgui-submodule-
+      - name: Cache ImGuiFileDialog submodule
+        uses: actions/cache@v4
+        with:
+          path: external/ImGuiFileDialog
+          key: ${{ runner.os }}-imguifiledialog-submodule-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-imguifiledialog-submodule-
+      - name: Cache Blend2D submodule
+        uses: actions/cache@v4
+        with:
+          path: external/blend2d
+          key: ${{ runner.os }}-blend2d-submodule-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-blend2d-submodule-
       - name: Checkout w/ Submodules
         uses: actions/checkout@v4
         with:
@@ -52,6 +67,7 @@ jobs:
 
       - name: Install ASMJIT
         run: git clone https://github.com/asmjit/asmjit external/blend2d/3rdparty/asmjit
+
 
       - name: Set reusable strings
         id: strings
@@ -64,7 +80,6 @@ jobs:
             echo "versioned_artifact_name=${ARTIFACT_NAME_PREFIX}-${{ matrix.config.os }}-${{ matrix.config.build_type }}-${{ matrix.config.package_os_suffix }}" >> "$GITHUB_OUTPUT"
           fi
           echo "release_tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
-
       - name: Install 7-Zip (Windows)
         if: matrix.config.os == 'windows-latest'
         run: choco install 7zip
@@ -75,22 +90,8 @@ jobs:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-
-      # Cache vcpkg installation itself
-      - name: Cache vcpkg installation
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.VCPKG_ROOT_DIR }}
-          key: ${{ runner.os }}-vcpkg-install-${{ env.VCPKG_COMMIT_ID }}
-          restore-keys: |
-            ${{ runner.os }}-vcpkg-install-
-
       - name: Create vcpkg binary cache directory
-        run: |
-          mkdir -p "${{ env.VCPKG_DEFAULT_BINARY_CACHE }}"
-          echo "Created vcpkg binary cache directory: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}"
-          echo "VCPKG_BINARY_SOURCES: ${{ env.VCPKG_BINARY_SOURCES }}"
-          echo "VCPKG_DEFAULT_BINARY_CACHE: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}"
+        run: mkdir -p ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
         shell: bash
 
       # Cache for vcpkg *built packages* (binary caching)
@@ -98,25 +99,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: ${{ runner.os }}-vcpkg-binary-${{ hashFiles('**/vcpkg.json', '**/CMakeLists.txt') }}-${{ env.VCPKG_COMMIT_ID }}
+          key: ${{ runner.os }}-vcpkg-binary-cache-${{ hashFiles('**/vcpkg.json') }}-${{ env.VCPKG_COMMIT_ID }}
           restore-keys: |
-            ${{ runner.os }}-vcpkg-binary-${{ hashFiles('**/vcpkg.json', '**/CMakeLists.txt') }}-
-            ${{ runner.os }}-vcpkg-binary-${{ hashFiles('**/vcpkg.json') }}-
-            ${{ runner.os }}-vcpkg-binary-
-
-      # Cache CMake build directory for faster incremental builds
-      - name: Cache CMake build directory
-        uses: actions/cache@v4
-        with:
-          path: |
-            builds/ninja-multi-vcpkg
-            !builds/ninja-multi-vcpkg/bin
-            !builds/ninja-multi-vcpkg/vcpkg_installed
-          key: ${{ runner.os }}-cmake-build-${{ hashFiles('**/CMakeLists.txt', '**/vcpkg.json', 'src/**/*.cpp', 'src/**/*.hpp') }}
-          restore-keys: |
-            ${{ runner.os }}-cmake-build-${{ hashFiles('**/CMakeLists.txt', '**/vcpkg.json') }}-
-            ${{ runner.os }}-cmake-build-
-
+            ${{ runner.os }}-vcpkg-binary-cache-${{ hashFiles('**/vcpkg.json') }}-
+            ${{ runner.os }}-vcpkg-binary-cache-
       # System-level dependencies (e.g. build tools for vcpkg, not libs from vcpkg.json)
       # lukka/run-vcpkg might handle some of these, but keeping them can be safer.
       - name: Install prerequisites for vcpkg (Ubuntu)
@@ -124,7 +110,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y curl zip unzip tar pkg-config libgl1-mesa-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxinerama-dev libxxf86vm-dev libxss-dev libxt-dev libxdmcp-dev libxau-dev libxcb1-dev libxcb-randr0-dev libxcb-xtest0-dev libxcb-xinerama0-dev libxcb-shape0-dev libxcb-xkb-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
-
       - name: Install OpenGL (macOS)
         if: runner.os == 'macos-latest'
         run: xcode-select --install || echo "Xcode Command Line Tools already installed"
@@ -146,7 +131,6 @@ jobs:
           key: ${{ runner.os }}-apt-systemtools-${{ hashFiles('**/.github/workflows/ci.yml') }} # Key for system tools
           restore-keys: |
             ${{ runner.os }}-apt-systemtools-
-
       # Cache Homebrew Packages (for system tools, if any were cached)
       - name: Cache Homebrew packages (macOS)
         if: startsWith(matrix.config.os, 'macos')
@@ -156,22 +140,7 @@ jobs:
           key: ${{ matrix.config.os }}-brew-systemtools-${{ hashFiles('**/.github/workflows/ci.yml') }} # Key for system tools, now includes specific macOS version
           restore-keys: |
             ${{ matrix.config.os }}-brew-systemtools-
-
       - uses: lukka/get-cmake@latest
-
-      # Verify vcpkg binary sources configuration
-      - name: Verify vcpkg configuration
-        run: |
-          echo "=== vcpkg Configuration Debug ==="
-          echo "VCPKG_BINARY_SOURCES: $VCPKG_BINARY_SOURCES"
-          echo "VCPKG_DEFAULT_BINARY_CACHE: $VCPKG_DEFAULT_BINARY_CACHE"
-          echo "VCPKG_ROOT_DIR: $VCPKG_ROOT_DIR"
-          echo "Binary cache directory exists: $(test -d "$VCPKG_DEFAULT_BINARY_CACHE" && echo "Yes" || echo "No")"
-          if [ -d "$VCPKG_DEFAULT_BINARY_CACHE" ]; then
-            echo "Binary cache directory contents:"
-            ls -la "$VCPKG_DEFAULT_BINARY_CACHE" || echo "Directory is empty or inaccessible"
-          fi
-        shell: bash
 
       - name: Debug Info (Linux/macOS)
         if: runner.os != 'Windows'
@@ -183,7 +152,7 @@ jobs:
           echo "--- Which Ninja ---"; which ninja || echo "Ninja not in PATH initially"
           echo "--- PATH ---"; echo "$PATH"
         shell: bash
-
+        
       # Setup vcpkg using lukka/run-vcpkg action
       # This will checkout vcpkg to VCPKG_ROOT_DIR, and install dependencies from vcpkg.json
       - name: Setup vcpkg and install dependencies
@@ -192,19 +161,18 @@ jobs:
         with:
           vcpkgDirectory: ${{ env.VCPKG_ROOT_DIR }}
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
-          vcpkgJsonGlob: "vcpkg.json"
+          vcpkgJsonGlob: 'vcpkg.json'
           runVcpkgInstall: true # Default is true, ensures dependencies are installed
-        env:
-          VCPKG_FEATURE_FLAGS: "binarycaching"
 
+     
       # Configure, Build, and Test using lukka/run-cmake
       - name: Configure, Build, and Test
         uses: lukka/run-cmake@v10
         with:
-          cmakeListsTxtPath: "${{ github.workspace }}/CMakeLists.txt"
-          configurePreset: "ninja-multi-vcpkg" # Your configure preset
-          buildPreset: "ninja-vcpkg-${{ matrix.config.build_type }}" # build_type is already lowercase in matrix
-          testPreset: "test-${{ matrix.config.build_type }}" # build_type is already lowercase in matrix
+          cmakeListsTxtPath: '${{ github.workspace }}/CMakeLists.txt'
+          configurePreset: 'ninja-multi-vcpkg' # Your configure preset
+          buildPreset: 'ninja-vcpkg-${{ matrix.config.build_type }}' # build_type is already lowercase in matrix
+          testPreset: 'test-${{ matrix.config.build_type }}' # build_type is already lowercase in matrix
         env:
           VCPKG_MANIFEST_DIR: ${{ github.workspace }}
 
@@ -237,13 +205,13 @@ jobs:
           echo "Recursive listing of bin directory contents:"
           Get-ChildItem -Recurse -File "${{ github.workspace }}/builds/ninja-multi-vcpkg/bin" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName } | Sort-Object || echo "Failed to find files in bin directory"
         shell: pwsh
-
+        
       - name: Package Artifacts
         run: |
           CONFIG_SUBDIR="Release"
           PACKAGE_DIR="${{ github.workspace }}/builds/ninja-multi-vcpkg/bin/${CONFIG_SUBDIR}"
           ARTIFACT_PATH="${{ github.workspace }}/${{ steps.strings.outputs.versioned_artifact_name }}"
-
+          
           echo "Listing parent build directory: ${{ github.workspace }}/builds/ninja-multi-vcpkg/bin/"
           ls -la "${{ github.workspace }}/builds/ninja-multi-vcpkg/bin/"
           echo "Attempting to change to package directory: ${PACKAGE_DIR}"
@@ -251,7 +219,6 @@ jobs:
           echo "Currently in directory: $(pwd)"
           echo "Listing current directory contents before DLL copy:"
           ls -la
-
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             echo "Copying runtime DLLs for Windows..."
             VCPKG_INSTALLED_BIN_DIR="${{ env.VCPKG_ROOT_DIR }}/installed/${{ steps.runvcpkg.outputs.RUNVCPKG_VCPKG_DEFAULT_TRIPLET_OUT }}/bin"
@@ -262,7 +229,7 @@ jobs:
             echo "Listing current directory contents after DLL copy:"
             ls -la
           fi
-
+          
           echo "Attempting to package file(s): ${{ matrix.config.package_content }} (and copied DLLs for Windows) into ${ARTIFACT_PATH}"
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             # For Windows, 7z will grab all content of the current directory (which now includes the DLLs) if we use a wildcard or just the exe
@@ -298,8 +265,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2.0.4
         with:
-          name: Release ${{ github.ref_name }}
-          tag_name: ${{ github.ref_name }}
+          name: Release ${{ steps.strings.outputs.release_tag_name }}
+          tag_name: ${{ github.ref }}
           generate_release_notes: true
           files: |
             artifacts/*/*.zip
