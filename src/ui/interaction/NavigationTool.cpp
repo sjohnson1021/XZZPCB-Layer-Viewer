@@ -116,16 +116,44 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
             // Check for hover
             // Iterate in reverse to prioritize elements rendered on top (assuming later elements in vector are "on top")
             // However, GetCachedInteractiveElements doesn't guarantee render order.
-            // For now, simple iteration. If z-ordering becomes an issue, this needs refinement.
-            for (const auto& item : interactive_elements) {
-                if (!item.element) {
-                    continue;
+            // OPTIMIZATION: Use spatial indexing for faster hit detection
+            // This replaces the expensive linear search that was identified as a bottleneck in VTune
+            const Element* hit_element = nullptr;
+            const Component* hit_parent_component = nullptr;
+
+            // Try optimized spatial hit detection first
+            if (m_render_pipeline_ && m_render_pipeline_->IsInitialized()) {
+                hit_element = m_render_pipeline_->FindHitElementOptimized(transformedWorldMousePos, pick_tolerance, nullptr);
+
+                // If spatial index found an element, find its parent component from cache
+                if (hit_element) {
+                    for (const auto& item : interactive_elements) {
+                        if (item.element == hit_element) {
+                            hit_parent_component = item.parent_component;
+                            break;
+                        }
+                    }
                 }
-                if (item.element->IsHit(transformedWorldMousePos, pick_tolerance, item.parent_component)) {
-                    m_is_hovering_element_ = true;
-                    m_hovered_element_info_ = item.element->GetInfo(item.parent_component, current_board.get());
-                    break;  // Found a hovered element
+            }
+
+            // Fallback to linear search if spatial index is not available or failed
+            if (!hit_element) {
+                for (const auto& item : interactive_elements) {
+                    if (!item.element) {
+                        continue;
+                    }
+                    if (item.element->IsHit(transformedWorldMousePos, pick_tolerance, item.parent_component)) {
+                        hit_element = item.element;
+                        hit_parent_component = item.parent_component;
+                        break;  // Found a hovered element
+                    }
                 }
+            }
+
+            // Update hover state
+            if (hit_element) {
+                m_is_hovering_element_ = true;
+                m_hovered_element_info_ = hit_element->GetInfo(hit_parent_component, current_board.get());
             }
 
             // Handle Mouse Click for Selection (Left Click)
@@ -133,14 +161,41 @@ void NavigationTool::ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is
                 int clicked_net_id = -1;
                 const Element* clicked_element = nullptr;
 
-                // Use the same cached elements for click detection
-                for (const auto& item : interactive_elements) {
-                    if (item.element && item.element->IsHit(transformedWorldMousePos, pick_tolerance, item.parent_component)) {
-                        clicked_element = item.element;
-                        clicked_net_id = item.element->GetNetId();  // Assuming getNetId() is part of Element base or handled by derived.
-                                                                    // If element is not associated with a net, it should return -1 or similar.
-                        break;  // Found the first hit element (prioritize by render order)
+                // OPTIMIZATION: Reuse hit detection result from hover if mouse hasn't moved significantly
+                static Vec2 last_mouse_pos = {-1000.0f, -1000.0f};
+                static const Element* last_hit_element = nullptr;
+
+                float mouse_move_distance = geometry_utils::FastDistance(transformedWorldMousePos, last_mouse_pos);
+
+                if (mouse_move_distance < pick_tolerance && last_hit_element == hit_element) {
+                    // Reuse previous hit detection result
+                    clicked_element = hit_element;
+                    if (clicked_element) {
+                        clicked_net_id = clicked_element->GetNetId();
                     }
+                } else {
+                    // Perform fresh hit detection using optimized method
+                    if (m_render_pipeline_ && m_render_pipeline_->IsInitialized()) {
+                        clicked_element = m_render_pipeline_->FindHitElementOptimized(transformedWorldMousePos, pick_tolerance, nullptr);
+                    }
+
+                    // Fallback to linear search if needed
+                    if (!clicked_element) {
+                        for (const auto& item : interactive_elements) {
+                            if (item.element && item.element->IsHit(transformedWorldMousePos, pick_tolerance, item.parent_component)) {
+                                clicked_element = item.element;
+                                break;  // Found the first hit element (prioritize by render order)
+                            }
+                        }
+                    }
+
+                    if (clicked_element) {
+                        clicked_net_id = clicked_element->GetNetId();
+                    }
+
+                    // Update cache
+                    last_mouse_pos = transformedWorldMousePos;
+                    last_hit_element = clicked_element;
                 }
 
                 // Always set the selected element (even if nullptr for empty space)
@@ -557,4 +612,33 @@ const std::vector<ElementInteractionInfo>& NavigationTool::GetCachedInteractiveE
         UpdateElementCache();
     }
     return m_cached_interactive_elements_;
+}
+
+// Spatial hit detection with memory optimization
+const Element* NavigationTool::FindHitElementOptimized(const Vec2& world_pos, float tolerance) {
+    // Use cached results if available and valid
+    static Vec2 last_query_pos = {-1000.0f, -1000.0f};
+    static const Element* last_hit_result = nullptr;
+    static float last_tolerance = 0.0f;
+    
+    // Check if we can reuse previous result (within 1/4 tolerance distance)
+    float cache_distance = geometry_utils::FastDistanceSquared(world_pos, last_query_pos);
+    if (cache_distance < (tolerance * tolerance * 0.0625f) && tolerance == last_tolerance) {
+        return last_hit_result;
+    }
+    
+    const Element* hit_element = nullptr;
+    
+    // Try optimized spatial hit detection first
+    if (m_render_pipeline_ && m_render_pipeline_->IsInitialized()) {
+        // Use a prefetch hint for the spatial index data
+        hit_element = m_render_pipeline_->FindHitElementOptimized(world_pos, tolerance, nullptr);
+    }
+    
+    // Cache the result for future queries
+    last_query_pos = world_pos;
+    last_hit_result = hit_element;
+    last_tolerance = tolerance;
+    
+    return hit_element;
 }

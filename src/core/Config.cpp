@@ -15,6 +15,10 @@ Config::Config()
     SetInt("window.width", 1280);
     SetInt("window.height", 720);
     SetBool("ui.darkMode", true);
+
+    // Threading configuration
+    SetInt("rendering.threadCount", 0);  // 0 = auto-detect optimal
+    SetBool("rendering.enableMultithreading", true);
     // Default keybinds are initialized in ControlSettings,
     // Config will only store them if they are modified or explicitly saved.
 }

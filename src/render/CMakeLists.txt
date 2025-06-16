@@ -7,6 +7,7 @@ set(SOURCE_FILES
     PcbRenderer.cpp
     RenderContext.cpp
     RenderPipeline.cpp
+    BLPathCache.cpp
 )
 
 # Create library

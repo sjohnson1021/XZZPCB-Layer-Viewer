@@ -11,6 +11,7 @@ class Camera;
 class Viewport;
 class Grid;             // Added forward declaration for Grid
 class BoardDataManager; // Added forward declaration
+class Config;           // Added forward declaration for Config
 
 class PcbRenderer
 {
@@ -24,7 +25,7 @@ public:
     PcbRenderer &operator=(PcbRenderer &&) = delete;
 
     // Initialize with default dimensions for the internal RenderContext's BLImage
-    bool Initialize(int initial_width, int initial_height, std::shared_ptr<BoardDataManager> board_data_manager);
+    bool Initialize(int initial_width, int initial_height, std::shared_ptr<BoardDataManager> board_data_manager, const Config* config = nullptr);
     void Shutdown();
 
     // Main rendering method
@@ -61,6 +62,10 @@ public:
     } // Renamed to avoid conflict
     [[nodiscard]] bool WasFrameJustRendered() const { return m_frame_rendered_this_cycle_; }
     [[nodiscard]] bool NeedsRedraw() const { return m_needs_redraw_signal_; }
+
+    // Performance monitoring
+    [[nodiscard]] bool IsMultithreaded() const;
+    [[nodiscard]] int GetThreadCount() const;
 
 private:
     std::unique_ptr<RenderContext> m_render_context_;

@@ -3,6 +3,10 @@
 #include <cmath>      // For std::sqrt, std::fmod, std::atan2, M_PI (if needed)
 #include <vector>     // For std::vector
 
+#ifdef __SSE__
+#include <immintrin.h>  // For SSE/AVX vectorization
+#endif
+
 #include "Vec2.hpp"  // For Vec2 struct
 
 // Forward declare Blend2D types if you only pass pointers/references
@@ -135,6 +139,99 @@ inline bool IsPointInPolygon(const Vec2& world_mouse_pos, const std::vector<Vec2
         }
     }
     return false;
+}
+
+// --- Vectorized Math Operations for Performance ---
+
+// Vectorized distance calculation for multiple points
+inline void BatchDistanceSquared(const std::vector<Vec2>& points, const Vec2& reference,
+                                std::vector<float>& results) {
+    results.resize(points.size());
+
+    // Process 4 points at once using SSE if available
+    #ifdef __SSE__
+    const int vectorSize = 4;
+    const int vectorizedSize = static_cast<int>(points.size()) / vectorSize * vectorSize;
+
+    __m128 refX = _mm_set1_ps(static_cast<float>(reference.x_ax));
+    __m128 refY = _mm_set1_ps(static_cast<float>(reference.y_ax));
+
+    for (int i = 0; i < vectorizedSize; i += vectorSize) {
+        // Load 4 points
+        float xBuffer[4], yBuffer[4];
+        for (int j = 0; j < vectorSize; j++) {
+            xBuffer[j] = static_cast<float>(points[i+j].x_ax);
+            yBuffer[j] = static_cast<float>(points[i+j].y_ax);
+        }
+
+        __m128 ptsX = _mm_loadu_ps(xBuffer);
+        __m128 ptsY = _mm_loadu_ps(yBuffer);
+
+        // Calculate differences
+        __m128 diffX = _mm_sub_ps(ptsX, refX);
+        __m128 diffY = _mm_sub_ps(ptsY, refY);
+
+        // Square differences
+        __m128 sqrX = _mm_mul_ps(diffX, diffX);
+        __m128 sqrY = _mm_mul_ps(diffY, diffY);
+
+        // Sum squares
+        __m128 distSqr = _mm_add_ps(sqrX, sqrY);
+
+        // Store results
+        float resultBuffer[4];
+        _mm_storeu_ps(resultBuffer, distSqr);
+
+        for (int j = 0; j < vectorSize; j++) {
+            results[i+j] = resultBuffer[j];
+        }
+    }
+
+    // Handle remaining points
+    for (size_t i = vectorizedSize; i < points.size(); i++) {
+        float dx = static_cast<float>(points[i].x_ax - reference.x_ax);
+        float dy = static_cast<float>(points[i].y_ax - reference.y_ax);
+        results[i] = dx*dx + dy*dy;
+    }
+    #else
+    // Fallback for non-SSE platforms
+    for (size_t i = 0; i < points.size(); i++) {
+        float dx = static_cast<float>(points[i].x_ax - reference.x_ax);
+        float dy = static_cast<float>(points[i].y_ax - reference.y_ax);
+        results[i] = dx*dx + dy*dy;
+    }
+    #endif
+}
+
+// Fast squared distance (avoids sqrt and abs)
+inline float FastDistanceSquared(const Vec2& a, const Vec2& b) {
+    float dx = static_cast<float>(a.x_ax - b.x_ax);
+    float dy = static_cast<float>(a.y_ax - b.y_ax);
+    
+    // Direct squared distance - fastest possible distance metric
+    // No sqrt, no abs, just pure squared distance
+    return dx*dx + dy*dy;
+}
+
+// Fast approximate distance (avoids sqrt)
+inline float FastDistance(const Vec2& a, const Vec2& b) {
+    float dx = static_cast<float>(std::abs(a.x_ax - b.x_ax));
+    float dy = static_cast<float>(std::abs(a.y_ax - b.y_ax));
+
+    // Use Manhattan distance approximation for very fast distance checks
+    // This is about 3x faster than sqrt and good enough for many use cases
+    return dx + dy;
+}
+
+// Fast approximate distance with better accuracy than Manhattan
+inline float FastDistanceApprox(const Vec2& a, const Vec2& b) {
+    float dx = static_cast<float>(std::abs(a.x_ax - b.x_ax));
+    float dy = static_cast<float>(std::abs(a.y_ax - b.y_ax));
+
+    // Octagonal approximation - much faster than sqrt, more accurate than Manhattan
+    float min_val = std::min(dx, dy);
+    float max_val = std::max(dx, dy);
+    return max_val + 0.4142135f * min_val;  // 0.4142135 ≈ sqrt(2) - 1
 }
 
 }  // namespace geometry_utils

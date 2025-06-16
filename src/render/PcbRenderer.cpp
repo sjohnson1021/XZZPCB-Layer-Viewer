@@ -7,7 +7,9 @@
 #include "view/Grid.hpp"      // For Grid rendering, if PcbRenderer calls it directly
 #include "view/Viewport.hpp"  // For viewport parameters
                               // Otherwise, RenderPipeline might handle Grid.
+#include "core/Config.hpp"    // For configuration settings
 #include <iostream>
+#include <thread>
 
 PcbRenderer::PcbRenderer()
     : m_grid_dirty_(true),
@@ -29,11 +31,31 @@ PcbRenderer::~PcbRenderer()
     // std::cout << "PcbRenderer destroyed." << std::endl;
 }
 
-bool PcbRenderer::Initialize(int initial_width, int initial_height, std::shared_ptr<BoardDataManager> board_data_manager)
+bool PcbRenderer::Initialize(int initial_width, int initial_height, std::shared_ptr<BoardDataManager> board_data_manager, const Config* config)
 {
     m_board_data_manager_ = board_data_manager;
     m_render_context_ = std::make_unique<RenderContext>();
-    if (!m_render_context_->Initialize(initial_width, initial_height)) {
+
+    // Determine thread count from configuration or use optimal default
+    int thread_count = 0;
+    bool multithreading_enabled = true;
+
+    if (config) {
+        thread_count = config->GetInt("rendering.threadCount", 0);
+        multithreading_enabled = config->GetBool("rendering.enableMultithreading", true);
+    }
+
+    // If multithreading is disabled, force single-threaded
+    if (!multithreading_enabled) {
+        thread_count = 1;
+    }
+    // If thread_count is 0 (auto), calculate optimal thread count
+    else if (thread_count <= 0) {
+        thread_count = std::min(4, static_cast<int>(std::thread::hardware_concurrency()));
+    }
+
+    // Initialize RenderContext with configured threading
+    if (!m_render_context_->Initialize(initial_width, initial_height, thread_count)) {
         std::cerr << "PcbRenderer Error: Failed to initialize RenderContext." << std::endl;
         m_render_context_.reset();
         return false;
@@ -72,7 +94,13 @@ bool PcbRenderer::Initialize(int initial_width, int initial_height, std::shared_
         });
     }
 
-    std::cout << "PcbRenderer initialized." << std::endl;
+    // Log threading configuration
+    std::cout << "PcbRenderer initialized with:" << std::endl;
+    std::cout << "  - RenderContext: " << (m_render_context_->IsMultithreaded() ? "Multithreaded" : "Single-threaded")
+              << " (" << m_render_context_->GetThreadCount() << " threads)" << std::endl;
+    std::cout << "  - Viewport: " << initial_width << "x" << initial_height << std::endl;
+    std::cout << "  - Hardware threads available: " << std::thread::hardware_concurrency() << std::endl;
+    std::cout << "  - Multithreading enabled: " << (multithreading_enabled ? "Yes" : "No") << std::endl;
     return true;
 }
 
@@ -240,4 +268,14 @@ void PcbRenderer::OnViewportResized(int newWidth, int newHeight)
     } else {
         std::cerr << "PcbRenderer Warning: OnViewportResized called but RenderContext is not initialized." << std::endl;
     }
+}
+
+bool PcbRenderer::IsMultithreaded() const
+{
+    return m_render_context_ ? m_render_context_->IsMultithreaded() : false;
+}
+
+int PcbRenderer::GetThreadCount() const
+{
+    return m_render_context_ ? m_render_context_->GetThreadCount() : 0;
 }

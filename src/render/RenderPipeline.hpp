@@ -18,6 +18,9 @@
 #include "core/BoardDataManager.hpp"
 #include "utils/Constants.hpp"  // For kPi
 #include "pcb/elements/Element.hpp"  // For ElementType enum
+#include "BLPathCache.hpp"  // Enhanced path caching
+#include "LODManager.hpp"   // Level of Detail management
+#include "../utils/SpatialIndex.hpp"  // Spatial indexing for hit detection
 
 // Forward declarations
 class RenderContext;  // The Blend2D-focused RenderContext
@@ -291,6 +294,12 @@ public:
     // void RenderPin(BLContext &bl_ctx, const Pin &pin, const Component &component, const Board &board, const BLRgba32 &highlightColor);
     void RenderPin(BLContext& ctx, const Pin& pin, const Component* parent_component, const BLRgba32& fill_color, const BLRgba32& stroke_color, const Board& board);
 
+    // Initialization status
+    bool IsInitialized() const { return m_initialized_; }
+
+    // Hit detection
+    const Element* FindHitElementOptimized(const Vec2& world_pos, float tolerance, const Component* parent_component = nullptr);
+
 private:
     // Helper function to get the visible area in world coordinates
     [[nodiscard]] BLRect GetVisibleWorldBounds(const Camera& camera, const Viewport& viewport) const;
@@ -358,6 +367,43 @@ private:
     BLFont& GetCachedFont(const std::string& font_family, float size);
     void PreloadCommonFonts();
 
+    // New optimization methods
+    void RenderWithLOD(BLContext& bl_ctx, const Board& board, const Camera& camera,
+                      const Viewport& viewport, const BLRect& world_view_rect);
+    void RenderWithCaching(BLContext& bl_ctx, const Board& board, const Camera& camera,
+                          const Viewport& viewport, const BLRect& world_view_rect);
+    void UpdateDirtyRegions(const Camera& camera, const Viewport& viewport, const Board& board);
+    bool ShouldUseCache(const Camera& camera, const Viewport& viewport, const Board& board) const;
+
+    // Spatial indexing methods
+    void RebuildSpatialIndex(const Board& board);
+
+    // Enhanced trace rendering with spatial partitioning
+    void RenderTracesOptimized(const std::vector<const Trace*>& traces,
+                              const BLRgba32& color,
+                              const BLRect& world_view_rect,
+                              BLStrokeCap start_cap,
+                              BLStrokeCap end_cap,
+                              double thickness_override);
+    void RenderTracesBatchedAsync(BLContext& bl_ctx, const std::vector<const Trace*>& traces,
+                                 const BLRgba32& color, const BLRect& world_view_rect,
+                                 BLStrokeCap start_cap, BLStrokeCap end_cap, double thickness_override);
+    void DivideTracesIntoSpatialBuckets(const std::vector<const Trace*>& traces,
+                                       const BLRect& world_view_rect,
+                                       std::vector<std::vector<const Trace*>>& buckets) const;
+
+    // LOD-specific rendering methods
+    void RenderBoardOutlineOnly(BLContext& bl_ctx, const Board& board, const BLRect& world_view_rect);
+    void RenderBoardLowDetail(BLContext& bl_ctx, const Board& board, const Camera& camera,
+                             const Viewport& viewport, const BLRect& world_view_rect);
+    void RenderBoardMediumDetail(BLContext& bl_ctx, const Board& board, const Camera& camera,
+                                const Viewport& viewport, const BLRect& world_view_rect);
+    void RenderComponentsSimplified(BLContext& bl_ctx, const Board& board,
+                                   const BLRect& world_view_rect, const RenderingState& render_state);
+
+    // Optimized single trace rendering with path caching
+    void RenderSingleTraceOptimized(BLContext& bl_ctx, const Trace* trace, double thickness_override);
+
     // std::vector<std::unique_ptr<RenderStage>> m_stages;
     // Or a more direct approach if stages are fixed:
     // void GeometryPass(RenderContext& context);
@@ -410,6 +456,15 @@ private:
     mutable size_t m_traces_per_thread_min_;
     mutable size_t m_min_components_for_threading_;
     mutable size_t m_components_per_thread_min_;
+
+    // Enhanced optimization systems
+    mutable lod::LODManager m_lod_manager_;
+    mutable spatial_index::OptimizedHitDetector m_hit_detector_;
+    mutable bool m_spatial_index_dirty_;
+
+    // Performance optimization: Dirty region tracking for intelligent re-rendering
+    mutable DirtyRegionTracker m_dirty_tracker_;
+    mutable CachedBoardRender m_cached_board_render_;
 
     // Add any other members needed for managing rendering state or resources for the pipeline
 };

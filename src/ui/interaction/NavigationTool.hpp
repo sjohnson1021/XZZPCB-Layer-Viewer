@@ -9,7 +9,10 @@
 #include "pcb/Board.hpp"
 #include "ui/interaction/InteractionTool.hpp"
 #include "utils/Vec2.hpp"
-// Forward declaration
+#include "utils/GeometryUtils.hpp"  // For fast distance calculations
+#include "render/RenderPipeline.hpp"  // For optimized hit detection
+
+// Forward declarations
 class ControlSettings;
 
 class NavigationTool : public InteractionTool
@@ -18,10 +21,16 @@ public:
     NavigationTool(std::shared_ptr<Camera> camera, std::shared_ptr<Viewport> viewport, std::shared_ptr<ControlSettings> control_settings, std::shared_ptr<BoardDataManager> board_data_manager);
     ~NavigationTool() override = default;
 
+    // Set render pipeline for optimized hit detection
+    void SetRenderPipeline(RenderPipeline* render_pipeline) { m_render_pipeline_ = render_pipeline; }
+
     void ProcessInput(ImGuiIO& io, bool is_viewport_focused, bool is_viewport_hovered, ImVec2 viewport_top_left, ImVec2 viewport_size) override;
 
     void OnActivated() override;
     void OnDeactivated() override;
+
+    // Hover and selection specific methods
+    const Element* FindHitElementOptimized(const Vec2& world_pos, float tolerance);
 
     // Selection specific methods
     [[nodiscard]] int GetSelectedNetId() const;
@@ -34,6 +43,7 @@ public:
 private:
     std::shared_ptr<ControlSettings> m_control_settings_;
     std::shared_ptr<BoardDataManager> m_board_data_manager_;
+    RenderPipeline* m_render_pipeline_ = nullptr;  // For optimized hit detection
 
     // --- New members for hover and selection ---
     std::string m_hovered_element_info_;

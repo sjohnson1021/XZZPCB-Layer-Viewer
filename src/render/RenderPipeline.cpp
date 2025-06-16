@@ -1581,3 +1581,459 @@ void RenderPipeline::RenderComponentsOptimized(const std::vector<const Component
 
 
 }
+
+// ============================================================================
+// NEW OPTIMIZATION IMPLEMENTATIONS
+// ============================================================================
+
+void RenderPipeline::RenderWithLOD(BLContext& bl_ctx, const Board& board, const Camera& camera,
+                                   const Viewport& viewport, const BLRect& world_view_rect)
+{
+    // Determine appropriate LOD level
+    lod::LODLevel current_lod = m_lod_manager_.DetermineLOD(camera, viewport, board);
+    m_lod_manager_.SetCurrentLOD(current_lod);
+
+    // Apply LOD settings to context
+    m_lod_manager_.ApplyLODToContext(bl_ctx, current_lod);
+
+    // Reset performance counters
+    m_lod_manager_.ResetCounters();
+
+    // Render based on LOD level
+    switch (current_lod) {
+        case lod::LODLevel::kVeryLow:
+            RenderBoardOutlineOnly(bl_ctx, board, world_view_rect);
+            break;
+        case lod::LODLevel::kLow:
+            RenderBoardLowDetail(bl_ctx, board, camera, viewport, world_view_rect);
+            break;
+        case lod::LODLevel::kMedium:
+            RenderBoardMediumDetail(bl_ctx, board, camera, viewport, world_view_rect);
+            break;
+        case lod::LODLevel::kHigh:
+        case lod::LODLevel::kVeryHigh:
+        default:
+            // Use existing full detail rendering
+            RenderBoard(bl_ctx, board, camera, viewport, world_view_rect);
+            break;
+    }
+}
+
+void RenderPipeline::RenderBoardOutlineOnly(BLContext& bl_ctx, const Board& board, const BLRect& world_view_rect)
+{
+    // Very low detail - only render board outline
+    bl_ctx.save();
+
+    // Get board outline color
+    const RenderingState& render_state = GetCachedRenderingState(board);
+    const auto& theme_color_cache = render_state.theme_color_cache;
+    const BLRgba32 board_edges_color = theme_color_cache.count(BoardDataManager::ColorType::kBoardEdges) ?
+        theme_color_cache.at(BoardDataManager::ColorType::kBoardEdges) : BLRgba32(0xFF00FF00);
+
+    bl_ctx.setStrokeStyle(board_edges_color);
+    bl_ctx.setStrokeWidth(render_state.board_outline_thickness);
+
+    // Render only board outline elements (layer 28)
+    auto layer_it = board.m_elements_by_layer.find(kBoardOutlineLayerId);
+    if (layer_it != board.m_elements_by_layer.end()) {
+        for (const auto& element_ptr : layer_it->second) {
+            if (!element_ptr || !element_ptr->IsVisible()) continue;
+
+            if (element_ptr->GetElementType() == ElementType::kArc) {
+                if (auto arc = dynamic_cast<const Arc*>(element_ptr.get())) {
+                    RenderArc(bl_ctx, *arc, world_view_rect, render_state.board_outline_thickness);
+                    m_lod_manager_.IncrementRendered();
+                }
+            }
+        }
+    }
+
+    bl_ctx.restore();
+}
+
+void RenderPipeline::RenderBoardLowDetail(BLContext& bl_ctx, const Board& board, const Camera& camera,
+                                         const Viewport& viewport, const BLRect& world_view_rect)
+{
+    // Low detail - render basic shapes without fine details
+    bl_ctx.save();
+    bl_ctx.applyTransform(ViewMatrix(bl_ctx, camera, viewport));
+
+    const RenderingState& render_state = GetCachedRenderingState(board);
+
+    // Render only major elements with simplified representation
+    // 1. Board outline
+    RenderBoardOutlineOnly(bl_ctx, board, world_view_rect);
+
+    // 2. Major traces only (width > threshold)
+    const double min_trace_width = 0.2; // Only render traces thicker than 0.2mm
+    std::vector<const Trace*> major_traces;
+
+    for (int layer_id = Board::kTraceLayersStart; layer_id <= Board::kTraceLayersEnd; ++layer_id) {
+        auto layer_it = board.m_elements_by_layer.find(layer_id);
+        if (layer_it == board.m_elements_by_layer.end()) continue;
+
+        const Board::LayerInfo* layer_info = board.GetLayerById(layer_id);
+        if (!layer_info || !layer_info->IsVisible()) continue;
+
+        for (const auto& element_ptr : layer_it->second) {
+            if (!element_ptr || !element_ptr->IsVisible()) continue;
+
+            if (element_ptr->GetElementType() == ElementType::kTrace) {
+                if (auto trace = dynamic_cast<const Trace*>(element_ptr.get())) {
+                    if (trace->GetWidth() >= min_trace_width) {
+                        major_traces.push_back(trace);
+                    } else {
+                        m_lod_manager_.IncrementCulled();
+                    }
+                }
+            }
+        }
+    }
+
+    // Render major traces
+    if (!major_traces.empty()) {
+        const auto& layer_id_color_cache = render_state.layer_id_color_cache;
+        const BLRgba32 base_color = layer_id_color_cache.count(1) ?
+            layer_id_color_cache.at(1) : BLRgba32(0xFFFF0000);
+
+        RenderTracesOptimized(major_traces, base_color, world_view_rect,
+                             BL_STROKE_CAP_ROUND, BL_STROKE_CAP_ROUND, -1.0);
+    }
+
+    // 3. Components as simple rectangles
+    RenderComponentsSimplified(bl_ctx, board, world_view_rect, render_state);
+
+    bl_ctx.restore();
+}
+
+void RenderPipeline::RenderBoardMediumDetail(BLContext& bl_ctx, const Board& board, const Camera& camera,
+                                            const Viewport& viewport, const BLRect& world_view_rect)
+{
+    // Medium detail - standard rendering with some optimizations
+    // Use existing RenderBoard but with medium LOD settings applied
+    RenderBoard(bl_ctx, board, camera, viewport, world_view_rect);
+}
+
+void RenderPipeline::RenderComponentsSimplified(BLContext& bl_ctx, const Board& board,
+                                               const BLRect& world_view_rect, const RenderingState& render_state)
+{
+    // Render components as simple rectangles for low LOD
+    const BLRgba32 component_color = render_state.theme_color_cache.count(BoardDataManager::ColorType::kComponentFill) ?
+        render_state.theme_color_cache.at(BoardDataManager::ColorType::kComponentFill) : BLRgba32(0xFF007BFF);
+
+    bl_ctx.setFillStyle(component_color);
+
+    // Render components from both component layers
+    std::vector<int> component_layers = {Board::kTopCompLayer, Board::kBottomCompLayer};
+
+    for (int layer_id : component_layers) {
+        auto layer_it = board.m_elements_by_layer.find(layer_id);
+        if (layer_it == board.m_elements_by_layer.end()) continue;
+
+        const Board::LayerInfo* layer_info = board.GetLayerById(layer_id);
+        if (!layer_info || !layer_info->IsVisible()) continue;
+
+        for (const auto& element_ptr : layer_it->second) {
+            if (!element_ptr || !element_ptr->IsVisible()) continue;
+
+            if (element_ptr->GetElementType() == ElementType::kComponent) {
+                if (auto component = dynamic_cast<const Component*>(element_ptr.get())) {
+                    // Get component bounding box
+                    BLRect bbox = component->GetBoundingBox();
+
+                    // Cull if not visible
+                    if (!AreRectsIntersecting(bbox, world_view_rect)) {
+                        m_lod_manager_.IncrementCulled();
+                        continue;
+                    }
+
+                    // Render as simple rectangle
+                    bl_ctx.fillRect(bbox);
+                    m_lod_manager_.IncrementRendered();
+                }
+            }
+        }
+    }
+}
+
+void RenderPipeline::RenderWithCaching(BLContext& bl_ctx, const Board& board, const Camera& camera,
+                                      const Viewport& viewport, const BLRect& world_view_rect)
+{
+    // Update dirty region tracking
+    UpdateDirtyRegions(camera, viewport, board);
+
+    // Check if we can use cached rendering
+    if (ShouldUseCache(camera, viewport, board) && !m_dirty_tracker_.NeedsRedraw()) {
+        // Use cached image - massive performance improvement!
+        if (!m_cached_board_render_.cached_image.empty()) {
+            bl_ctx.blitImage(BLPoint(0, 0), m_cached_board_render_.cached_image);
+            return;
+        }
+    }
+
+    // Need to render fresh - create cache
+    BLImage cache_image(static_cast<int>(viewport.GetWidth()), static_cast<int>(viewport.GetHeight()), BL_FORMAT_PRGB32);
+    BLContext cache_ctx(cache_image);
+
+    // Render to cache
+    if (m_lod_manager_.IsInteractiveMode()) {
+        RenderWithLOD(cache_ctx, board, camera, viewport, world_view_rect);
+    } else {
+        RenderBoard(cache_ctx, board, camera, viewport, world_view_rect);
+    }
+
+    // Update cache
+    m_cached_board_render_.cached_image = cache_image;
+    m_cached_board_render_.cached_viewport = BLRect(0, 0, viewport.GetWidth(), viewport.GetHeight());
+    m_cached_board_render_.cached_zoom = camera.GetZoom();
+    m_cached_board_render_.cached_pan = BLPoint(camera.GetPosition().x_ax, camera.GetPosition().y_ax);
+    m_cached_board_render_.is_valid = true;
+
+    // Clear dirty flags
+    m_dirty_tracker_.ClearFlags();
+
+    // Blit cached image to main context
+    bl_ctx.blitImage(BLPoint(0, 0), cache_image);
+}
+
+void RenderPipeline::UpdateDirtyRegions(const Camera& camera, const Viewport& viewport, const Board& board)
+{
+    // Check for changes that require redraw
+    BLRect current_viewport(0, 0, viewport.GetWidth(), viewport.GetHeight());
+    double current_zoom = camera.GetZoom();
+    BLPoint current_pan(camera.GetPosition().x_ax, camera.GetPosition().y_ax);
+
+    // Check zoom changes
+    if (std::abs(current_zoom - m_dirty_tracker_.last_zoom_level) > 0.001) {
+        m_dirty_tracker_.zoom_changed = true;
+        m_dirty_tracker_.last_zoom_level = current_zoom;
+    }
+
+    // Check pan changes
+    if (std::abs(current_pan.x - m_dirty_tracker_.last_pan_position.x) > 0.1 ||
+        std::abs(current_pan.y - m_dirty_tracker_.last_pan_position.y) > 0.1) {
+        m_dirty_tracker_.pan_changed = true;
+        m_dirty_tracker_.last_pan_position = current_pan;
+    }
+
+    // Check viewport changes
+    if (std::abs(current_viewport.w - m_dirty_tracker_.last_viewport_rect.w) > 0.1 ||
+        std::abs(current_viewport.h - m_dirty_tracker_.last_viewport_rect.h) > 0.1) {
+        m_dirty_tracker_.full_redraw_needed = true;
+        m_dirty_tracker_.last_viewport_rect = current_viewport;
+    }
+}
+
+bool RenderPipeline::ShouldUseCache(const Camera& camera, const Viewport& viewport, const Board& board) const
+{
+    // Check if we have a valid cached render that matches current state
+    BLRect current_viewport(0, 0, viewport.GetWidth(), viewport.GetHeight());
+    BLPoint current_pan(camera.GetPosition().x_ax, camera.GetPosition().y_ax);
+    double current_zoom = camera.GetZoom();
+
+    // Get current board state
+    auto bdm = m_render_context_->GetBoardDataManager();
+    if (!bdm) return false;
+
+    std::shared_ptr<const Board> current_board = bdm->GetBoard();
+    int current_selected_net = bdm->GetSelectedNetId();
+    const Element* current_selected_element = bdm->GetSelectedElement();
+
+    return m_cached_board_render_.IsValidFor(current_viewport, current_zoom, current_pan,
+                                           current_board, current_selected_net, current_selected_element,
+                                           std::vector<bool>{}); // TODO: Add layer visibility tracking
+}
+
+void RenderPipeline::RebuildSpatialIndex(const Board& board)
+{
+    if (!m_spatial_index_dirty_) return;
+
+    // Collect all visible elements
+    std::vector<const Element*> all_elements;
+
+    for (const auto& layer_pair : board.m_elements_by_layer) {
+        const Board::LayerInfo* layer_info = board.GetLayerById(layer_pair.first);
+        if (!layer_info || !layer_info->IsVisible()) continue;
+
+        for (const auto& element_ptr : layer_pair.second) {
+            if (element_ptr && element_ptr->IsVisible()) {
+                all_elements.push_back(element_ptr.get());
+            }
+        }
+    }
+
+    // Rebuild spatial index
+    m_hit_detector_.RebuildIndex(all_elements);
+    m_spatial_index_dirty_ = false;
+}
+
+const Element* RenderPipeline::FindHitElementOptimized(const Vec2& world_pos, float tolerance, const Component* parent_component)
+{
+    // Ensure spatial index is up to date
+    if (m_spatial_index_dirty_ && m_render_context_ && m_render_context_->GetBoardDataManager()) {
+        auto bdm = m_render_context_->GetBoardDataManager();
+        auto board = bdm->GetBoard();
+        if (board) {
+            RebuildSpatialIndex(*board);
+        }
+    }
+
+    // Use optimized hit detection
+    return m_hit_detector_.FindHitElement(world_pos, tolerance, parent_component);
+}
+
+void RenderPipeline::RenderTracesOptimized(const std::vector<const Trace*>& traces,
+                                          const BLRgba32& color,
+                                          const BLRect& world_view_rect,
+                                          BLStrokeCap start_cap,
+                                          BLStrokeCap end_cap,
+                                          double thickness_override)
+{
+    if (traces.empty()) return;
+
+    auto& ctx = m_render_context_->GetBlend2DContext();
+
+    // IMPORTANT: Based on Blend2D multithreading documentation, we should let Blend2D
+    // handle its own multithreading rather than creating our own thread-local contexts.
+    // Blend2D's asynchronous rendering is more efficient than manual threading.
+
+    // Use Blend2D's asynchronous rendering with batched operations
+    // Note: Blend2D handles threading internally, so we can use the async version for all cases
+    RenderTracesBatchedAsync(ctx, traces, color, world_view_rect, start_cap, end_cap, thickness_override);
+}
+
+void RenderPipeline::RenderSingleTraceOptimized(BLContext& bl_ctx, const Trace* trace, double thickness_override)
+{
+    if (!trace) return;
+
+    // Create cache key for this trace
+    std::string trace_id = std::to_string(reinterpret_cast<uintptr_t>(trace));
+    double final_thickness = (thickness_override > 0.0) ? thickness_override :
+                            (trace->GetWidth() > 0 ? trace->GetWidth() : kDefaultTraceWidth);
+
+    auto cache_key = path_cache::BLPathCache::CreateTraceKey(trace_id, final_thickness,
+                                                            BL_STROKE_CAP_ROUND, BL_STROKE_CAP_ROUND);
+
+    // Create path for this trace
+    BLPath trace_path;
+    trace_path.moveTo(trace->GetStartX(), trace->GetStartY());
+    trace_path.lineTo(trace->GetEndX(), trace->GetEndY());
+
+    // Set up stroke options
+    BLStrokeOptions stroke_opts;
+    stroke_opts.width = final_thickness;
+    stroke_opts.startCap = BL_STROKE_CAP_ROUND;
+    stroke_opts.endCap = BL_STROKE_CAP_ROUND;
+
+    // Get cached stroked path
+    const BLPath& stroked_path = path_cache::g_path_cache.GetStrokedPath(cache_key, trace_path, stroke_opts);
+
+    // Render the cached path
+    bl_ctx.fillPath(stroked_path);
+}
+
+void RenderPipeline::DivideTracesIntoSpatialBuckets(const std::vector<const Trace*>& traces,
+                                                   const BLRect& world_view_rect,
+                                                   std::vector<std::vector<const Trace*>>& buckets) const
+{
+    // Create spatial buckets based on thread count
+    size_t num_buckets = std::min(static_cast<size_t>(m_thread_count_), traces.size());
+    buckets.resize(num_buckets);
+
+    // Reserve space in each bucket
+    size_t traces_per_bucket = traces.size() / num_buckets + 1;
+    for (auto& bucket : buckets) {
+        bucket.reserve(traces_per_bucket);
+    }
+
+    // Simple spatial distribution - divide view rect into grid
+    int grid_cols = static_cast<int>(std::ceil(std::sqrt(num_buckets)));
+    int grid_rows = static_cast<int>(std::ceil(static_cast<double>(num_buckets) / grid_cols));
+
+    double cell_width = world_view_rect.w / grid_cols;
+    double cell_height = world_view_rect.h / grid_rows;
+
+    for (const Trace* trace : traces) {
+        if (!trace) continue;
+
+        // Get trace center point
+        double center_x = (trace->GetStartX() + trace->GetEndX()) * 0.5;
+        double center_y = (trace->GetStartY() + trace->GetEndY()) * 0.5;
+
+        // Determine which grid cell this trace belongs to
+        int col = static_cast<int>((center_x - world_view_rect.x) / cell_width);
+        int row = static_cast<int>((center_y - world_view_rect.y) / cell_height);
+
+        // Clamp to valid range
+        col = std::max(0, std::min(col, grid_cols - 1));
+        row = std::max(0, std::min(row, grid_rows - 1));
+
+        // Calculate bucket index
+        size_t bucket_index = static_cast<size_t>(row * grid_cols + col);
+        bucket_index = std::min(bucket_index, num_buckets - 1);
+
+        buckets[bucket_index].push_back(trace);
+    }
+}
+
+void RenderPipeline::RenderTracesBatchedAsync(BLContext& bl_ctx, 
+                                             const std::vector<const Trace*>& traces,
+                                             const BLRgba32& color, 
+                                             const BLRect& world_view_rect,
+                                             BLStrokeCap start_cap, 
+                                             BLStrokeCap end_cap, 
+                                             double thickness_override) {
+    if (traces.empty()) return;
+    
+    // Set stroke style once for all traces
+    bl_ctx.setStrokeStyle(color);
+    
+    // Create stroke options once
+    BLStrokeOptions stroke_options;
+    stroke_options.startCap = start_cap;
+    stroke_options.endCap = end_cap;
+    
+    // Batch size tuning - process traces in chunks to improve cache locality
+    constexpr size_t BATCH_SIZE = 64;
+    
+    // Pre-allocate path objects to reduce memory allocations
+    std::vector<BLPath> path_batch(std::min(BATCH_SIZE, traces.size()));
+    
+    // Process traces in batches
+    for (size_t i = 0; i < traces.size(); i += BATCH_SIZE) {
+        size_t end_idx = std::min(i + BATCH_SIZE, traces.size());
+        size_t batch_count = end_idx - i;
+        
+        // Prepare all paths in batch
+        for (size_t j = 0; j < batch_count; j++) {
+            const Trace* trace = traces[i + j];
+            if (!trace) continue;
+            
+            // Skip traces outside view rect (culling)
+            BLRect trace_bounds = trace->GetBoundingBox();
+            if (!AreRectsIntersecting(trace_bounds, world_view_rect)) continue;
+            
+            // Get or create path
+            BLPath& path = path_batch[j];
+            path.clear();
+            
+            // Set thickness for this trace
+            double thickness = (thickness_override > 0.0) ? 
+                thickness_override : trace->GetWidth();
+            stroke_options.width = thickness;
+            
+            // Create path for this trace
+                path.moveTo(trace->GetStartX(), trace->GetStartY());
+                path.lineTo(trace->GetEndX(), trace->GetEndY());
+        }
+        
+        // Stroke all paths in batch
+        for (size_t j = 0; j < batch_count; j++) {
+            // CORRECT: First set stroke options, then stroke with the color already set
+            bl_ctx.setStrokeWidth(stroke_options.width);
+            bl_ctx.setStrokeStartCap(static_cast<BLStrokeCap>(stroke_options.startCap));  // requires a static cast to BLStrokeCap
+            bl_ctx.setStrokeEndCap(static_cast<BLStrokeCap>(stroke_options.endCap));  // requires a static cast to BLStrokeCap
+            bl_ctx.strokePath(path_batch[j]);  // Use the color already set above
+        }
+    }
+}

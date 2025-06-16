@@ -9,7 +9,6 @@
 #include <SDL3/SDL_filesystem.h>
 
 #if defined(__WIN32__) || defined(WIN32) || defined(_WIN32) || defined(__WIN64__) || defined(WIN64) || defined(_WIN64) || defined(_MSC_VER)
-#define NOMINMAX
 #include <windows.h>
 #include <shlobj.h>
 #include <knownfolders.h>
@@ -168,9 +167,9 @@ bool Application::InitializeUISubsystems()
     m_mainMenuBar = std::make_unique<MainMenuBar>();
     m_pcbViewerWindow = std::make_unique<PCBViewerWindow>(m_camera, m_viewport, m_grid, m_gridSettings, m_controlSettings, m_boardDataManager);
 
-    // Initialize PcbRenderer with BoardDataManager first
+    // Initialize PcbRenderer with BoardDataManager and Config
     m_pcbRenderer = std::make_unique<PcbRenderer>();
-    if (!m_pcbRenderer->Initialize(m_windowWidth, m_windowHeight, m_boardDataManager)) {
+    if (!m_pcbRenderer->Initialize(m_windowWidth, m_windowHeight, m_boardDataManager, m_config.get())) {
         std::cerr << "Failed to initialize PcbRenderer!" << std::endl;
         return false;
     }

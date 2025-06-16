@@ -1,3 +1,9 @@
+if(MSVC)
+    # Force using an older, more stable Windows SDK version
+    set(CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION "10.0.19041.0" CACHE STRING "Windows SDK version" FORCE)
+    # Or try 10.0.19041.0 which is very stable
+endif()
+
 cmake_minimum_required(VERSION 3.21)
 
 add_subdirectory(render) # Builds render_lib
@@ -51,6 +57,21 @@ target_include_directories(${EXECUTABLE_NAME}
     # Include directories for imgui, SDL3, blend2d should be handled by linking
     # with their targets which propagate include directories.
 )
+
+if(MSVC)
+    target_compile_definitions(${EXECUTABLE_NAME} PRIVATE 
+        _CRT_STDIO_INLINE=__inline
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+    )
+    
+    # Apply the same definitions to all your libraries
+    target_compile_definitions(ui_lib PRIVATE _CRT_STDIO_INLINE=__inline)
+    target_compile_definitions(core_lib PRIVATE _CRT_STDIO_INLINE=__inline)
+    target_compile_definitions(render_lib PRIVATE _CRT_STDIO_INLINE=__inline)
+    target_compile_definitions(view_lib PRIVATE _CRT_STDIO_INLINE=__inline)
+    target_compile_definitions(utils_lib PRIVATE _CRT_STDIO_INLINE=__inline)
+endif()
 
 if(XZZPCBVIEWER_ENABLE_PCB_LOADER_LOGGING)
     target_compile_definitions(${EXECUTABLE_NAME} PRIVATE ENABLE_PCB_LOADER_LOGGING)

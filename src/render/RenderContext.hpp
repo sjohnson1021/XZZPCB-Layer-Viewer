@@ -19,7 +19,7 @@ public:
     RenderContext& operator=(RenderContext&&) = delete;
 
     // Initialize with a default size, possibly configurable later
-    bool Initialize(int width, int height);
+    bool Initialize(int width, int height, int thread_count = 0);
     void Shutdown();
 
     // Frame operations for the Blend2D context
@@ -58,6 +58,12 @@ public:
     void SetBoardDataManager(std::shared_ptr<BoardDataManager> board_data_manager);
     [[nodiscard]] std::shared_ptr<BoardDataManager> GetBoardDataManager() const;
 
+    // Blend2D multithreading support
+    void FlushAsync();  // Flush without forcing synchronization
+    void FlushSync();   // Flush and wait for completion
+    bool IsMultithreaded() const { return m_thread_count_ > 1; }
+    int GetThreadCount() const { return m_thread_count_; }
+
 private:
     // Blend2D resources
     BLImage m_target_image_;  // The off-screen image for PCB rendering
@@ -68,6 +74,7 @@ private:
 
     int m_image_width_ = 0;
     int m_image_height_ = 0;
+    int m_thread_count_ = 1;  // Number of threads for Blend2D context
     float m_clear_color_[4] = {0.0F, 0.0F, 0.0F, 0.0F};  // Default clear color (transparent black)
     bool m_clear_on_begin_frame_ = true;                 // Whether to clear on BeginFrame
     std::shared_ptr<BoardDataManager> m_board_data_manager_;
