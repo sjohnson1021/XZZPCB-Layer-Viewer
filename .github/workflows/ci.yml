@@ -18,49 +18,31 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - { name: "Windows MSVC", os: windows-latest, build_type: "release", package_os_suffix: "windows-x64.zip", package_cmd_os_specific: "7z a", exe_name: "XZZPCB-Layer-Viewer.exe", package_content: "XZZPCB-Layer-Viewer.exe" }
-          - { name: "Ubuntu GCC", os: ubuntu-latest, build_type: "release", package_os_suffix: "linux-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-Viewer", package_content: "XZZPCB-Layer-Viewer" }
-          - { name: "macOS Clang (13)", os: macos-13, build_type: "release", package_os_suffix: "macos-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-Viewer", package_content: "XZZPCB-Layer-Viewer" }
-          - { name: "macOS Clang (latest)", os: macos-latest, build_type: "release", package_os_suffix: "macos-x64.tar.gz", package_cmd_os_specific: "tar czvf", exe_name: "XZZPCB-Layer-Viewer", package_content: "XZZPCB-Layer-Viewer" }
+          - {name: "Windows MSVC",os: windows-latest,build_type: "release",package_os_suffix: "windows-x64.zip",package_cmd_os_specific: "7z a",exe_name: "XZZPCB-Layer-Viewer.exe",package_content: "XZZPCB-Layer-Viewer.exe",}
+          - {name: "Ubuntu GCC",os: ubuntu-latest,build_type: "release",package_os_suffix: "linux-x64.tar.gz",package_cmd_os_specific: "tar czvf",exe_name: "XZZPCB-Layer-Viewer",package_content: "XZZPCB-Layer-Viewer",}
+          - {name: "macOS Clang (13)",os: macos-13,build_type: "release",package_os_suffix: "macos-13-x64.tar.gz",package_cmd_os_specific: "tar czvf",exe_name: "XZZPCB-Layer-Viewer",package_content: "XZZPCB-Layer-Viewer",}
+          - {name: "macOS Clang (latest)",os: macos-latest,build_type: "release",package_os_suffix: "macos-latest-x64.tar.gz",package_cmd_os_specific: "tar czvf",exe_name: "XZZPCB-Layer-Viewer",package_content: "XZZPCB-Layer-Viewer",}
+    
     env:
       VCPKG_ROOT_DIR: ${{ github.workspace }}/vcpkg_installation # Path where lukka/run-vcpkg will install vcpkg
-      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg_bincache
-      VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg-binary-cache;readwrite"
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-binary-cache
+      VCPKG_BINARY_SOURCES: "files,${{ github.workspace }}/vcpkg-binary-cache,readwrite"
       ARTIFACT_NAME_PREFIX: "XZZPCB-Layer-Viewer"
       # Using vcpkg commit from the example, consider updating to a more recent one.
       VCPKG_COMMIT_ID: "f9d77ef46dfe708b51db358acdea2b97615d5193"
     steps:
-      - name: Cache SDL submodule
+      # Cache submodules based on .gitmodules content
+      - name: Cache Git submodules
         uses: actions/cache@v4
         with:
-          path: external/SDL
-          key: ${{ runner.os }}-sdl-submodule-${{ github.sha }}
+          path: |
+            external/SDL
+            external/imgui
+            external/ImGuiFileDialog
+            external/blend2d
+          key: ${{ runner.os }}-submodules-${{ hashFiles('.gitmodules') }}
           restore-keys: |
-            ${{ runner.os }}-sdl-submodule-
-
-      - name: Cache ImGui submodule
-        uses: actions/cache@v4
-        with:
-          path: external/ImGui
-          key: ${{ runner.os }}-imgui-submodule-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-imgui-submodule-
-
-      - name: Cache ImGuiFileDialog submodule
-        uses: actions/cache@v4
-        with:
-          path: external/ImGuiFileDialog
-          key: ${{ runner.os }}-imguifiledialog-submodule-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-imguifiledialog-submodule-
-
-      - name: Cache Blend2D submodule
-        uses: actions/cache@v4
-        with:
-          path: external/blend2d
-          key: ${{ runner.os }}-blend2d-submodule-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-blend2d-submodule-
+            ${{ runner.os }}-submodules-
 
       - name: Checkout w/ Submodules
         uses: actions/checkout@v4
@@ -94,8 +76,21 @@ jobs:
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
+      # Cache vcpkg installation itself
+      - name: Cache vcpkg installation
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_ROOT_DIR }}
+          key: ${{ runner.os }}-vcpkg-install-${{ env.VCPKG_COMMIT_ID }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-install-
+
       - name: Create vcpkg binary cache directory
-        run: mkdir -p ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+        run: |
+          mkdir -p "${{ env.VCPKG_DEFAULT_BINARY_CACHE }}"
+          echo "Created vcpkg binary cache directory: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}"
+          echo "VCPKG_BINARY_SOURCES: ${{ env.VCPKG_BINARY_SOURCES }}"
+          echo "VCPKG_DEFAULT_BINARY_CACHE: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}"
         shell: bash
 
       # Cache for vcpkg *built packages* (binary caching)
@@ -103,10 +98,24 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: ${{ runner.os }}-vcpkg-binary-cache-${{ hashFiles('**/vcpkg.json') }}-${{ env.VCPKG_COMMIT_ID }}
+          key: ${{ runner.os }}-vcpkg-binary-${{ hashFiles('**/vcpkg.json', '**/CMakeLists.txt') }}-${{ env.VCPKG_COMMIT_ID }}
           restore-keys: |
-            ${{ runner.os }}-vcpkg-binary-cache-${{ hashFiles('**/vcpkg.json') }}-
-            ${{ runner.os }}-vcpkg-binary-cache-
+            ${{ runner.os }}-vcpkg-binary-${{ hashFiles('**/vcpkg.json', '**/CMakeLists.txt') }}-
+            ${{ runner.os }}-vcpkg-binary-${{ hashFiles('**/vcpkg.json') }}-
+            ${{ runner.os }}-vcpkg-binary-
+
+      # Cache CMake build directory for faster incremental builds
+      - name: Cache CMake build directory
+        uses: actions/cache@v4
+        with:
+          path: |
+            builds/ninja-multi-vcpkg
+            !builds/ninja-multi-vcpkg/bin
+            !builds/ninja-multi-vcpkg/vcpkg_installed
+          key: ${{ runner.os }}-cmake-build-${{ hashFiles('**/CMakeLists.txt', '**/vcpkg.json', 'src/**/*.cpp', 'src/**/*.hpp') }}
+          restore-keys: |
+            ${{ runner.os }}-cmake-build-${{ hashFiles('**/CMakeLists.txt', '**/vcpkg.json') }}-
+            ${{ runner.os }}-cmake-build-
 
       # System-level dependencies (e.g. build tools for vcpkg, not libs from vcpkg.json)
       # lukka/run-vcpkg might handle some of these, but keeping them can be safer.
@@ -150,6 +159,20 @@ jobs:
 
       - uses: lukka/get-cmake@latest
 
+      # Verify vcpkg binary sources configuration
+      - name: Verify vcpkg configuration
+        run: |
+          echo "=== vcpkg Configuration Debug ==="
+          echo "VCPKG_BINARY_SOURCES: $VCPKG_BINARY_SOURCES"
+          echo "VCPKG_DEFAULT_BINARY_CACHE: $VCPKG_DEFAULT_BINARY_CACHE"
+          echo "VCPKG_ROOT_DIR: $VCPKG_ROOT_DIR"
+          echo "Binary cache directory exists: $(test -d "$VCPKG_DEFAULT_BINARY_CACHE" && echo "Yes" || echo "No")"
+          if [ -d "$VCPKG_DEFAULT_BINARY_CACHE" ]; then
+            echo "Binary cache directory contents:"
+            ls -la "$VCPKG_DEFAULT_BINARY_CACHE" || echo "Directory is empty or inaccessible"
+          fi
+        shell: bash
+
       - name: Debug Info (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
@@ -171,6 +194,8 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           vcpkgJsonGlob: "vcpkg.json"
           runVcpkgInstall: true # Default is true, ensures dependencies are installed
+        env:
+          VCPKG_FEATURE_FLAGS: "binarycaching"
 
       # Configure, Build, and Test using lukka/run-cmake
       - name: Configure, Build, and Test
@@ -273,8 +298,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2.0.4
         with:
-          name: Release ${{ steps.strings.outputs.release_tag_name }}
-          tag_name: ${{ github.ref }}
+          name: Release ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
           generate_release_notes: true
           files: |
             artifacts/*/*.zip
