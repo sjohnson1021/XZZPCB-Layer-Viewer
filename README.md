@@ -5,7 +5,7 @@ A simple, lightweight PCB viewer application for viewing and analyzing PCB files
 Hoping to optimize and clean up the rendering pipeline to be more easily adapted to other projects. 
 
 ## Screenshot
-![image](https://github.com/user-attachments/assets/d40ca875-f705-411d-a0d5-f48857d1ea7b)
+![image](https://raw.githubusercontent.com/sjohnson1021/XZZPCB-Layer-Viewer/refs/heads/main/assets/v0.0.1-Trace-Highlight-Screenshot.jpg)
 
 
 # Credits
